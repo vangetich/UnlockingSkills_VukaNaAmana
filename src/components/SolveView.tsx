@@ -342,57 +342,94 @@ export const SolveView: React.FC<SolveViewProps> = ({
         {/* Calm Complexity Level & Domain Filter Bar */}
         <div
           data-testid="solve-filter-bar"
-          className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+          className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-4 sm:p-5 space-y-3"
         >
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#575B62] dark:text-[#A3A7AE] me-1">
-              Complexity
-            </span>
-            {(['ALL', ...SPRINT_COMPLEXITY_LEVELS] as const).map((level) => {
-              const active = levelFilter === level;
-              return (
-                <button
-                  key={level}
-                  type="button"
-                  data-testid={`solve-filter-level-${level}`}
-                  aria-pressed={active}
-                  onClick={() => setLevelFilter(level)}
-                  className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-                    active
-                      ? 'bg-[#146C53] dark:bg-[#2EB88B] text-white dark:text-[#121315] font-semibold'
-                      : 'bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
-                  }`}
-                >
-                  {level === 'ALL' ? 'All Levels' : level}
-                </button>
-              );
-            })}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#575B62] dark:text-[#A3A7AE] me-1">
+                Complexity
+              </span>
+              {(['ALL', ...SPRINT_COMPLEXITY_LEVELS] as const).map((level) => {
+                const active = levelFilter === level;
+                const count = filterSolutionSprints(rankedSprints, level, domainFilter).length;
+                return (
+                  <button
+                    key={level}
+                    type="button"
+                    data-testid={`solve-filter-level-${level}`}
+                    aria-pressed={active}
+                    onClick={() => setLevelFilter(level)}
+                    className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap inline-flex items-center gap-1.5 ${
+                      active
+                        ? 'bg-[#146C53] dark:bg-[#2EB88B] text-white dark:text-[#121315] font-semibold'
+                        : 'bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
+                    }`}
+                  >
+                    <span>{level === 'ALL' ? 'All Levels' : level}</span>
+                    <span className="font-mono-tabular tabular-nums opacity-75 text-[11px]">
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#575B62] dark:text-[#A3A7AE] me-1">
+                Domain
+              </span>
+              {(['ALL', ...STUDIO_DOMAINS] as const).map((domain) => {
+                const active = domainFilter === domain;
+                const count = filterSolutionSprints(rankedSprints, levelFilter, domain).length;
+                return (
+                  <button
+                    key={domain}
+                    type="button"
+                    data-testid={`solve-filter-domain-${domain}`}
+                    aria-pressed={active}
+                    onClick={() => setDomainFilter(domain)}
+                    className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap inline-flex items-center gap-1.5 ${
+                      active
+                        ? 'bg-[#17191C] dark:bg-[#F4F2EE] text-[#FAF8F5] dark:text-[#121315] font-semibold'
+                        : 'bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
+                    }`}
+                  >
+                    <span>{domain === 'ALL' ? 'All Domains' : domain}</span>
+                    <span className="font-mono-tabular tabular-nums opacity-75 text-[11px]">
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#575B62] dark:text-[#A3A7AE] me-1">
-              Domain
-            </span>
-            {(['ALL', ...STUDIO_DOMAINS] as const).map((domain) => {
-              const active = domainFilter === domain;
-              return (
-                <button
-                  key={domain}
-                  type="button"
-                  data-testid={`solve-filter-domain-${domain}`}
-                  aria-pressed={active}
-                  onClick={() => setDomainFilter(domain)}
-                  className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-                    active
-                      ? 'bg-[#17191C] dark:bg-[#F4F2EE] text-[#FAF8F5] dark:text-[#121315] font-semibold'
-                      : 'bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
-                  }`}
-                >
-                  {domain === 'ALL' ? 'All Domains' : domain}
-                </button>
-              );
-            })}
-          </div>
+          {hasActiveFilters && (
+            <div className="pt-2.5 border-t border-[#E8E3DB] dark:border-[#2C3037] flex items-center justify-between gap-3 text-xs">
+              <span className="text-[#575B62] dark:text-[#A3A7AE]">
+                Active filters:{' '}
+                <strong className="text-[#17191C] dark:text-[#F4F2EE]">
+                  {[
+                    levelFilter !== 'ALL' ? levelFilter : null,
+                    domainFilter !== 'ALL' ? domainFilter : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </strong>
+              </span>
+              <button
+                type="button"
+                data-testid="solve-clear-filters-inline-btn"
+                onClick={() => {
+                  setLevelFilter('ALL');
+                  setDomainFilter('ALL');
+                }}
+                className="font-semibold text-[#146C53] dark:text-[#2EB88B] hover:underline whitespace-nowrap"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
         </div>
 
         {visibleSprints.length === 0 ? (
@@ -450,6 +487,8 @@ export const SolveView: React.FC<SolveViewProps> = ({
                       <span>{sprint.partnerOrg}</span>
                       <span aria-hidden="true">·</span>
                       <span>{sprint.durationLabel}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{sprint.studioDomain}</span>
                       <span aria-hidden="true">·</span>
                       <span className="font-medium text-[#17191C] dark:text-[#F4F2EE]">
                         {complexityLevel}

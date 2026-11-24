@@ -67,7 +67,7 @@ export const TopographicAscentMotif: React.FC<ResilienceMotifProps> = ({
         data-testid={isLanding ? 'landing-motif-topographic' : undefined}
         className={`w-full h-full text-[#17191C] dark:text-[#F4F2EE] ${
           isLanding
-            ? 'opacity-[0.15] dark:opacity-[0.075]'
+            ? 'vuka-landing-motif vuka-landing-motif--topo'
             : 'opacity-[0.065] dark:opacity-[0.075]'
         }`}
       >
@@ -159,7 +159,7 @@ export const WovenBridgeArcsMotif: React.FC<ResilienceMotifProps> = ({
         data-testid={isLanding ? 'landing-motif-bridge' : undefined}
         className={`w-full h-full text-[#146C53] dark:text-[#2EB88B] ${
           isLanding
-            ? 'opacity-[0.15] dark:opacity-[0.08]'
+            ? 'vuka-landing-motif'
             : 'opacity-[0.065] dark:opacity-[0.08]'
         }`}
       >
@@ -292,7 +292,7 @@ export const RippleConstellationMotif: React.FC<ResilienceMotifProps> = ({
         data-testid={isLanding ? 'landing-motif-ripple' : undefined}
         className={`w-full h-full text-[#C4622D] dark:text-[#E07B46] ${
           isLanding
-            ? 'opacity-[0.15] dark:opacity-[0.08]'
+            ? 'vuka-landing-motif'
             : 'opacity-[0.065] dark:opacity-[0.08]'
         }`}
       >

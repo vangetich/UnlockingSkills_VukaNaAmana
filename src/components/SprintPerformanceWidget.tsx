@@ -120,9 +120,14 @@ export const SprintPerformanceWidget: React.FC<SprintPerformanceWidgetProps> = (
             Acceptance Reliability &amp; Payout Earnings Over Time
           </h2>
         </div>
-        <p className="text-xs font-mono-tabular tabular-nums text-[#575B62] dark:text-[#A3A7AE]">
-          {data.completedCount} completed · {data.totalPodsCount} active/closed pod(s)
-        </p>
+        <div className="text-start sm:text-end">
+          <p className="text-xs font-mono-tabular tabular-nums text-[#17191C] dark:text-[#F4F2EE] font-medium">
+            {data.completedCount} accepted · {data.totalPodsCount} tracked sprint{data.totalPodsCount === 1 ? '' : 's'}
+          </p>
+          <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+            Live from Proof Ledger contributions &amp; payout records
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

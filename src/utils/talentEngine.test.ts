@@ -481,7 +481,9 @@ test('Pulse SDG cards, Knowledge-to-Work Flow, and Sprint Performance react dyna
 
   assert.equal(beforeSdg.length, 5);
   assert.equal(beforeFlow.length, 4);
-  assert.equal(beforePerf.points.length, 6);
+  assert.equal(beforePerf.points.length, 2);
+  assert.equal(beforePerf.totalHistoricalEarningsUsd, 350);
+  assert.equal(beforePerf.currentAcceptanceRatePct, 100);
 
   // Now simulate actions across Tabs 1, 2, and 3:
   const newEndorsement: PeerEndorsement = {

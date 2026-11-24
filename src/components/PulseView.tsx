@@ -6,7 +6,6 @@ import {
   Download,
   RefreshCw,
   Sparkles,
-  Wifi,
   X,
 } from 'lucide-react';
 import type {
@@ -42,7 +41,6 @@ interface PulseViewProps {
   endorsements: PeerEndorsement[];
   payouts: ContractPayout[];
   celebratedContribution: BriefSubmission | null;
-  recentOnlineSync?: { syncedCount: number; timestampIso: string } | null;
   userEmail: string | null;
   lastSyncedIso: string | null;
   queuedCount: number;
@@ -50,7 +48,6 @@ interface PulseViewProps {
   isSyncing: boolean;
   t: TranslationDictionary;
   onDismissCelebration: () => void;
-  onDismissOnlineSyncToast?: () => void;
   onSignIn: () => void;
   onSyncNow: () => void;
   onGoToUnlock: () => void;
@@ -67,7 +64,6 @@ export const PulseView: React.FC<PulseViewProps> = ({
   endorsements,
   payouts,
   celebratedContribution,
-  recentOnlineSync = null,
   userEmail,
   lastSyncedIso,
   queuedCount,
@@ -75,7 +71,6 @@ export const PulseView: React.FC<PulseViewProps> = ({
   isSyncing,
   t,
   onDismissCelebration,
-  onDismissOnlineSyncToast,
   onSignIn,
   onSyncNow,
   onGoToUnlock,
@@ -84,54 +79,9 @@ export const PulseView: React.FC<PulseViewProps> = ({
 }) => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'in-progress'>('all');
   const [liveCompleted, setLiveCompleted] = useState<BriefSubmission | null>(null);
-  const [localSyncToast, setLocalSyncToast] = useState<{
-    syncedCount: number;
-    timestampIso: string;
-  } | null>(null);
   const previousStatusRef = useRef<Map<string, ContributionStatus>>(
     new Map(contributions.map((c) => [c.id, c.status]))
   );
-  const prevOnlineRef = useRef<boolean>(isOnline);
-  const offlineQueuedCountRef = useRef<number>(queuedCount);
-
-  useEffect(() => {
-    if (!isOnline) {
-      offlineQueuedCountRef.current = Math.max(offlineQueuedCountRef.current, queuedCount);
-    }
-  }, [isOnline, queuedCount]);
-
-  // Detect offline -> online transition while mounted on Pulse
-  useEffect(() => {
-    const wasOffline = prevOnlineRef.current === false;
-    prevOnlineRef.current = isOnline;
-    if (wasOffline && isOnline) {
-      const syncedCount = offlineQueuedCountRef.current;
-      offlineQueuedCountRef.current = 0;
-      if (userEmail) {
-        onSyncNow();
-      }
-      setLocalSyncToast({
-        syncedCount,
-        timestampIso: new Date().toISOString(),
-      });
-    }
-  }, [isOnline, userEmail, onSyncNow]);
-
-  const syncToast = localSyncToast ?? recentOnlineSync;
-
-  const dismissSyncToast = () => {
-    setLocalSyncToast(null);
-    onDismissOnlineSyncToast?.();
-  };
-
-  useEffect(() => {
-    if (!syncToast) return;
-    const timer = window.setTimeout(() => {
-      setLocalSyncToast(null);
-      onDismissOnlineSyncToast?.();
-    }, 7000);
-    return () => window.clearTimeout(timer);
-  }, [syncToast, onDismissOnlineSyncToast]);
 
   // Detect live in-progress -> completed transitions while on Pulse
   useEffect(() => {
@@ -831,48 +781,6 @@ export const PulseView: React.FC<PulseViewProps> = ({
           </div>
         )}
       </div>
-
-      {/* Offline -> Online Cloud Sync Confirmation Toast */}
-      <AnimatePresence>
-        {syncToast && (
-          <motion.div
-            key={syncToast.timestampIso}
-            role="status"
-            aria-live="polite"
-            data-testid="pulse-online-sync-toast"
-            initial={{ opacity: 0, y: 18, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 14, scale: 0.97 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-            className="fixed bottom-20 md:bottom-6 right-4 sm:right-6 z-50 max-w-sm w-[calc(100vw-2rem)] rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#146C53]/40 dark:border-[#2EB88B]/45 shadow-xl p-4"
-          >
-            <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-xl bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B] flex items-center justify-center shrink-0">
-                <Wifi className="w-4 h-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
-                  Back Online · Synced to Cloud
-                </p>
-                <p className="mt-0.5 text-xs text-[#43484E] dark:text-[#C4C9D0] leading-relaxed">
-                  {syncToast.syncedCount > 0
-                    ? `Your local queue (${syncToast.syncedCount} update${syncToast.syncedCount === 1 ? '' : 's'}) has been successfully synced to the cloud.`
-                    : 'Connection restored — your local Proof Ledger queue is up to date and synced to the cloud.'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={dismissSyncToast}
-                aria-label="Dismiss sync notification"
-                data-testid="dismiss-sync-toast-btn"
-                className="min-h-[28px] min-w-[28px] rounded-lg text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] inline-flex items-center justify-center shrink-0"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </section>
   );
 };

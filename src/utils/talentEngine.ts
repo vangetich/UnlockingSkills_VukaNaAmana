@@ -1420,48 +1420,129 @@ export function computeSprintPerformanceSeries(
   contributions: BriefSubmission[],
   payouts: ContractPayout[]
 ): SprintPerformanceData {
-  const completedContribs = contributions.filter((c) => c.status === 'completed');
-  const completedCount = completedContribs.length;
-  const totalPodsCount = contributions.length;
-  const releasedPayouts = payouts.filter((p) => p.status === 'released');
-  const liveUnlockedUsd = computeUniqueUnlockedEarningsUsd(contributions, payouts);
+  // Merge contributions and payouts by sprint/brief ID so each real sprint appears once chronologically
+  const timelineMap = new Map<
+    string,
+    {
+      sprintId: string;
+      timestampMs: number;
+      accepted: boolean;
+      earnedUsd: number;
+      labelHint: string;
+    }
+  >();
 
-  const completionRatio = totalPodsCount > 0 ? completedCount / totalPodsCount : 0.75;
-  const liveAcceptanceRatePct = Math.min(
-    99,
-    Math.max(
-      70,
-      Math.round(78 + completionRatio * 15 + Math.min(4, completedCount) + Math.min(2, releasedPayouts.length))
-    )
+  const toTimeMs = (iso?: string): number => {
+    if (!iso) return 0;
+    const parsed = Date.parse(iso);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
+  for (const contrib of contributions) {
+    const existing = timelineMap.get(contrib.briefId);
+    const ts = toTimeMs(contrib.updatedAtIso || contrib.createdAtIso);
+    const isCompleted = contrib.status === 'completed';
+    const earned = isCompleted ? contrib.payoutUsd : 0;
+
+    if (!existing) {
+      timelineMap.set(contrib.briefId, {
+        sprintId: contrib.briefId,
+        timestampMs: ts,
+        accepted: isCompleted,
+        earnedUsd: earned,
+        labelHint: contrib.briefTitle,
+      });
+    } else {
+      existing.timestampMs = Math.max(existing.timestampMs, ts);
+      existing.accepted = existing.accepted || isCompleted;
+      existing.earnedUsd = Math.max(existing.earnedUsd, earned);
+    }
+  }
+
+  for (const payout of payouts) {
+    const existing = timelineMap.get(payout.sprintId);
+    const ts = toTimeMs(payout.updatedAtIso || payout.createdAtIso);
+    const isReleased = payout.status === 'released';
+    const earned = isReleased ? payout.amountUsd : 0;
+
+    if (!existing) {
+      timelineMap.set(payout.sprintId, {
+        sprintId: payout.sprintId,
+        timestampMs: ts,
+        accepted: isReleased,
+        earnedUsd: earned,
+        labelHint: payout.sprintTitle,
+      });
+    } else {
+      existing.timestampMs = Math.max(existing.timestampMs, ts);
+      existing.accepted = existing.accepted || isReleased;
+      existing.earnedUsd = Math.max(existing.earnedUsd, earned);
+    }
+  }
+
+  const orderedRecords = Array.from(timelineMap.values()).sort(
+    (a, b) => a.timestampMs - b.timestampMs || a.sprintId.localeCompare(b.sprintId)
   );
 
-  const historicalBaselineEarnings = 1980;
-  const totalHistoricalEarningsUsd = historicalBaselineEarnings + liveUnlockedUsd;
+  const completedContribs = contributions.filter((c) => c.status === 'completed');
+  const releasedPayouts = payouts.filter((p) => p.status === 'released');
+  const completedCount = orderedRecords.filter((r) => r.accepted).length;
+  const totalPodsCount = orderedRecords.length;
 
-  const points: SprintPerformancePoint[] = [
-    { label: 'S1', acceptanceRatePct: 68, payoutUsd: 320 },
-    { label: 'S2', acceptanceRatePct: 73, payoutUsd: 690 },
-    { label: 'S3', acceptanceRatePct: 79, payoutUsd: 1120 },
-    { label: 'S4', acceptanceRatePct: 84, payoutUsd: 1560 },
-    { label: 'S5', acceptanceRatePct: 88, payoutUsd: historicalBaselineEarnings },
-    {
-      label: 'Live',
-      acceptanceRatePct: liveAcceptanceRatePct,
-      payoutUsd: totalHistoricalEarningsUsd,
-    },
-  ];
+  const points: SprintPerformancePoint[] = [];
 
-  const prevAcceptance = points[points.length - 2].acceptanceRatePct;
-  const acceptanceDeltaPct = liveAcceptanceRatePct - prevAcceptance;
+  if (orderedRecords.length === 0) {
+    points.push(
+      { label: 'Start', acceptanceRatePct: 0, payoutUsd: 0 },
+      { label: 'Live', acceptanceRatePct: 0, payoutUsd: 0 }
+    );
+  } else {
+    // Include an origin anchor when fewer than 3 records exist so the sparkline plots a clear progression curve
+    if (orderedRecords.length < 3) {
+      points.push({ label: 'Start', acceptanceRatePct: 0, payoutUsd: 0 });
+    }
 
+    let acceptedSoFar = 0;
+    let cumulativeUsd = 0;
+
+    orderedRecords.forEach((rec, idx) => {
+      if (rec.accepted) acceptedSoFar += 1;
+      cumulativeUsd += rec.earnedUsd;
+      const ratePct = Math.round((acceptedSoFar / (idx + 1)) * 100);
+      const isLast = idx === orderedRecords.length - 1;
+      points.push({
+        label: isLast && orderedRecords.length > 1 ? 'Live' : `S${idx + 1}`,
+        acceptanceRatePct: ratePct,
+        payoutUsd: cumulativeUsd,
+      });
+    });
+  }
+
+  const currentAcceptanceRatePct =
+    orderedRecords.length > 0
+      ? Math.round((completedCount / orderedRecords.length) * 100)
+      : 0;
+
+  // Compare latest real sprint acceptance rate against the previous real sprint point (or 0 if first sprint)
+  const realPoints = orderedRecords.length < 3 ? points.slice(1) : points;
+  const acceptanceDeltaPct =
+    realPoints.length >= 2
+      ? realPoints[realPoints.length - 1].acceptanceRatePct -
+        realPoints[realPoints.length - 2].acceptanceRatePct
+      : currentAcceptanceRatePct;
+
+  const totalHistoricalEarningsUsd = computeUniqueUnlockedEarningsUsd(contributions, payouts);
+
+  const latestEarnedRecord = [...orderedRecords].reverse().find((r) => r.earnedUsd > 0);
   const latestPayoutUsd =
+    latestEarnedRecord?.earnedUsd ??
     completedContribs[0]?.payoutUsd ??
     releasedPayouts[0]?.amountUsd ??
-    liveUnlockedUsd;
+    0;
 
   return {
     points,
-    currentAcceptanceRatePct: liveAcceptanceRatePct,
+    currentAcceptanceRatePct,
     acceptanceDeltaPct,
     totalHistoricalEarningsUsd,
     latestPayoutUsd,

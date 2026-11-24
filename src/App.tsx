@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
+import { AnimatePresence, motion } from 'motion/react';
+import { CheckCircle2, RefreshCw, WifiOff, X } from 'lucide-react';
 import {
   auth,
   deleteCloudCapability,
@@ -119,9 +121,11 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [recentOnlineSync, setRecentOnlineSync] = useState<{
-    syncedCount: number;
-    timestampIso: string;
+  const [globalToast, setGlobalToast] = useState<{
+    id: string;
+    variant: 'offline' | 'syncing' | 'synced';
+    title: string;
+    message: string;
   } | null>(null);
 
   const isOnline = useOnlineStatus();
@@ -135,17 +139,54 @@ export default function App() {
   }, [isOnline, offlineQueue.length]);
 
   useEffect(() => {
-    const wasOffline = prevOnlineRef.current === false;
+    const prevOnline = prevOnlineRef.current;
     prevOnlineRef.current = isOnline;
-    if (wasOffline && isOnline) {
-      const syncedCount = offlinePeakQueueRef.current;
-      offlinePeakQueueRef.current = 0;
-      setRecentOnlineSync({
-        syncedCount,
-        timestampIso: new Date().toISOString(),
+
+    if (prevOnline && !isOnline) {
+      setGlobalToast({
+        id: `offline-${Date.now()}`,
+        variant: 'offline',
+        title: 'Offline Mode Active · Local Queue On',
+        message:
+          'Connection lost — your updates are safely queued locally and will sync to Firebase automatically once back online.',
       });
+      return;
     }
-  }, [isOnline]);
+
+    if (!prevOnline && isOnline) {
+      const pendingCount = Math.max(offlinePeakQueueRef.current, offlineQueue.length);
+      offlinePeakQueueRef.current = 0;
+
+      if (authUser) {
+        setGlobalToast({
+          id: `syncing-${Date.now()}`,
+          variant: 'syncing',
+          title: 'Back Online · Syncing to Firebase',
+          message:
+            pendingCount > 0
+              ? `Syncing ${pendingCount} queued local update${pendingCount === 1 ? '' : 's'} to your Firebase workspace…`
+              : 'Connection restored — verifying latest records with the Firebase backend…',
+        });
+      } else {
+        setGlobalToast({
+          id: `synced-${Date.now()}`,
+          variant: 'synced',
+          title: 'Back Online · Ready for Firebase Sync',
+          message:
+            pendingCount > 0
+              ? `Connection restored with ${pendingCount} queued update${pendingCount === 1 ? '' : 's'} saved locally — sign in anytime to sync with Firebase.`
+              : 'Connection restored — your local Proof Ledger is up to date and ready to sync with Firebase.',
+        });
+      }
+    }
+  }, [isOnline, authUser, offlineQueue.length]);
+
+  // Auto-dismiss non-syncing global toasts after 6.5s
+  useEffect(() => {
+    if (!globalToast || globalToast.variant === 'syncing') return;
+    const timer = window.setTimeout(() => setGlobalToast(null), 6500);
+    return () => window.clearTimeout(timer);
+  }, [globalToast]);
 
   const localeMeta = getLocaleMeta(profile.preferredLocale);
   const t = TRANSLATIONS[profile.preferredLocale] ?? TRANSLATIONS.en;
@@ -212,10 +253,26 @@ export default function App() {
           }
         }
 
+        const syncedCount = queueSnapshot.length;
         const nowIso = new Date().toISOString();
         setOfflineQueue(saveOfflineQueue([]));
         setLastSyncedIso(nowIso);
         saveLastSyncedIso(nowIso);
+
+        setGlobalToast((prev) => {
+          if (syncedCount > 0 || prev?.variant === 'syncing') {
+            return {
+              id: `firebase-synced-${Date.now()}`,
+              variant: 'synced',
+              title: 'Synced to Firebase Cloud',
+              message:
+                syncedCount > 0
+                  ? `Your offline queue (${syncedCount} update${syncedCount === 1 ? '' : 's'}) has been successfully synced to the Firebase backend.`
+                  : 'Connection restored — your workspace is synced with the Firebase backend.',
+            };
+          }
+          return prev;
+        });
       } finally {
         setIsSyncing(false);
       }
@@ -928,17 +985,84 @@ export default function App() {
     />
   );
 
+  const globalToastElement = (
+    <AnimatePresence mode="wait">
+      {globalToast && (
+        <motion.div
+          key={globalToast.id}
+          role="status"
+          aria-live="polite"
+          data-testid="global-connection-toast"
+          data-toast-variant={globalToast.variant}
+          initial={{ opacity: 0, y: 16, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 10, scale: 0.98, transition: { duration: 0.14 } }}
+          transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+          className={`fixed bottom-20 md:bottom-6 right-4 sm:right-6 z-50 max-w-sm w-[calc(100vw-2rem)] rounded-2xl bg-white dark:bg-[#1A1C20] shadow-xl p-4 border ${
+            globalToast.variant === 'offline'
+              ? 'border-[#C4622D]/40 dark:border-[#E07B46]/45'
+              : 'border-[#146C53]/40 dark:border-[#2EB88B]/45'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                globalToast.variant === 'offline'
+                  ? 'bg-[#F9ECE5] dark:bg-[#2D1E17] text-[#C4622D] dark:text-[#E07B46]'
+                  : 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+              }`}
+            >
+              {globalToast.variant === 'offline' ? (
+                <WifiOff className="w-4 h-4" />
+              ) : globalToast.variant === 'syncing' ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p
+                className={`text-xs font-semibold ${
+                  globalToast.variant === 'offline'
+                    ? 'text-[#C4622D] dark:text-[#E07B46]'
+                    : 'text-[#146C53] dark:text-[#2EB88B]'
+                }`}
+              >
+                {globalToast.title}
+              </p>
+              <p className="mt-0.5 text-xs text-[#43484E] dark:text-[#C4C9D0] leading-relaxed">
+                {globalToast.message}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setGlobalToast(null)}
+              aria-label="Dismiss connection notification"
+              data-testid="dismiss-global-toast-btn"
+              className="min-h-[28px] min-w-[28px] rounded-lg text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] inline-flex items-center justify-center shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
   if (sharedPassportView) {
     return (
-      <SharedPassportView
-        payload={sharedPassportView}
-        onExit={() => {
-          setSharedPassportView(null);
-          if (typeof window !== 'undefined' && window.location.search.includes('passport=')) {
-            window.history.replaceState({}, '', window.location.pathname);
-          }
-        }}
-      />
+      <>
+        <SharedPassportView
+          payload={sharedPassportView}
+          onExit={() => {
+            setSharedPassportView(null);
+            if (typeof window !== 'undefined' && window.location.search.includes('passport=')) {
+              window.history.replaceState({}, '', window.location.pathname);
+            }
+          }}
+        />
+        {globalToastElement}
+      </>
     );
   }
 
@@ -961,6 +1085,7 @@ export default function App() {
           t={t}
         />
         {scaleDrawerElement}
+        {globalToastElement}
       </>
     );
   }
@@ -1110,7 +1235,6 @@ export default function App() {
             endorsements={endorsements}
             payouts={payouts}
             celebratedContribution={recentCompletedContribution}
-            recentOnlineSync={recentOnlineSync}
             userEmail={authUser?.email ?? null}
             lastSyncedIso={lastSyncedIso}
             queuedCount={offlineQueue.length}
@@ -1118,7 +1242,6 @@ export default function App() {
             isSyncing={isSyncing}
             t={t}
             onDismissCelebration={() => setRecentCompletedContribution(null)}
-            onDismissOnlineSyncToast={() => setRecentOnlineSync(null)}
             onSignIn={handleSignIn}
             onSyncNow={handleSyncNow}
             onGoToUnlock={() => setActiveTab('unlock')}
@@ -1128,6 +1251,7 @@ export default function App() {
         )}
       </main>
       {scaleDrawerElement}
+      {globalToastElement}
     </div>
   );
 }
