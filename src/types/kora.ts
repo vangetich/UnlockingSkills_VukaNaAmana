@@ -4,7 +4,7 @@ export type LocaleCode = 'en' | 'sw' | 'fr' | 'ar';
 
 export type ThemeMode = 'light' | 'dark';
 
-export type WorkspaceTab = 'verify' | 'unlock' | 'solve' | 'pulse';
+export type WorkspaceTab = 'verify' | 'unlock' | 'solve' | 'pulse' | 'cleared';
 
 export type AppViewMode = 'landing' | 'studio';
 
@@ -43,6 +43,10 @@ export interface SkillCapability {
   updatedAtIso: string;
 }
 
+export type VerificationRouteId = 'route-a-foreign' | 'route-b-uqp' | 'route-c-rpl';
+
+export type PassportTrustTier = 1 | 2 | 3 | 4;
+
 export interface PassportVerifiedSkill {
   name: string;
   confidenceLabel: string;
@@ -55,6 +59,9 @@ export interface PassportMicroBridge {
   action: string;
   estimatedDuration: string;
   partnerProgram: string;
+  secondaryModule?: string;
+  estimatedCostUsd?: number;
+  feeCoverageNote?: string;
 }
 
 export interface CompetencyPassport {
@@ -62,6 +69,14 @@ export interface CompetencyPassport {
   ownerUid: string;
   studioDomain: StudioDomain;
   inputMode: 'summary' | 'scenario';
+  verificationRoute?: VerificationRouteId;
+  verifiableId?: string;
+  signature?: string;
+  nqfEquivalencyLevel?: string;
+  reconstructedCredential?: string;
+  languageProficiency?: string;
+  workplaceSkills?: string[];
+  trustTier?: PassportTrustTier;
   ageStageTrack: string;
   fieldMatch: string;
   executiveSummary: string;
@@ -96,6 +111,11 @@ export interface ProblemBrief {
   requiredKeywords: string[];
 }
 
+export type SprintMilestoneKey =
+  | 'analysis-complete'
+  | 'draft-ready'
+  | 'final-submission';
+
 export interface BriefSubmission {
   id: string;
   ownerUid: string;
@@ -109,6 +129,7 @@ export interface BriefSubmission {
   createdAtIso: string;
   updatedAtIso: string;
   deadlineIso?: string;
+  milestonesDone?: SprintMilestoneKey[];
 }
 
 export interface SprintDueAlert {
@@ -180,6 +201,15 @@ export interface WorkReadyVault {
   onboardingPartnerOrg?: string;
   onboardingHostCountry?: string;
   onboardingPackGeneratedAtIso?: string;
+  proofPortfolioReady?: boolean;
+  proofSkillTrack?: SkillTrackId;
+  proofLocalScore?: number;
+  proofRemoteScore?: number;
+  workplaceSignalsCount?: number;
+  matchedWorkCount?: number;
+  appliedOpportunityIds?: string[];
+  upskillingBridgesCount?: number;
+  lockedBridgeOpportunityIds?: string[];
   updatedAtIso: string;
 }
 
@@ -327,6 +357,7 @@ export type SprintComplexityLevel = 'Beginner' | 'Intermediate' | 'Advanced';
 export interface SdgPulseMetric {
   sdgNumber: 4 | 8 | 10 | 16 | 17;
   sdgLabel: string;
+  unTargetTag: string;
   title: string;
   primaryValue: string;
   numericValue: number;
@@ -344,6 +375,17 @@ export interface KnowledgeFlowStage {
   conversionPct: number;
   status: 'verified' | 'active' | 'ready';
   microCaption: string;
+}
+
+export interface AgeCohesionBreakdown {
+  youth15To29Pct: number;
+  specialist30To46PlusPct: number;
+  activeAgeStage: AgeStage;
+  activeAgeGroupLabel: string;
+  localWorkPct: number;
+  remoteWorkPct: number;
+  cohesionPodsCount: number;
+  upskillingBridgesCount: number;
 }
 
 export interface SprintPerformancePoint {
@@ -544,4 +586,135 @@ export interface FatfKycTierGuidance {
   recommendedRailId: FinancialPayoutRail;
   kycMechanismNote: string;
 }
+
+export type SkillTrackId =
+  | 'trades-solar'
+  | 'craft-tailoring'
+  | 'business-finance'
+  | 'digital-code'
+  | 'agri-care';
+
+export interface SkillTrackOption {
+  id: SkillTrackId;
+  title: string;
+  examples: string;
+  studioDomain: StudioDomain;
+}
+
+export interface ProofSampleImage {
+  id: string;
+  label: string;
+  mimeType: string;
+  dataUrl: string;
+}
+
+export interface WorkplaceReadinessSignals {
+  clearTimelines: boolean;
+  qualitySafetyCheck: boolean;
+  clientCommunication: boolean;
+}
+
+export interface LivingProofAnalysis {
+  visualHighlights: string[];
+  localReadinessPct: number;
+  remoteReadinessPct: number;
+  marketFitSummary: string;
+  levelUpTip: string;
+  source: 'ai' | 'offline';
+  generatedAtIso: string;
+}
+
+export interface LivingProofPortfolio {
+  skillTrackId: SkillTrackId;
+  problemSolvedCaption: string;
+  voiceWalkthrough: string;
+  peerVouch: string;
+  images: ProofSampleImage[];
+  workplaceSignals: WorkplaceReadinessSignals;
+  analysis: LivingProofAnalysis | null;
+  updatedAtIso: string;
+}
+
+export type MatchedWorkMode = 'all' | 'local' | 'remote' | 'fellowship';
+
+export interface MatchedWorkOpportunity {
+  id: string;
+  title: string;
+  skillTrackId: SkillTrackId;
+  studioDomain: StudioDomain;
+  workMode: 'local' | 'remote';
+  fellowshipEligible: boolean;
+  durationLabel: string;
+  estimatedHours: number;
+  payoutUsd: number;
+  partnerOrg: string;
+  partnerLocation: string;
+  whyEmployersNeedThisNow: string;
+  scopeSummary: string;
+  podLeadRole: string;
+  podDeliveryRole: string;
+  keywords: string[];
+}
+
+export interface RankedMatchedWorkOpportunity extends MatchedWorkOpportunity {
+  matchScore: number;
+  isStrongFit: boolean;
+  isUpskillingBridgeFit: boolean;
+  fitReasonLabel: string;
+  userPodSeat: 'lead' | 'delivery';
+  preClearedToContract: boolean;
+}
+
+export type UpskillingBridgePathOption = 'micro-bridge' | 'apprenticeship-pod';
+
+export interface JobToFitUpskillingBridge {
+  opportunityId: string;
+  whatYouAlreadyProve: [string, string];
+  singleMissingBridge: {
+    skillTitle: string;
+    practicalWhy: string;
+    frameworkTag: string;
+  };
+  optionAMicroBridge: {
+    title: string;
+    durationLabel: string;
+    actionSummary: string;
+    stipendPillLabel: string;
+    stipendCovers: string;
+  };
+  optionBApprenticeshipPod: {
+    title: string;
+    mentorPairingLabel: string;
+    cohesionNote: string;
+    paidApprenticeStipendUsd: number;
+  };
+  source: 'preset' | 'ai';
+  updatedAtIso: string;
+}
+
+export interface LockedUpskillingBridgeRecord {
+  id: string;
+  opportunityId: string;
+  opportunityTitle: string;
+  partnerOrg: string;
+  selectedOption: UpskillingBridgePathOption;
+  missingSkillTitle: string;
+  lockedAtIso: string;
+}
+
+export interface MatchedWorkApplication {
+  id: string;
+  opportunityId: string;
+  opportunityTitle: string;
+  partnerOrg: string;
+  payoutUsd: number;
+  workMode: 'local' | 'remote';
+  appliedAtIso: string;
+  bundleSummary: {
+    passportAttached: boolean;
+    proofAttached: boolean;
+    complianceCleared: boolean;
+  };
+}
+
 

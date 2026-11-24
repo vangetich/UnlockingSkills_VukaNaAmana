@@ -174,6 +174,7 @@ service cloud.firestore {
           'solutionNotes',
           'hoursLogged',
           'payoutUsd',
+          'milestonesDone',
           'createdAt',
           'updatedAt'
         ]) &&
@@ -185,6 +186,7 @@ service cloud.firestore {
         data.solutionNotes is string && data.solutionNotes.size() <= 2000 &&
         data.hoursLogged is number && data.hoursLogged >= 0 && data.hoursLogged <= 500 &&
         data.payoutUsd is number && data.payoutUsd >= 0 && data.payoutUsd <= 50000 &&
+        (!('milestonesDone' in data) || (data.milestonesDone is list && data.milestonesDone.size() <= 3 && data.milestonesDone.hasOnly(['analysis-complete', 'draft-ready', 'final-submission']) && (data.milestonesDone.size() == 0 || (data.milestonesDone[0] is string && data.milestonesDone[0].size() <= 32)))) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -217,6 +219,15 @@ service cloud.firestore {
           'onboardingContractStructure',
           'onboardingPartnerOrg',
           'onboardingHostCountry',
+          'proofPortfolioReady',
+          'proofSkillTrack',
+          'proofLocalScore',
+          'proofRemoteScore',
+          'workplaceSignalsCount',
+          'matchedWorkCount',
+          'appliedOpportunityIds',
+          'upskillingBridgesCount',
+          'lockedBridgeOpportunityIds',
           'createdAt',
           'updatedAt'
         ]) &&
@@ -235,6 +246,15 @@ service cloud.firestore {
         (!('onboardingContractStructure' in data) || (data.onboardingContractStructure is string && data.onboardingContractStructure.size() <= 32 && data.onboardingContractStructure in ['direct-local', 'scoped-remote', 'eor-fiscal-host'])) &&
         (!('onboardingPartnerOrg' in data) || (data.onboardingPartnerOrg is string && data.onboardingPartnerOrg.size() <= 120)) &&
         (!('onboardingHostCountry' in data) || (data.onboardingHostCountry is string && data.onboardingHostCountry.size() <= 80)) &&
+        (!('proofPortfolioReady' in data) || data.proofPortfolioReady is bool) &&
+        (!('proofSkillTrack' in data) || (data.proofSkillTrack is string && data.proofSkillTrack.size() <= 32 && data.proofSkillTrack in ['trades-solar', 'craft-tailoring', 'business-finance', 'digital-code', 'agri-care'])) &&
+        (!('proofLocalScore' in data) || (data.proofLocalScore is number && data.proofLocalScore >= 0 && data.proofLocalScore <= 100)) &&
+        (!('proofRemoteScore' in data) || (data.proofRemoteScore is number && data.proofRemoteScore >= 0 && data.proofRemoteScore <= 100)) &&
+        (!('workplaceSignalsCount' in data) || (data.workplaceSignalsCount is number && data.workplaceSignalsCount >= 0 && data.workplaceSignalsCount <= 3)) &&
+        (!('matchedWorkCount' in data) || (data.matchedWorkCount is number && data.matchedWorkCount >= 0 && data.matchedWorkCount <= 50)) &&
+        (!('appliedOpportunityIds' in data) || (data.appliedOpportunityIds is list && data.appliedOpportunityIds.size() <= 20 && (data.appliedOpportunityIds.size() == 0 || (data.appliedOpportunityIds[0] is string && data.appliedOpportunityIds[0].size() <= 64)))) &&
+        (!('upskillingBridgesCount' in data) || (data.upskillingBridgesCount is number && data.upskillingBridgesCount >= 0 && data.upskillingBridgesCount <= 50)) &&
+        (!('lockedBridgeOpportunityIds' in data) || (data.lockedBridgeOpportunityIds is list && data.lockedBridgeOpportunityIds.size() <= 20 && (data.lockedBridgeOpportunityIds.size() == 0 || (data.lockedBridgeOpportunityIds[0] is string && data.lockedBridgeOpportunityIds[0].size() <= 64)))) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -498,7 +518,10 @@ service cloud.firestore {
           incoming().updatedAt == request.time &&
           hasActiveParentProfile(userId) &&
           (
+            (incoming().status == 'in-progress' && incoming().diff(existing()).affectedKeys().hasOnly(['solutionNotes', 'hoursLogged', 'milestonesDone', 'updatedAt'])) ||
             (incoming().status == 'in-progress' && incoming().diff(existing()).affectedKeys().hasOnly(['solutionNotes', 'hoursLogged', 'updatedAt'])) ||
+            (incoming().status == 'in-progress' && incoming().diff(existing()).affectedKeys().hasOnly(['milestonesDone', 'updatedAt'])) ||
+            (incoming().status == 'completed' && incoming().solutionNotes.size() >= 10 && incoming().hoursLogged > 0 && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'solutionNotes', 'hoursLogged', 'milestonesDone', 'updatedAt'])) ||
             (incoming().status == 'completed' && incoming().solutionNotes.size() >= 10 && incoming().hoursLogged > 0 && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'solutionNotes', 'hoursLogged', 'updatedAt']))
           );
         allow delete: if false;
@@ -539,6 +562,15 @@ service cloud.firestore {
             'onboardingContractStructure',
             'onboardingPartnerOrg',
             'onboardingHostCountry',
+            'proofPortfolioReady',
+            'proofSkillTrack',
+            'proofLocalScore',
+            'proofRemoteScore',
+            'workplaceSignalsCount',
+            'matchedWorkCount',
+            'appliedOpportunityIds',
+            'upskillingBridgesCount',
+            'lockedBridgeOpportunityIds',
             'updatedAt'
           ]);
         allow delete: if false;

@@ -13,11 +13,18 @@ import {
 import type {
   BriefSubmission,
   CompetencyPassport,
+  JobToFitUpskillingBridge,
+  LivingProofPortfolio,
+  LockedUpskillingBridgeRecord,
+  MatchedWorkApplication,
   PractitionerProfile,
+  RankedMatchedWorkOpportunity,
   RankedSolutionSprint,
   SkillCapability,
   SprintComplexityLevel,
+  SprintMilestoneKey,
   StudioDomain,
+  UpskillingBridgePathOption,
   WorkReadyVault,
 } from '../types/kora';
 import type { TranslationDictionary } from '../utils/i18n';
@@ -31,6 +38,10 @@ import {
   rankSolutionSprints,
 } from '../utils/talentEngine';
 import { TopographicAscentMotif } from './ResilienceMotifs';
+import { LivingProofPortfolioSection } from './LivingProofPortfolioSection';
+import { MatchedWorkSection } from './MatchedWorkSection';
+import { SprintMilestoneProgressBar } from './SprintMilestoneProgressBar';
+import { FaqsAndPlatformGuide } from './FaqsAndPlatformGuide';
 import { VoiceTextarea } from './VoiceField';
 import { VoiceRecorder } from './VoiceRecorder';
 import { useMessaging } from '../contexts/MessagingContext';
@@ -40,10 +51,23 @@ interface SolveViewProps {
   capabilities: SkillCapability[];
   passport: CompetencyPassport | null;
   vault?: WorkReadyVault;
+  proofPortfolio: LivingProofPortfolio;
   contributions: BriefSubmission[];
+  sprintMilestonesByBrief: Record<string, SprintMilestoneKey[]>;
+  matchedApplications: MatchedWorkApplication[];
+  lockedBridges: LockedUpskillingBridgeRecord[];
   selectedBriefId: string | null;
+  isOnline: boolean;
   speechLang: string;
   t: TranslationDictionary;
+  onUpdateProofPortfolio: (next: LivingProofPortfolio) => void;
+  onApplyMatchedWork: (opportunity: RankedMatchedWorkOpportunity) => void;
+  onStartUpskillingBridge: (params: {
+    opportunity: RankedMatchedWorkOpportunity;
+    selectedOption: UpskillingBridgePathOption;
+    bridge: JobToFitUpskillingBridge;
+  }) => void;
+  onToggleSprintMilestone: (briefId: string, milestone: SprintMilestoneKey) => void;
   onSelectBrief: (briefId: string) => void;
   onJoinSprintPod: (sprint: RankedSolutionSprint) => void;
   onSaveDraft: (submissionId: string, notes: string, hoursLogged: number) => void;
@@ -58,10 +82,19 @@ export const SolveView: React.FC<SolveViewProps> = ({
   capabilities,
   passport,
   vault,
+  proofPortfolio,
   contributions,
+  sprintMilestonesByBrief,
+  matchedApplications,
+  lockedBridges,
   selectedBriefId,
+  isOnline,
   speechLang,
   t,
+  onUpdateProofPortfolio,
+  onApplyMatchedWork,
+  onStartUpskillingBridge,
+  onToggleSprintMilestone,
   onSelectBrief,
   onJoinSprintPod,
   onSaveDraft,
@@ -189,6 +222,30 @@ export const SolveView: React.FC<SolveViewProps> = ({
 
   return (
     <section aria-labelledby="solve-heading" className="space-y-10">
+      {/* Module 1: Living Proof Portfolio & Market Readiness */}
+      <LivingProofPortfolioSection
+        profile={profile}
+        portfolio={proofPortfolio}
+        isOnline={isOnline}
+        speechLang={speechLang}
+        onUpdatePortfolio={onUpdateProofPortfolio}
+      />
+
+      {/* Module 2: Matched Work & Cross-Age Solution Flows */}
+      <MatchedWorkSection
+        profile={profile}
+        passport={passport}
+        vault={vault}
+        portfolio={proofPortfolio}
+        contributions={contributions}
+        applications={matchedApplications}
+        lockedBridges={lockedBridges}
+        onApplyWithLivingProof={onApplyMatchedWork}
+        onStartUpskillingBridge={onStartUpskillingBridge}
+        onGoToUnlock={onGoToUnlock}
+        onGoToPulse={onGoToPulse}
+      />
+
       {/* Header Banner + 3-Stage Proof-of-Work Pathway */}
       <div className="relative overflow-hidden rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 space-y-6">
         <TopographicAscentMotif />
@@ -652,6 +709,15 @@ export const SolveView: React.FC<SolveViewProps> = ({
                       );
                     })()}
                   </div>
+
+                  {/* Interactive Multi-Step Delivery Progress Bar */}
+                  <SprintMilestoneProgressBar
+                    sprintId={sprint.id}
+                    milestonesDone={existing?.milestonesDone ?? sprintMilestonesByBrief[sprint.id]}
+                    isCompleted={Boolean(sprintCompleted)}
+                    onToggleMilestone={onToggleSprintMilestone}
+                    compact
+                  />
                 </div>
 
                 {/* Footer: Payout + Single Primary Action */}
@@ -839,6 +905,19 @@ export const SolveView: React.FC<SolveViewProps> = ({
                   <span>{isCompleted ? t.completedBadge : t.inProgressBadge}</span>
                 </span>
               </div>
+
+              {/* Active Workbench Interactive Delivery Milestone Progress Bar */}
+              <SprintMilestoneProgressBar
+                sprintId={`workbench-${activeSubmission.briefId}`}
+                milestonesDone={
+                  activeSubmission.milestonesDone ??
+                  sprintMilestonesByBrief[activeSubmission.briefId]
+                }
+                isCompleted={isCompleted}
+                onToggleMilestone={(_id, milestone) =>
+                  onToggleSprintMilestone(activeSubmission.briefId, milestone)
+                }
+              />
 
               {/* Pod Mentorship Real-Time Status Indicator for Active Sprints */}
               {!isCompleted && (() => {
@@ -1057,6 +1136,9 @@ export const SolveView: React.FC<SolveViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Collapsible FAQs and Platform Guide Accordion */}
+      <FaqsAndPlatformGuide variant="solve" />
     </section>
   );
 };

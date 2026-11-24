@@ -2,6 +2,7 @@ import React from 'react';
 import { BarChart3, CheckCircle2, Compass, Globe, Search, WifiOff, Wrench } from 'lucide-react';
 import type { WorkspaceTab } from '../types/kora';
 import type { TranslationDictionary } from '../utils/i18n';
+import { PwaOfflineSyncButton } from './PwaOfflineSyncButton';
 
 interface TopNavProps {
   activeTab: WorkspaceTab;
@@ -9,7 +10,10 @@ interface TopNavProps {
   userEmail: string | null;
   userDisplayName: string | null;
   isOnline: boolean;
+  isSyncing?: boolean;
   queuedCount: number;
+  lastSyncedIso?: string | null;
+  onSyncNow?: () => Promise<void> | void;
   onSignIn: () => void;
   onSignOut: () => void;
   onBackToHome: () => void;
@@ -24,9 +28,12 @@ export const TopNav: React.FC<TopNavProps> = ({
   userEmail,
   userDisplayName,
   isOnline,
+  isSyncing = false,
   queuedCount,
+  lastSyncedIso = null,
+  onSyncNow,
   onSignIn,
-  onSignOut,
+  onSignOut: _onSignOut,
   onBackToHome,
   onOpenScaleDrawer,
   onOpenCommandPalette,
@@ -37,6 +44,7 @@ export const TopNav: React.FC<TopNavProps> = ({
     { id: 'unlock', label: t.navUnlock, icon: <Compass className="w-4 h-4" /> },
     { id: 'solve', label: t.navSolve, icon: <Wrench className="w-4 h-4" /> },
     { id: 'pulse', label: t.navPulse, icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'cleared', label: '5. Cleared', icon: <Globe className="w-4 h-4" /> },
   ];
 
   return (
@@ -128,22 +136,35 @@ export const TopNav: React.FC<TopNavProps> = ({
               <span className="hidden xl:inline text-xs font-medium">Scale</span>
             </button>
 
+            <PwaOfflineSyncButton
+              isOnline={isOnline}
+              isSyncing={isSyncing}
+              queuedCount={queuedCount}
+              lastSyncedIso={lastSyncedIso}
+              syncedEmail={userEmail}
+              onSyncNow={() => onSyncNow?.()}
+              onOpenEmailVault={onSignIn}
+              compact
+            />
+
             {userEmail ? (
               <button
                 type="button"
-                onClick={onSignOut}
-                title={userEmail}
-                className="min-h-[38px] px-3.5 py-1.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] hover:bg-[#F3EFE9] dark:hover:bg-[#23262B] transition-colors whitespace-nowrap shrink-0 max-w-[180px] truncate"
+                data-testid="topnav-account-sync-btn"
+                onClick={onSignIn}
+                title={`${userEmail} — Manage synced email providers`}
+                className="min-h-[38px] px-3.5 py-1.5 rounded-lg border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-[#E7F3EE]/80 dark:bg-[#142B24]/80 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] hover:bg-[#D5EBE2] dark:hover:bg-[#1C3B31] transition-colors whitespace-nowrap shrink-0 max-w-[200px] truncate"
               >
-                {userDisplayName || userEmail} · {t.signOut}
+                {userDisplayName || userEmail} · Synced
               </button>
             ) : (
               <button
                 type="button"
+                data-testid="topnav-account-sync-btn"
                 onClick={onSignIn}
                 className="min-h-[38px] px-3 sm:px-4 py-1.5 rounded-lg bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
               >
-                <span className="sm:hidden">Sign in</span>
+                <span className="sm:hidden">Sync</span>
                 <span className="hidden sm:inline">{t.signInGoogle}</span>
               </button>
             )}
@@ -184,7 +205,7 @@ export const TopNav: React.FC<TopNavProps> = ({
       {/* Mobile bottom thumb-zone tab bar (64px) */}
       <nav
         aria-label="Mobile workspace navigation"
-        className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-16 bg-[#FAF8F5]/95 dark:bg-[#121315]/95 backdrop-blur-md border-t border-[#E8E3DB] dark:border-[#2C3037] grid grid-cols-4 items-center px-1"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-16 bg-[#FAF8F5]/95 dark:bg-[#121315]/95 backdrop-blur-md border-t border-[#E8E3DB] dark:border-[#2C3037] grid grid-cols-5 items-center px-1"
       >
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;

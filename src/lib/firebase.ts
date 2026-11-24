@@ -1,9 +1,16 @@
 import { initializeApp } from 'firebase/app';
 import {
   GoogleAuthProvider,
+  OAuthProvider,
+  createUserWithEmailAndPassword,
   getAuth,
+  linkWithPopup,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
+  updateProfile,
   type User,
 } from 'firebase/auth';
 import {
@@ -30,16 +37,31 @@ import type {
   PractitionerProfile,
   SkillCapability,
   SprintFeedback,
+  SprintMilestoneKey,
   SprintRatingScore,
   WorkReadyVault,
 } from '../types/kora';
-import { isValidFirebaseId, sanitizeText } from '../utils/talentEngine';
+import {
+  isValidFirebaseId,
+  normalizeSprintMilestones,
+  sanitizeText,
+} from '../utils/talentEngine';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+const microsoftProvider = new OAuthProvider('microsoft.com');
+microsoftProvider.setCustomParameters({ prompt: 'select_account' });
+microsoftProvider.addScope('email');
+microsoftProvider.addScope('profile');
+
+const yahooProvider = new OAuthProvider('yahoo.com');
+yahooProvider.setCustomParameters({ prompt: 'login' });
+yahooProvider.addScope('email');
+yahooProvider.addScope('profile');
 
 export enum OperationType {
   CREATE = 'create',
@@ -105,8 +127,117 @@ async function testConnection() {
 
 void testConnection();
 
+export type AuthSyncProviderId = 'google' | 'microsoft' | 'yahoo' | 'email';
+
+export function formatFirebaseAuthError(error: unknown, providerLabel = 'Account'): string {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code ?? '')
+      : '';
+
+  switch (code) {
+    case 'auth/popup-closed-by-user':
+      return `${providerLabel} sign-in popup was closed before completing. Please try again or use Email & Password below.`;
+    case 'auth/popup-blocked':
+      return `Your browser blocked the ${providerLabel} popup. Allow popups for this site or sign in with Email & Password below.`;
+    case 'auth/cancelled-popup-request':
+      return 'Another sign-in window is already open. Complete or close it and try again.';
+    case 'auth/operation-not-allowed':
+      return `${providerLabel} sign-in is not enabled yet in Firebase Console (Authentication → Sign-in method). Enable ${providerLabel} there or use another sign-in option below.`;
+    case 'auth/unauthorized-domain':
+      return 'This domain needs to be listed under Firebase Console → Authentication → Settings → Authorized domains before popup sign-in can complete.';
+    case 'auth/account-exists-with-different-credential':
+      return 'An account with this email already exists using another sign-in provider. Sign in with your original method first, then link providers from Account Sync.';
+    case 'auth/credential-already-in-use':
+      return 'This email provider is already linked to another account.';
+    case 'auth/provider-already-linked':
+      return `${providerLabel} is already linked to your synced account.`;
+    case 'auth/invalid-email':
+      return 'Please enter a valid email address.';
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Incorrect email or password. Double-check your details or switch to Create Account.';
+    case 'auth/email-already-in-use':
+      return 'An account with that email already exists. Switch to Sign In or reset your password.';
+    case 'auth/weak-password':
+      return 'Please choose a password with at least 6 characters.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts detected. Wait a moment before trying again.';
+    default:
+      return error instanceof Error
+        ? error.message
+        : `Unable to complete ${providerLabel} authorization.`;
+  }
+}
+
 export async function signInWithGoogle(): Promise<User> {
   const credential = await signInWithPopup(auth, googleProvider);
+  return credential.user;
+}
+
+export async function signInWithMicrosoft(): Promise<User> {
+  const credential = await signInWithPopup(auth, microsoftProvider);
+  return credential.user;
+}
+
+export async function signInWithYahoo(): Promise<User> {
+  const credential = await signInWithPopup(auth, yahooProvider);
+  return credential.user;
+}
+
+export async function signInWithEmailPassword(email: string, password: string): Promise<User> {
+  const cleanEmail = email.trim();
+  const credential = await signInWithEmailAndPassword(auth, cleanEmail, password);
+  return credential.user;
+}
+
+export async function registerWithEmailPassword(
+  email: string,
+  password: string,
+  displayName?: string
+): Promise<User> {
+  const cleanEmail = email.trim();
+  const cleanName = sanitizeText(displayName ?? '', 80);
+  const credential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+  if (cleanName) {
+    await updateProfile(credential.user, { displayName: cleanName });
+  }
+  await sendEmailVerification(credential.user);
+  return credential.user;
+}
+
+export async function resendVerificationEmail(): Promise<void> {
+  if (!auth.currentUser) {
+    throw new Error('Sign in first to resend the verification email.');
+  }
+  await sendEmailVerification(auth.currentUser);
+}
+
+export async function refreshAuthUser(): Promise<User | null> {
+  if (!auth.currentUser) return null;
+  await auth.currentUser.reload();
+  return auth.currentUser;
+}
+
+export async function sendPasswordReset(email: string): Promise<void> {
+  const cleanEmail = email.trim();
+  await sendPasswordResetEmail(auth, cleanEmail);
+}
+
+export async function linkAccountProvider(
+  providerId: 'google' | 'microsoft' | 'yahoo'
+): Promise<User> {
+  if (!auth.currentUser) {
+    throw new Error('Sign in first to link another email provider.');
+  }
+  const provider =
+    providerId === 'google'
+      ? googleProvider
+      : providerId === 'microsoft'
+        ? microsoftProvider
+        : yahooProvider;
+  const credential = await linkWithPopup(auth.currentUser, provider);
   return credential.user;
 }
 
@@ -316,6 +447,10 @@ export async function upsertCloudContribution(
   const safeNotes = sanitizeText(contribution.solutionNotes, 2000);
   const safeHours = Math.max(0, Math.min(500, Number(contribution.hoursLogged) || 0));
   const safePayout = Math.max(0, Math.min(50000, Number(contribution.payoutUsd) || 0));
+  const safeMilestones = normalizeSprintMilestones(
+    contribution.milestonesDone,
+    contribution.status === 'completed'
+  );
 
   try {
     const snap = await getDoc(ref);
@@ -329,6 +464,7 @@ export async function upsertCloudContribution(
         solutionNotes: safeNotes,
         hoursLogged: safeHours,
         payoutUsd: safePayout,
+        milestonesDone: safeMilestones,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -337,6 +473,7 @@ export async function upsertCloudContribution(
           status: 'completed',
           solutionNotes: safeNotes,
           hoursLogged: safeHours,
+          milestonesDone: safeMilestones,
           updatedAt: serverTimestamp(),
         });
       }
@@ -350,12 +487,14 @@ export async function upsertCloudContribution(
           status: 'completed',
           solutionNotes: safeNotes,
           hoursLogged: safeHours,
+          milestonesDone: safeMilestones,
           updatedAt: serverTimestamp(),
         });
       } else {
         await updateDoc(ref, {
           solutionNotes: safeNotes,
           hoursLogged: safeHours,
+          milestonesDone: safeMilestones,
           updatedAt: serverTimestamp(),
         });
       }
@@ -388,6 +527,25 @@ export async function upsertCloudVault(uid: string, vault: WorkReadyVault): Prom
     onboardingContractStructure: vault.onboardingContractStructure ?? 'scoped-remote',
     onboardingPartnerOrg: sanitizeText(vault.onboardingPartnerOrg ?? '', 120),
     onboardingHostCountry: sanitizeText(vault.onboardingHostCountry ?? 'Kenya', 80) || 'Kenya',
+    proofPortfolioReady: Boolean(vault.proofPortfolioReady),
+    proofSkillTrack: vault.proofSkillTrack ?? 'trades-solar',
+    proofLocalScore: Math.max(0, Math.min(100, Math.round(Number(vault.proofLocalScore) || 0))),
+    proofRemoteScore: Math.max(0, Math.min(100, Math.round(Number(vault.proofRemoteScore) || 0))),
+    workplaceSignalsCount: Math.max(0, Math.min(3, Math.round(Number(vault.workplaceSignalsCount) || 0))),
+    matchedWorkCount: Math.max(0, Math.min(50, Math.round(Number(vault.matchedWorkCount) || 0))),
+    appliedOpportunityIds: Array.isArray(vault.appliedOpportunityIds)
+      ? vault.appliedOpportunityIds
+          .slice(0, 20)
+          .map((id) => sanitizeText(String(id), 64))
+          .filter((id) => id.length > 0)
+      : [],
+    upskillingBridgesCount: Math.max(0, Math.min(50, Math.round(Number(vault.upskillingBridgesCount) || 0))),
+    lockedBridgeOpportunityIds: Array.isArray(vault.lockedBridgeOpportunityIds)
+      ? vault.lockedBridgeOpportunityIds
+          .slice(0, 20)
+          .map((id) => sanitizeText(String(id), 64))
+          .filter((id) => id.length > 0)
+      : [],
   };
 
   try {
@@ -414,6 +572,15 @@ export async function upsertCloudVault(uid: string, vault: WorkReadyVault): Prom
         onboardingContractStructure: payload.onboardingContractStructure,
         onboardingPartnerOrg: payload.onboardingPartnerOrg,
         onboardingHostCountry: payload.onboardingHostCountry,
+        proofPortfolioReady: payload.proofPortfolioReady,
+        proofSkillTrack: payload.proofSkillTrack,
+        proofLocalScore: payload.proofLocalScore,
+        proofRemoteScore: payload.proofRemoteScore,
+        workplaceSignalsCount: payload.workplaceSignalsCount,
+        matchedWorkCount: payload.matchedWorkCount,
+        appliedOpportunityIds: payload.appliedOpportunityIds,
+        upskillingBridgesCount: payload.upskillingBridgesCount,
+        lockedBridgeOpportunityIds: payload.lockedBridgeOpportunityIds,
         updatedAt: serverTimestamp(),
       });
     }
@@ -728,6 +895,9 @@ export async function fetchCloudWorkspace(uid: string): Promise<{
         solutionNotes: String(data.solutionNotes ?? ''),
         hoursLogged: Number(data.hoursLogged ?? 0),
         payoutUsd: Number(data.payoutUsd ?? 0),
+        milestonesDone: Array.isArray(data.milestonesDone)
+          ? normalizeSprintMilestones(data.milestonesDone as SprintMilestoneKey[], data.status === 'completed')
+          : undefined,
         createdAtIso: new Date().toISOString(),
         updatedAtIso: new Date().toISOString(),
       };
@@ -757,6 +927,19 @@ export async function fetchCloudWorkspace(uid: string): Promise<{
           onboardingHostCountry: data.onboardingHostCountry
             ? String(data.onboardingHostCountry)
             : 'Kenya',
+          proofPortfolioReady: Boolean(data.proofPortfolioReady),
+          proofSkillTrack: data.proofSkillTrack ?? 'trades-solar',
+          proofLocalScore: Number(data.proofLocalScore ?? 0),
+          proofRemoteScore: Number(data.proofRemoteScore ?? 0),
+          workplaceSignalsCount: Number(data.workplaceSignalsCount ?? 0),
+          matchedWorkCount: Number(data.matchedWorkCount ?? 0),
+          appliedOpportunityIds: Array.isArray(data.appliedOpportunityIds)
+            ? data.appliedOpportunityIds.map((id) => String(id))
+            : [],
+          upskillingBridgesCount: Number(data.upskillingBridgesCount ?? 0),
+          lockedBridgeOpportunityIds: Array.isArray(data.lockedBridgeOpportunityIds)
+            ? data.lockedBridgeOpportunityIds.map((id) => String(id))
+            : [],
           updatedAtIso: new Date().toISOString(),
         };
       }
@@ -928,6 +1111,9 @@ export function subscribeToContributions(
           solutionNotes: String(data.solutionNotes ?? ''),
           hoursLogged: Number(data.hoursLogged ?? 0),
           payoutUsd: Number(data.payoutUsd ?? 0),
+          milestonesDone: Array.isArray(data.milestonesDone)
+            ? normalizeSprintMilestones(data.milestonesDone as SprintMilestoneKey[], data.status === 'completed')
+            : undefined,
           createdAtIso: new Date().toISOString(),
           updatedAtIso: new Date().toISOString(),
         };

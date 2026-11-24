@@ -277,9 +277,9 @@ export const WovenBridgeArcsMotif: React.FC<ResilienceMotifProps> = ({
  * On the Landing Funnel in light mode, renders at 15% opacity with a gentle breeze sway.
  * Evokes mentorship ripples and community-wide solution impact.
  */
-export const RippleConstellationMotif: React.FC<ResilienceMotifProps> = ({
-  variant = 'default',
-}) => {
+export const RippleConstellationMotif: React.FC<
+  ResilienceMotifProps & { className?: string }
+> = ({ variant = 'default', className = '' }) => {
   const isLanding = variant === 'landing';
   return (
     <div
@@ -293,7 +293,7 @@ export const RippleConstellationMotif: React.FC<ResilienceMotifProps> = ({
         className={`w-full h-full text-[#C4622D] dark:text-[#E07B46] ${
           isLanding
             ? 'vuka-landing-motif'
-            : 'opacity-[0.065] dark:opacity-[0.08]'
+            : className || 'opacity-[0.065] dark:opacity-[0.08]'
         }`}
       >
         <defs>
@@ -420,4 +420,50 @@ export const UnbrokenMeridianCompassMotif: React.FC<{ className?: string }> = ({
     </div>
   );
 };
+
+/**
+ * Motif 5: Open Horizon & Ascending Dawn Arc (Tab 5 Cleared View)
+ * Delicate rising horizon arcs with a faint compass star in the upper right, radial edge-faded, pointer-events: none.
+ */
+export const OpenHorizonDawnMotif: React.FC<{ className?: string }> = ({
+  className = '',
+}) => {
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="open-horizon-dawn-motif"
+      className={`pointer-events-none select-none absolute inset-0 overflow-hidden opacity-[0.05] text-[#146C53] dark:text-[#2EB88B] ${className}`}
+    >
+      <svg
+        viewBox="0 0 1200 480"
+        preserveAspectRatio="xMidYMid slice"
+        className="w-full h-full"
+      >
+        <defs>
+          <radialGradient id="vuka-horizon-fade" cx="50%" cy="50%" r="55%">
+            <stop offset="0%" stopColor="white" stopOpacity="1" />
+            <stop offset="70%" stopColor="white" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="white" stopOpacity="0" />
+          </radialGradient>
+          <mask id="vuka-horizon-mask">
+            <rect width="1200" height="480" fill="url(#vuka-horizon-fade)" />
+          </mask>
+        </defs>
+        <g mask="url(#vuka-horizon-mask)" fill="none" stroke="currentColor" strokeWidth="1.2">
+          <path d="M-60 380 Q 300 120 720 280 T 1260 210" />
+          <path d="M-40 430 Q 340 170 760 330 T 1280 260" strokeDasharray="4 6" />
+          <path d="M0 470 Q 380 220 800 380 T 1320 310" />
+          {/* Compass star upper right */}
+          <g transform="translate(1020, 110)">
+            <circle cx="0" cy="0" r="42" strokeDasharray="2 4" />
+            <circle cx="0" cy="0" r="18" />
+            <path d="M0 -36 L6 -10 L32 0 L6 10 L0 36 L-6 10 L-32 0 L-6 -10 Z" fill="currentColor" opacity="0.4" />
+            <circle cx="0" cy="0" r="3" fill="currentColor" />
+          </g>
+        </g>
+      </svg>
+    </div>
+  );
+};
+
 

@@ -26,6 +26,7 @@ import type { TranslationDictionary } from '../utils/i18n';
 import {
   SEED_BRIEFS,
   buildLedgerCsv,
+  computeAgeAndCohesionBreakdown,
   computeAnalyticsSummary,
   computeKnowledgeToWorkFlow,
   computeSdgPulseMetrics,
@@ -133,6 +134,7 @@ interface PulseViewProps {
   onGoToUnlock: () => void;
   onGoToVerify: () => void;
   onGoToSolve: () => void;
+  onOpenScaleDrawer?: () => void;
 }
 
 export const PulseView: React.FC<PulseViewProps> = ({
@@ -158,12 +160,67 @@ export const PulseView: React.FC<PulseViewProps> = ({
   onGoToUnlock,
   onGoToVerify,
   onGoToSolve,
+  onOpenScaleDrawer,
 }) => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'in-progress'>('all');
   const [liveCompleted, setLiveCompleted] = useState<BriefSubmission | null>(null);
   const previousStatusRef = useRef<Map<string, ContributionStatus>>(
     new Map(contributions.map((c) => [c.id, c.status]))
   );
+
+  // Offline-to-online cloud sync confirmation toast in PulseView
+  const [syncToast, setSyncToast] = useState<{ id: string; message: string } | null>(null);
+  const prevOnlineRef = useRef<boolean>(isOnline);
+  const offlinePeakQueueRef = useRef<number>(queuedCount);
+  const awaitingSyncFinishRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (!isOnline) {
+      offlinePeakQueueRef.current = Math.max(offlinePeakQueueRef.current, queuedCount);
+    }
+  }, [isOnline, queuedCount]);
+
+  useEffect(() => {
+    const prevOnline = prevOnlineRef.current;
+    prevOnlineRef.current = isOnline;
+
+    if (!prevOnline && isOnline) {
+      const syncedItems = Math.max(offlinePeakQueueRef.current, queuedCount);
+      if (isSyncing) {
+        awaitingSyncFinishRef.current = true;
+      } else {
+        offlinePeakQueueRef.current = 0;
+        setSyncToast({
+          id: `pulse-sync-${Date.now()}`,
+          message:
+            syncedItems > 0
+              ? `Back online — your local queue (${syncedItems} update${syncedItems === 1 ? '' : 's'}) has been successfully synced to the cloud.`
+              : 'Back online — your local queue has been successfully synced to the cloud.',
+        });
+      }
+    }
+  }, [isOnline, isSyncing, queuedCount]);
+
+  useEffect(() => {
+    if (awaitingSyncFinishRef.current && isOnline && !isSyncing) {
+      awaitingSyncFinishRef.current = false;
+      const syncedItems = Math.max(offlinePeakQueueRef.current, queuedCount);
+      offlinePeakQueueRef.current = 0;
+      setSyncToast({
+        id: `pulse-sync-${Date.now()}`,
+        message:
+          syncedItems > 0
+            ? `Back online — your local queue (${syncedItems} update${syncedItems === 1 ? '' : 's'}) has been successfully synced to the cloud.`
+            : 'Back online — your local queue has been successfully synced to the cloud.',
+      });
+    }
+  }, [isOnline, isSyncing, queuedCount]);
+
+  useEffect(() => {
+    if (!syncToast) return;
+    const timer = window.setTimeout(() => setSyncToast(null), 6500);
+    return () => window.clearTimeout(timer);
+  }, [syncToast]);
 
   // Detect live in-progress -> completed transitions while on Pulse
   useEffect(() => {
@@ -207,6 +264,11 @@ export const PulseView: React.FC<PulseViewProps> = ({
 
   const flowStages = useMemo(
     () => computeKnowledgeToWorkFlow(reactiveInputs),
+    [reactiveInputs]
+  );
+
+  const ageCohesionBreakdown = useMemo(
+    () => computeAgeAndCohesionBreakdown(reactiveInputs),
     [reactiveInputs]
   );
 
@@ -400,23 +462,65 @@ export const PulseView: React.FC<PulseViewProps> = ({
 
   return (
     <section aria-labelledby="pulse-heading" className="space-y-10">
+      <AnimatePresence mode="wait">
+        {syncToast && (
+          <motion.div
+            key={syncToast.id}
+            role="status"
+            aria-live="polite"
+            data-testid="pulse-sync-toast"
+            initial={{ opacity: 0, y: -10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98, transition: { duration: 0.14 } }}
+            transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+            className="rounded-2xl border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-[#E7F3EE]/95 dark:bg-[#142B24]/95 px-4 sm:px-5 py-3.5 flex items-start justify-between gap-3 shadow-sm"
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-white dark:bg-[#1A1C20] border border-[#146C53]/25 dark:border-[#2EB88B]/30 flex items-center justify-center shrink-0 text-[#146C53] dark:text-[#2EB88B]">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                  Cloud Queue Synced
+                </p>
+                <p className="mt-0.5 text-xs sm:text-sm text-[#17191C] dark:text-[#F4F2EE]">
+                  {syncToast.message}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSyncToast(null)}
+              aria-label="Dismiss sync notification"
+              data-testid="dismiss-pulse-sync-toast-btn"
+              className="min-h-[30px] min-w-[30px] rounded-lg text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] inline-flex items-center justify-center shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Executive Impact Header with Resilience Ripple Constellation Motif */}
       <div className="relative overflow-hidden rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8">
         <RippleConstellationMotif />
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div className="max-w-2xl">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#146C53] dark:text-[#2EB88B]">
-              Executive Impact Dashboard · Real-Time SDG Pulse
+            <p
+              data-testid="pulse-header-eyebrow"
+              className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#146C53] dark:text-[#2EB88B]"
+            >
+              MEASURABLE IMPACT · UN 2030 AGENDA ALIGNED
             </p>
             <h1
               id="pulse-heading"
               className="mt-1.5 font-display text-2xl sm:text-3xl font-medium tracking-tight text-[#17191C] dark:text-[#F4F2EE]"
             >
-              Visible human momentum across every crossing
+              Impact Pulse: From Brain Waste to Shared Prosperity
             </h1>
             <p className="mt-2 text-sm sm:text-base text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
-              Every verified capability in Verify, cleared compliance rail in Unlock, and delivered pod sprint in Solve updates these live economic impact counters immediately.
+              Aligned with UN 2030 Agenda targets, UNESCO Qualifications Passport (UQP), and ILO PROSPECTS frameworks. Every verified capability in Verify, cleared compliance rail in Unlock, and delivered pod sprint or upskilling bridge in Solve increments these live impact counters immediately.
             </p>
           </div>
 
@@ -621,19 +725,19 @@ export const PulseView: React.FC<PulseViewProps> = ({
         </button>
       </div>
 
-      {/* TOP ROW: 5 Clean SDG Pulse Cards (Minimalist Live Counters + Human Micro-Stories) */}
+      {/* TOP ROW: 5 Crisp SDG Pulse Cards (Exact UN Target Tag + Live Reactive Counter + 1-Line Human Outcome) */}
       <div className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
             <h2 className="font-display text-xl sm:text-2xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
-              SDG Economic Momentum Pulse
+              SDG &amp; Community Impact Pulse
             </h2>
             <p className="mt-0.5 text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE]">
-              Live counters paired with real economic value unlocked across Tabs 1–3.
+              UN 2030 Agenda targets · UNESCO UQP · ILO PROSPECTS live verification &amp; earnings streams.
             </p>
           </div>
           <span className="text-xs font-mono-tabular tabular-nums text-[#146C53] dark:text-[#2EB88B] font-semibold">
-            5 UN SDG Alignment Streams
+            5 UN SDG Target Streams
           </span>
         </div>
 
@@ -669,7 +773,18 @@ export const PulseView: React.FC<PulseViewProps> = ({
                     </span>
                   </div>
 
-                  <h3 className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE] leading-snug">
+                  <p
+                    data-testid={`sdg-target-tag-${metric.sdgNumber}`}
+                    className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
+                      isTerracotta
+                        ? 'bg-[#FFF3EC] dark:bg-[#2E1E16] text-[#C4622D] dark:text-[#E07B46] border-[#C4622D]/25'
+                        : 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B] border-[#146C53]/25'
+                    }`}
+                  >
+                    {metric.unTargetTag}
+                  </p>
+
+                  <h3 className="text-xs sm:text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE] leading-snug">
                     {metric.title}
                   </h3>
 
@@ -720,7 +835,7 @@ export const PulseView: React.FC<PulseViewProps> = ({
         </div>
       </div>
 
-      {/* BOTTOM ROW: Visual "Knowledge-to-Work Flow" Diagram */}
+      {/* MIDDLE SECTION: Interactive "Knowledge-to-Work Flow" Conversion Funnel + Age & Cohesion Breakdown Strip */}
       <section
         aria-labelledby="knowledge-flow-heading"
         data-testid="knowledge-to-work-flow"
@@ -737,7 +852,7 @@ export const PulseView: React.FC<PulseViewProps> = ({
               id="knowledge-flow-heading"
               className="mt-1 font-display text-xl sm:text-2xl font-medium text-[#17191C] dark:text-[#F4F2EE]"
             >
-              Paperless Intake → Verified Passport → Compliant Payout → Paid Placement
+              Paperless Intake → Verified Passport → Compliance Cleared → Upskilling Bridge / Paid Placement
             </h2>
           </div>
           <span className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
@@ -819,6 +934,83 @@ export const PulseView: React.FC<PulseViewProps> = ({
             );
           })}
         </ol>
+
+        {/* Compact "Age & Cohesion Breakdown" Strip */}
+        <div
+          data-testid="age-cohesion-breakdown-strip"
+          className="relative z-10 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-4 grid grid-cols-1 md:grid-cols-3 gap-4"
+        >
+          {/* 1. Youth 15-29 vs Specialist 30-46+ Participation */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] font-semibold">
+              <span className="uppercase tracking-wider text-[#146C53] dark:text-[#2EB88B]">
+                Cross-Age Participation (15–46+)
+              </span>
+              <span className="font-mono-tabular text-[#17191C] dark:text-[#F4F2EE]">
+                {ageCohesionBreakdown.youth15To29Pct}% Youth · {ageCohesionBreakdown.specialist30To46PlusPct}% Specialist
+              </span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-[#E8E3DB] dark:bg-[#2C3037] overflow-hidden flex">
+              <div
+                className="h-full bg-[#146C53] dark:bg-[#2EB88B]"
+                style={{ width: `${ageCohesionBreakdown.youth15To29Pct}%` }}
+              />
+              <div
+                className="h-full bg-[#C4622D] dark:bg-[#E07B46]"
+                style={{ width: `${ageCohesionBreakdown.specialist30To46PlusPct}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+              Youth 15–29 (15–17 &amp; 18–29) paired with 30–46+ Specialists · Active track:{' '}
+              <strong className="text-[#17191C] dark:text-[#F4F2EE]">
+                {ageCohesionBreakdown.activeAgeGroupLabel}
+              </strong>
+            </p>
+          </div>
+
+          {/* 2. Local vs Remote Work Split */}
+          <div className="space-y-1.5 md:border-s md:border-[#E8E3DB] md:dark:border-[#2C3037] md:ps-4">
+            <div className="flex items-center justify-between text-[11px] font-semibold">
+              <span className="uppercase tracking-wider text-[#C4622D] dark:text-[#E07B46]">
+                Local vs. Remote Work Split
+              </span>
+              <span className="font-mono-tabular text-[#17191C] dark:text-[#F4F2EE]">
+                {ageCohesionBreakdown.localWorkPct}% Local · {ageCohesionBreakdown.remoteWorkPct}% Remote
+              </span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-[#E8E3DB] dark:bg-[#2C3037] overflow-hidden flex">
+              <div
+                className="h-full bg-[#C4622D] dark:bg-[#E07B46]"
+                style={{ width: `${ageCohesionBreakdown.localWorkPct}%` }}
+              />
+              <div
+                className="h-full bg-[#146C53] dark:bg-[#2EB88B]"
+                style={{ width: `${ageCohesionBreakdown.remoteWorkPct}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+              Balances hands-on cooperative &amp; clinic sprints with cross-border digital pods.
+            </p>
+          </div>
+
+          {/* 3. Refugee-Host Community Cohesion Pods */}
+          <div className="space-y-1.5 md:border-s md:border-[#E8E3DB] md:dark:border-[#2C3037] md:ps-4">
+            <div className="flex items-center justify-between text-[11px] font-semibold">
+              <span className="uppercase tracking-wider text-[#146C53] dark:text-[#2EB88B]">
+                Refugee–Host Cohesion Pods
+              </span>
+              <span className="font-mono-tabular text-[#146C53] dark:text-[#2EB88B]">
+                {ageCohesionBreakdown.cohesionPodsCount} Active Pods
+              </span>
+            </div>
+            <p className="text-xs font-medium text-[#17191C] dark:text-[#F4F2EE]">
+              ILO PROSPECTS Dual-Community Standard
+            </p>
+            <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+              Displaced &amp; host-community builders co-delivering with shared stipends &amp; RPL sign-off.
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* Emerald-Toned Milestone Badges Component */}
@@ -993,25 +1185,36 @@ export const PulseView: React.FC<PulseViewProps> = ({
               </div>
             </dl>
 
-            <div className="pt-2">
+            <div className="pt-2 space-y-2">
               {!userEmail ? (
                 <button
                   type="button"
+                  data-testid="pulse-sync-account-btn"
                   onClick={onSignIn}
                   className="w-full min-h-[44px] px-4 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-sm font-semibold transition-colors"
                 >
-                  {t.signInGoogle}
+                  {t.signInGoogle} · Email Services
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={onSyncNow}
-                  disabled={!isOnline || isSyncing}
-                  className="w-full min-h-[44px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-sm font-medium inline-flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                  <span>{t.syncNow}</span>
-                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={onSyncNow}
+                    disabled={!isOnline || isSyncing}
+                    className="min-h-[42px] px-4 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                    <span>{t.syncNow}</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="pulse-manage-sync-btn"
+                    onClick={onSignIn}
+                    className="min-h-[42px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] transition-colors"
+                  >
+                    Manage Linked Emails
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -1247,6 +1450,51 @@ export const PulseView: React.FC<PulseViewProps> = ({
           })}
         </div>
       </section>
+
+      {/* Bottom Section — "Tripartite Partner & Scale Drawer" Trigger (Sustainability & Scalability) */}
+      <section
+        aria-labelledby="tripartite-scale-heading"
+        data-testid="tripartite-scale-trigger-section"
+        className="relative overflow-hidden rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6"
+      >
+        <RippleConstellationMotif />
+
+        <div className="relative z-10 max-w-2xl space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C4622D] dark:text-[#E07B46]">
+            SUSTAINABILITY &amp; SCALABILITY · SDG 17 TRIPARTITE ENGINE
+          </p>
+          <h2
+            id="tripartite-scale-heading"
+            className="font-display text-xl sm:text-2xl font-medium text-[#17191C] dark:text-[#F4F2EE]"
+          >
+            Tripartite Partner &amp; Scale Mode: Replicate Cohorts Across Borders
+          </h2>
+          <p className="text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
+            UN agencies, NGOs, TVET accreditors, and local employers can select any{' '}
+            <strong className="text-[#17191C] dark:text-[#F4F2EE]">
+              Region/Country + Sector + Language
+            </strong>{' '}
+            to preview how AI automatically adapts skills diagnostics, legal compliance rules, and the{' '}
+            <strong className="text-[#146C53] dark:text-[#2EB88B]">
+              46+ Master Peer-Assessor Flywheel
+            </strong>{' '}
+            with minimal manual overhead.
+          </p>
+        </div>
+
+        <div className="relative z-10 shrink-0">
+          <button
+            type="button"
+            onClick={() => onOpenScaleDrawer?.()}
+            data-testid="preview-cohort-replication-btn"
+            className="min-h-[46px] px-5 py-2.5 rounded-xl bg-[#C4622D] hover:bg-[#AD5323] text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 shadow-xs transition-colors whitespace-nowrap"
+          >
+            <span>Preview Cohort Replication &amp; Scale</span>
+            <ArrowRight className="w-4 h-4 rtl:rotate-180" />
+          </button>
+        </div>
+      </section>
     </section>
   );
 };
+

@@ -1,4 +1,5 @@
 import type {
+  AgeCohesionBreakdown,
   AgeStage,
   AnalyticsSummary,
   AuthPathwayOption,
@@ -15,8 +16,14 @@ import type {
   FinancialPayoutRail,
   FinancialPayoutRailOption,
   IdentityDocumentTier,
+  JobToFitUpskillingBridge,
   KnowledgeFlowStage,
+  LivingProofAnalysis,
+  LivingProofPortfolio,
   LocaleCode,
+  LockedUpskillingBridgeRecord,
+  MatchedWorkMode,
+  MatchedWorkOpportunity,
   MentorMessage,
   MilestoneBadge,
   OfflineMutation,
@@ -29,6 +36,7 @@ import type {
   PracticalScenario,
   PractitionerProfile,
   ProblemBrief,
+  RankedMatchedWorkOpportunity,
   RankedSolutionSprint,
   RegulatoryAccessTier,
   ScaleRegionId,
@@ -36,18 +44,24 @@ import type {
   SdgPulseMetric,
   SharedPassportPayload,
   SkillCapability,
+  SkillTrackId,
+  SkillTrackOption,
   SolutionSprint,
   SprintComplexityLevel,
   SprintDueAlert,
   SprintFeedback,
   SprintFeedbackSummary,
+  SprintMilestoneKey,
   SprintPartnerType,
   SprintPerformanceData,
   SprintPerformancePoint,
   StudioDomain,
   TargetWorkMode,
+  VerificationRouteId,
   VerificationStatus,
   WorkReadyVault,
+  WorkplaceReadinessSignals,
+  PassportTrustTier,
 } from '../types/kora';
 
 export const STUDIO_DOMAINS: StudioDomain[] = [
@@ -856,6 +870,15 @@ export function createInitialVault(ownerUid = 'local-practitioner'): WorkReadyVa
     onboardingContractStructure: 'scoped-remote',
     onboardingPartnerOrg: '',
     onboardingHostCountry: 'Kenya',
+    proofPortfolioReady: false,
+    proofSkillTrack: 'trades-solar',
+    proofLocalScore: 0,
+    proofRemoteScore: 0,
+    workplaceSignalsCount: 0,
+    matchedWorkCount: 0,
+    appliedOpportunityIds: [],
+    upskillingBridgesCount: 0,
+    lockedBridgeOpportunityIds: [],
     updatedAtIso: new Date().toISOString(),
   };
 }
@@ -1284,34 +1307,63 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
   const clearedPayouts = payouts.filter((p) => p.status !== 'escrow-held');
   const liveUnlockedUsd = computeUniqueUnlockedEarningsUsd(contributions, payouts);
 
-  // SDG 4: Credentials Verified & Bridging Modules Completed
+  // SDG 4: Credentials Verified & Bridging Modules Completed (Target 4.4)
+  const upskillingBridgesCount = Math.max(
+    0,
+    Math.round(vault.upskillingBridgesCount ?? vault.lockedBridgeOpportunityIds?.length ?? 0)
+  );
   const liveSdg4 =
     verifiedCaps.length +
     masterEndorsedCaps.length +
     (passport ? 1 : 0) +
     (passport?.stipendEligible ? 1 : 0) +
-    verifiedEndorsements.length;
+    verifiedEndorsements.length +
+    upskillingBridgesCount * 2;
   const sdg4Total = 140 + liveSdg4;
-  const sdg4Story = passport
-    ? `${passport.studioDomain} Passport & ${verifiedCaps.length} verified proof(s) bypassed slow paper re-credentialing.`
-    : `${verifiedCaps.length} field-verified capability record(s) & ${verifiedEndorsements.length} peer quote(s) converted craft into portable proof.`;
+  const sdg4Story =
+    passport?.stipendEligible
+      ? `Partner Fee-Waiver & Exam Stipend Pre-Approved (${passport.verifiableId ?? 'VNA-2026-8412'}) + ${verifiedCaps.length} verified proof(s) advancing Target 4.4 & 4.5.`
+      : upskillingBridgesCount > 0
+        ? `${upskillingBridgesCount} UQP/RPL Job-to-Fit bridge(s) locked + ${verifiedCaps.length} verified proof(s) advancing Target 4.4 skill recognition.`
+        : passport
+          ? `${passport.studioDomain} Passport & ${verifiedCaps.length} verified proof(s) bypassed slow paper re-credentialing.`
+          : `${verifiedCaps.length} field-verified capability record(s) & ${verifiedEndorsements.length} peer quote(s) converted craft into portable proof.`;
 
   // SDG 8: Paid Sprints Delivered & Earnings Unlocked
   const onboardingPackCleared = Boolean(vault.onboardingPackGenerated);
+  const proofPortfolioCleared = Boolean(vault.proofPortfolioReady);
+  const matchedWorkCount = Math.max(
+    0,
+    Math.round(vault.matchedWorkCount ?? vault.appliedOpportunityIds?.length ?? 0)
+  );
+  const workplaceSignalsCount = Math.max(0, Math.min(3, Math.round(vault.workplaceSignalsCount ?? 0)));
   const onboardingSdg8BonusUsd = onboardingPackCleared ? 250 : 0;
-  const sdg8EarningsTotal = 18400 + liveUnlockedUsd + onboardingSdg8BonusUsd;
-  const sdg8SprintsTotal = 42 + completedContribs.length + (onboardingPackCleared ? 1 : 0);
+  const proofSdg8BonusUsd = proofPortfolioCleared ? 150 : 0;
+  const matchedWorkBonusUsd = matchedWorkCount * 120;
+  const sdg8EarningsTotal =
+    18400 + liveUnlockedUsd + onboardingSdg8BonusUsd + proofSdg8BonusUsd + matchedWorkBonusUsd;
+  const sdg8SprintsTotal =
+    42 +
+    completedContribs.length +
+    (onboardingPackCleared ? 1 : 0) +
+    (proofPortfolioCleared ? 1 : 0) +
+    matchedWorkCount;
   const latestCompleted = completedContribs[0] ?? null;
   const contractingLabel = getContractingStructureLabel(
     vault.onboardingContractStructure ?? 'scoped-remote'
   );
-  const sdg8Story = onboardingPackCleared
-    ? `1-Click Onboarding Pack cleared (${contractingLabel}) + ${completedContribs.length} sprint(s) ready for rapid partner contracting.`
-    : latestCompleted
-      ? `"${latestCompleted.briefTitle}" delivered $${latestCompleted.payoutUsd} in scoped milestone earnings.`
-      : 'Scoped 1–2 week employer pain-point sprints turn idle skill directly into verified household income.';
+  const sdg8Story =
+    matchedWorkCount > 0
+      ? `${matchedWorkCount} Living Proof application(s) submitted + ${completedContribs.length} sprint(s) turning verified craft into active local & remote work.`
+      : proofPortfolioCleared
+        ? `Living Proof Portfolio verified (${vault.proofLocalScore ?? 0}% Local · ${vault.proofRemoteScore ?? 0}% Remote) + ${completedContribs.length} sprint(s) unlocking real work.`
+        : onboardingPackCleared
+          ? `1-Click Onboarding Pack cleared (${contractingLabel}) + ${completedContribs.length} sprint(s) ready for rapid partner contracting.`
+          : latestCompleted
+            ? `"${latestCompleted.briefTitle}" delivered $${latestCompleted.payoutUsd} in scoped milestone earnings.`
+            : 'Scoped 1–2 week employer pain-point sprints turn idle skill directly into verified household income.';
 
-  // SDG 10: Underemployment Gaps Closed Across Age Brackets
+  // SDG 10: Underemployment Gaps Closed Across Age Brackets (Target 10.2 — Cross-Age Equity)
   const uniqueDomains = new Set<string>([
     ...capabilities.map((c) => c.domain),
     ...contributions.map((c) => c.domain),
@@ -1321,13 +1373,20 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
     (profile.onboarded ? 1 : 0) +
     completedContribs.length +
     activeContribs.length +
-    uniqueDomains.size;
+    uniqueDomains.size +
+    (proofPortfolioCleared ? 1 : 0) +
+    workplaceSignalsCount +
+    upskillingBridgesCount * 2;
   const sdg10Total = 64 + liveSdg10;
   const userPodSeat = getUserPodSeat(profile.ageStage);
   const sdg10Story =
-    userPodSeat === 'lead'
-      ? `${profile.ageStage} Specialist track mentoring 15–29 Delivery Partners inside active cross-age pods.`
-      : `${profile.ageStage} Builder co-delivering paid sprints alongside 30–46+ Senior Specialist mentors.`;
+    upskillingBridgesCount > 0
+      ? `${upskillingBridgesCount} ILO Upgraded Apprenticeship / UQP bridge(s) locked across 15–46+ pods (${profile.ageStage}) advancing Target 10.2 equity.`
+      : proofPortfolioCleared
+        ? `Visual proof & ${workplaceSignalsCount}/3 workplace readiness signals bridge ${profile.ageStage} practitioners into local and remote roles.`
+        : userPodSeat === 'lead'
+          ? `${profile.ageStage} Specialist track mentoring 15–29 Delivery Partners inside active cross-age pods.`
+          : `${profile.ageStage} Builder co-delivering paid sprints alongside 30–46+ Senior Specialist mentors.`;
 
   // SDG 16: Legal & Payment Bottlenecks Cleared ("Barriers Cleared")
   const financialCrossing = computeFinancialCrossingProgress(vault);
@@ -1361,17 +1420,31 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
   for (const contrib of contributions) {
     const matchedSprint = SOLUTION_SPRINTS.find((s) => s.id === contrib.briefId);
     if (matchedSprint) partnerOrgs.add(matchedSprint.partnerOrg);
+    const matchedOpp = MATCHED_WORK_OPPORTUNITIES.find((o) => o.id === contrib.briefId);
+    if (matchedOpp) partnerOrgs.add(matchedOpp.partnerOrg);
   }
-  const liveSdg17 = partnerOrgs.size + contributions.length + endorsements.length;
+  const liveSdg17 =
+    partnerOrgs.size +
+    contributions.length +
+    endorsements.length +
+    (proofPortfolioCleared ? 1 : 0) +
+    (workplaceSignalsCount === 3 ? 1 : 0) +
+    matchedWorkCount;
   const sdg17Total = 36 + liveSdg17;
   const featuredPartner = Array.from(partnerOrgs)[0] ?? 'regional SME & NGO partners';
-  const sdg17Story = `${partnerOrgs.size} partner org(s) including ${featuredPartner} linked with ${contributions.length} active/completed pod(s).`;
+  const sdg17Story =
+    matchedWorkCount > 0
+      ? `${matchedWorkCount} direct Living Proof partner match(es) + ${partnerOrgs.size} partner org(s) including ${featuredPartner}.`
+      : proofPortfolioCleared
+        ? `Employer-Ready Proof + ${partnerOrgs.size} partner org(s) including ${featuredPartner} connected across ${contributions.length} pod(s).`
+        : `${partnerOrgs.size} partner org(s) including ${featuredPartner} linked with ${contributions.length} active/completed pod(s).`;
 
   return [
     {
       sdgNumber: 4,
       sdgLabel: 'SDG 4',
-      title: 'Credentials Verified & Bridging Modules',
+      unTargetTag: 'Targets 4.4 & 4.5 — Quality Upskilling',
+      title: 'Verified Competency Passports & Job-Fit Micro-Bridges Completed (UQP / RPL aligned)',
       primaryValue: sdg4Total.toLocaleString(),
       numericValue: sdg4Total,
       metricCaption: 'credentials & micro-bridges',
@@ -1382,20 +1455,25 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
     {
       sdgNumber: 8,
       sdgLabel: 'SDG 8',
-      title: 'Paid Sprints & Earnings Unlocked',
+      unTargetTag: 'Targets 8.5, 8.8 & 8.10 — Decent Work',
+      title: 'Paid Sprints Unlocked, Upgraded Apprenticeships Active & Fair-Pay Contracts Issued',
       primaryValue: `$${sdg8EarningsTotal.toLocaleString()}`,
       numericValue: sdg8EarningsTotal,
-      metricCaption: onboardingPackCleared
-        ? `${sdg8SprintsTotal} paid sprints & onboarding packs`
-        : `${sdg8SprintsTotal} paid sprints delivered`,
-      liveDeltaLabel: `+$${(liveUnlockedUsd + onboardingSdg8BonusUsd).toLocaleString()} live`,
+      metricCaption:
+        matchedWorkCount > 0
+          ? `${sdg8SprintsTotal} paid sprints & ${matchedWorkCount} matched app(s)`
+          : proofPortfolioCleared || onboardingPackCleared
+            ? `${sdg8SprintsTotal} paid sprints & verified portfolios`
+            : `${sdg8SprintsTotal} paid sprints delivered`,
+      liveDeltaLabel: `+$${(liveUnlockedUsd + onboardingSdg8BonusUsd + proofSdg8BonusUsd + matchedWorkBonusUsd).toLocaleString()} live`,
       microStory: sdg8Story,
       accent: 'terracotta',
     },
     {
       sdgNumber: 10,
       sdgLabel: 'SDG 10',
-      title: 'Underemployment Gaps Closed',
+      unTargetTag: 'Targets 10.2 & 10.7 — Reduced Inequalities',
+      title: 'Cross-Age Builders Placed (15–17, 18–29, 30–45, 46+) & Refugee–Host Community Cohesion Pods',
       primaryValue: sdg10Total.toLocaleString(),
       numericValue: sdg10Total,
       metricCaption: `across 15–46+ brackets (${profile.ageStage})`,
@@ -1406,7 +1484,8 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
     {
       sdgNumber: 16,
       sdgLabel: 'SDG 16',
-      title: 'Barriers Cleared · Legal & Payout',
+      unTargetTag: 'Targets 16.6 & 16.9 — Strong Institutions',
+      title: 'Work-Auth Pathways Mapped & FATF Tiered KYC Payout Rails Cleared',
       primaryValue: sdg16Total.toLocaleString(),
       numericValue: sdg16Total,
       metricCaption: financialCrossing.isCrossingCleared
@@ -1419,7 +1498,8 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
     {
       sdgNumber: 17,
       sdgLabel: 'SDG 17',
-      title: 'Partners, Mentors & Cross-Age Pods',
+      unTargetTag: 'Target 17.17 — Partnerships',
+      title: 'Active Tripartite Partners (Employers/SMEs + TVET/RPL Accreditors + Stipend/Fee-Waiver Sponsors)',
       primaryValue: sdg17Total.toLocaleString(),
       numericValue: sdg17Total,
       metricCaption: `${partnerOrgs.size} partners · ${contributions.length} pods`,
@@ -1444,11 +1524,18 @@ export function computeKnowledgeToWorkFlow(inputs: ReactivePulseInputs): Knowled
   const releasedPayouts = payouts.filter((p) => p.status === 'released').length;
   const completedContribs = contributions.filter((c) => c.status === 'completed').length;
   const liveUnlockedUsd = computeUniqueUnlockedEarningsUsd(contributions, payouts);
+  const upskillingBridgesCount = vault.upskillingBridgesCount ?? 0;
+  const matchedWorkCount = vault.matchedWorkCount ?? 0;
 
   const intakeCount =
     220 + (profile.problemStatement.trim().length > 0 ? 1 : 0) + capabilities.length;
   const passportCount =
-    168 + verifiedCaps + masterEndorsedCaps + (passport ? 1 : 0) + verifiedEndorsements;
+    168 +
+    verifiedCaps +
+    masterEndorsedCaps +
+    (passport ? 1 : 0) +
+    verifiedEndorsements +
+    upskillingBridgesCount;
   const payoutCount =
     134 +
     vaultReadiness.completedCount +
@@ -1457,7 +1544,12 @@ export function computeKnowledgeToWorkFlow(inputs: ReactivePulseInputs): Knowled
     (vault.onboardingPackGenerated ? 1 : 0) +
     clearedPayouts;
   const placementCount =
-    98 + completedContribs + releasedPayouts + (completedContribs >= 2 ? 1 : 0);
+    98 +
+    completedContribs +
+    releasedPayouts +
+    upskillingBridgesCount +
+    matchedWorkCount +
+    (completedContribs >= 2 ? 1 : 0);
 
   const passportConv = Math.min(100, Math.round((passportCount / Math.max(1, intakeCount)) * 100));
   const payoutConv = Math.min(100, Math.round((payoutCount / Math.max(1, passportCount)) * 100));
@@ -1490,7 +1582,7 @@ export function computeKnowledgeToWorkFlow(inputs: ReactivePulseInputs): Knowled
     {
       id: 'payout',
       stepNumber: '03',
-      label: 'Compliant Payout',
+      label: 'Compliance Cleared',
       count: payoutCount,
       conversionPct: payoutConv,
       status:
@@ -1504,14 +1596,52 @@ export function computeKnowledgeToWorkFlow(inputs: ReactivePulseInputs): Knowled
     {
       id: 'placement',
       stepNumber: '04',
-      label: 'Paid Placement',
+      label: 'Upskilling Bridge / Paid Placement',
       count: placementCount,
       conversionPct: placementConv,
       status:
-        completedContribs >= 2 ? 'verified' : completedContribs >= 1 ? 'active' : 'ready',
-      microCaption: `${completedContribs} sprint(s) delivered · $${liveUnlockedUsd.toLocaleString()} unlocked`,
+        completedContribs >= 2 || upskillingBridgesCount > 0 || matchedWorkCount > 0
+          ? 'verified'
+          : completedContribs >= 1
+            ? 'active'
+            : 'ready',
+      microCaption:
+        upskillingBridgesCount > 0
+          ? `${upskillingBridgesCount} bridge(s) locked · ${completedContribs} sprint(s) · $${liveUnlockedUsd.toLocaleString()} unlocked`
+          : `${completedContribs} sprint(s) delivered · $${liveUnlockedUsd.toLocaleString()} unlocked`,
     },
   ];
+}
+
+export function computeAgeAndCohesionBreakdown(inputs: ReactivePulseInputs): AgeCohesionBreakdown {
+  const { profile, vault, contributions } = inputs;
+  const isYouth = profile.ageStage === '15-17' || profile.ageStage === '18-29';
+  const youthBase = 53 + (isYouth ? 3 : 0);
+  const youth15To29Pct = Math.min(62, Math.max(45, youthBase));
+  const specialist30To46PlusPct = 100 - youth15To29Pct;
+
+  const localScore = vault.proofLocalScore ?? 88;
+  const remoteScore = vault.proofRemoteScore ?? 82;
+  const totalScore = Math.max(1, localScore + remoteScore);
+  const localWorkPct = Math.round((localScore / totalScore) * 100);
+  const remoteWorkPct = 100 - localWorkPct;
+
+  const upskillingBridgesCount = vault.upskillingBridgesCount ?? 0;
+  const cohesionPodsCount =
+    18 + contributions.length + upskillingBridgesCount + (vault.matchedWorkCount ?? 0);
+
+  return {
+    youth15To29Pct,
+    specialist30To46PlusPct,
+    activeAgeStage: profile.ageStage,
+    activeAgeGroupLabel: isYouth
+      ? `Youth Builder (${profile.ageStage})`
+      : `Specialist / Master (${profile.ageStage})`,
+    localWorkPct,
+    remoteWorkPct,
+    cohesionPodsCount,
+    upskillingBridgesCount,
+  };
 }
 
 export function computeSprintPerformanceSeries(
@@ -3030,6 +3160,963 @@ export function buildOnboardingPackTemplate(params: {
   };
 }
 
+export const SKILL_TRACK_OPTIONS: SkillTrackOption[] = [
+  {
+    id: 'trades-solar',
+    title: 'Trades, Solar & Repair',
+    examples: 'Electrical, Solar Setup, Phone/PC Repair, Plumbing',
+    studioDomain: 'Green Energy',
+  },
+  {
+    id: 'craft-tailoring',
+    title: 'Craft, Tailoring & Creative',
+    examples: 'Tailoring, Woodwork, Graphic Design, Media',
+    studioDomain: 'SME Finance',
+  },
+  {
+    id: 'business-finance',
+    title: 'Business, Finance & Ops',
+    examples: 'SME Bookkeeping, Inventory, Logistics, Customer Support',
+    studioDomain: 'SME Finance',
+  },
+  {
+    id: 'digital-code',
+    title: 'Digital, Code & Language',
+    examples: 'Translation, Data/QA, Web/App Building, Virtual Ops',
+    studioDomain: 'Tech',
+  },
+  {
+    id: 'agri-care',
+    title: 'Agri, Education & Care',
+    examples: 'Agribusiness, Tutoring, Community Health Ops',
+    studioDomain: 'Healthcare Ops',
+  },
+];
+
+export function getSkillTrackOption(trackId: SkillTrackId): SkillTrackOption {
+  return SKILL_TRACK_OPTIONS.find((item) => item.id === trackId) ?? SKILL_TRACK_OPTIONS[0];
+}
+
+export function countWorkplaceSignals(signals: WorkplaceReadinessSignals): number {
+  return (
+    (signals.clearTimelines ? 1 : 0) +
+    (signals.qualitySafetyCheck ? 1 : 0) +
+    (signals.clientCommunication ? 1 : 0)
+  );
+}
+
+export function createInitialLivingProofPortfolio(): LivingProofPortfolio {
+  return {
+    skillTrackId: 'trades-solar',
+    problemSolvedCaption: '',
+    voiceWalkthrough: '',
+    peerVouch: '',
+    images: [],
+    workplaceSignals: {
+      clearTimelines: false,
+      qualitySafetyCheck: false,
+      clientCommunication: false,
+    },
+    analysis: null,
+    updatedAtIso: new Date().toISOString(),
+  };
+}
+
+export function buildOfflineLivingProofAnalysis(params: {
+  skillTrackId: SkillTrackId;
+  imageCount: number;
+  problemSolvedCaption: string;
+  voiceWalkthrough: string;
+  peerVouch: string;
+  workplaceSignals: WorkplaceReadinessSignals;
+}): LivingProofAnalysis {
+  const track = getSkillTrackOption(params.skillTrackId);
+  const caption = params.problemSolvedCaption.trim();
+  const walkthrough = params.voiceWalkthrough.trim();
+  const vouch = params.peerVouch.trim();
+  const signalCount = countWorkplaceSignals(params.workplaceSignals);
+
+  const isDigitalHeavy =
+    params.skillTrackId === 'digital-code' || params.skillTrackId === 'business-finance';
+
+  const baseLocal = isDigitalHeavy ? 72 : 84;
+  const baseRemote = isDigitalHeavy ? 86 : 68;
+  const evidenceBoost =
+    Math.min(8, params.imageCount * 4) +
+    (caption.length >= 12 ? 3 : 0) +
+    (walkthrough.length >= 20 ? 3 : 0) +
+    (vouch.length >= 5 ? 3 : 0) +
+    signalCount * 2;
+
+  const localReadinessPct = Math.min(98, baseLocal + evidenceBoost);
+  const remoteReadinessPct = Math.min(98, baseRemote + evidenceBoost);
+
+  const trackHighlights: Record<SkillTrackId, string[]> = {
+    'trades-solar': [
+      'Visible hands-on wiring/circuit discipline and clean physical tool organization ready for field inspection.',
+      caption
+        ? `Clearly resolves a concrete operational problem: ${caption.slice(0, 110)}`
+        : 'Demonstrates practical fault isolation and safe component labeling without wasted material.',
+      vouch
+        ? `Backed by peer/client verification (${vouch.slice(0, 75)}) confirming real-world reliability.`
+        : 'Prepared for local technical tenders as well as remote photo-based diagnostics coaching.',
+    ],
+    'craft-tailoring': [
+      'Clean finish precision, material economy, and repeatable production quality visible in work samples.',
+      caption
+        ? `Direct customer value delivered: ${caption.slice(0, 110)}`
+        : 'Shows workshop-ready craftsmanship adaptable to bespoke orders or cooperative batches.',
+      vouch
+        ? `Includes collaborator vouch (${vouch.slice(0, 75)}) strengthening buyer confidence.`
+        : 'Portfolio pairs tactile craft photos with clear delivery specs for regional and digital storefronts.',
+    ],
+    'business-finance': [
+      'Structured inventory, cash-flow, or ledger clarity built for immediate SME owner decision-making.',
+      caption
+        ? `Operational bottleneck resolved: ${caption.slice(0, 110)}`
+        : 'Reconciles day-to-day stock and supplier cash timing with clean audit visibility.',
+      vouch
+        ? `Verified by past client/peer vouch (${vouch.slice(0, 75)}) for dependable follow-through.`
+        : 'Strongly suited for both local SME ops oversight and remote bookkeeping / virtual ops roles.',
+    ],
+    'digital-code': [
+      'Clear workflow logic, structured documentation, and attention to low-bandwidth / QA edge cases.',
+      caption
+        ? `User or system issue solved: ${caption.slice(0, 110)}`
+        : 'Shows practical technical execution transferable immediately to distributed product teams.',
+      vouch
+        ? `Peer/client vouch attached (${vouch.slice(0, 75)}) validating async team trust.`
+        : 'Ready for asynchronous remote sprints, multilingual QA, and digital operations delivery.',
+    ],
+    'agri-care': [
+      'Practical community-facing organization, hygiene/safety awareness, and clear record-keeping.',
+      caption
+        ? `Community outcome achieved: ${caption.slice(0, 110)}`
+        : 'Balances reliable on-the-ground service care with clear tracking for partner supervisors.',
+      vouch
+        ? `Supported by community/supervisor vouch (${vouch.slice(0, 75)}).`
+        : 'Fits local field coordination as well as remote intake, monitoring, and bilingual support.',
+    ],
+  };
+
+  const trackTips: Record<SkillTrackId, string> = {
+    'trades-solar':
+      'Add one close-up photo showing your final safety test reading (voltage, seal, or pressure check) beside the completed job.',
+    'craft-tailoring':
+      'Include one photo with a ruler or measurement spec next to the finished piece so remote buyers can verify sizing.',
+    'business-finance':
+      'Add one before-and-after note showing hours saved or stock discrepancies caught each week for hiring managers.',
+    'digital-code':
+      'Attach one short 3-bullet README note explaining what broke, what you changed, and how you tested the fix.',
+    'agri-care':
+      'Include one simple daily checklist photo or count metric showing how many households, students, or patients benefited.',
+  };
+
+  return {
+    visualHighlights: trackHighlights[params.skillTrackId],
+    localReadinessPct,
+    remoteReadinessPct,
+    marketFitSummary: `Strong ${track.title} fit: your proof scores ${localReadinessPct}% for local hands-on roles and ${remoteReadinessPct}% for remote delivery pods.`,
+    levelUpTip: trackTips[params.skillTrackId],
+    source: 'offline',
+    generatedAtIso: new Date().toISOString(),
+  };
+}
+
+export const SPRINT_MILESTONE_STEPS: Array<{
+  key: SprintMilestoneKey;
+  label: string;
+  shortLabel: string;
+}> = [
+  { key: 'analysis-complete', label: 'Analysis Complete', shortLabel: 'Analysis' },
+  { key: 'draft-ready', label: 'Draft Ready', shortLabel: 'Draft' },
+  { key: 'final-submission', label: 'Final Submission', shortLabel: 'Submitted' },
+];
+
+export function normalizeSprintMilestones(
+  raw: SprintMilestoneKey[] | undefined,
+  isCompleted: boolean
+): SprintMilestoneKey[] {
+  if (isCompleted) {
+    return SPRINT_MILESTONE_STEPS.map((s) => s.key);
+  }
+  if (!Array.isArray(raw)) return [];
+  const valid = new Set<SprintMilestoneKey>(SPRINT_MILESTONE_STEPS.map((s) => s.key));
+  return Array.from(new Set(raw.filter((item): item is SprintMilestoneKey => valid.has(item))));
+}
+
+export function getSprintMilestoneProgress(
+  milestonesDone: SprintMilestoneKey[] | undefined,
+  isCompleted: boolean
+): {
+  completedKeys: SprintMilestoneKey[];
+  completedCount: number;
+  totalCount: number;
+  percentage: number;
+} {
+  const completedKeys = normalizeSprintMilestones(milestonesDone, isCompleted);
+  const totalCount = SPRINT_MILESTONE_STEPS.length;
+  const completedCount = completedKeys.length;
+  const percentage = Math.round((completedCount / totalCount) * 100);
+  return { completedKeys, completedCount, totalCount, percentage };
+}
+
+export function toggleSprintMilestoneList(
+  current: SprintMilestoneKey[] | undefined,
+  target: SprintMilestoneKey
+): SprintMilestoneKey[] {
+  const normalized = normalizeSprintMilestones(current, false);
+  if (normalized.includes(target)) {
+    return normalized.filter((k) => k !== target);
+  }
+  const order = SPRINT_MILESTONE_STEPS.map((s) => s.key);
+  return [...normalized, target].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+}
+
+export const MATCHED_WORK_OPPORTUNITIES: MatchedWorkOpportunity[] = [
+  {
+    id: 'opp-solar-diagnostics-01',
+    title: 'Off-Grid Solar Diagnostics & Maintenance Sprint (5 Days · Paid)',
+    skillTrackId: 'trades-solar',
+    studioDomain: 'Green Energy',
+    workMode: 'local',
+    fellowshipEligible: true,
+    durationLabel: '5 Days · Paid Local Sprint',
+    estimatedHours: 10,
+    payoutUsd: 480,
+    partnerOrg: 'Mombasa CleanGrid Co-op',
+    partnerLocation: 'Regional Field Clinics & Microgrids',
+    whyEmployersNeedThisNow:
+      'Rural clinics lose vaccine cooling every week waiting on scarce inverter diagnostics.',
+    scopeSummary:
+      'Inspect 48V inverter banks, tighten DC breaker busbars, and log cell-balancing checks.',
+    podLeadRole: '30–46+ Experienced Specialist/Mentor (QA Lead)',
+    podDeliveryRole: '15–29 Emerging/Early-Career Builder (Paid Delivery)',
+    keywords: ['solar', '48v', 'inverter', 'battery', 'wiring', 'electrical', 'breaker', 'repair', 'clinic'],
+  },
+  {
+    id: 'opp-sme-bookkeeping-02',
+    title: 'SME Stock & Bookkeeping Cleanup for Local Distributor (1 Week · Paid)',
+    skillTrackId: 'business-finance',
+    studioDomain: 'SME Finance',
+    workMode: 'local',
+    fellowshipEligible: false,
+    durationLabel: '1 Week · Paid Local Sprint',
+    estimatedHours: 8,
+    payoutUsd: 390,
+    partnerOrg: 'Karatina Fresh Distributors',
+    partnerLocation: 'Local Wholesale Depot',
+    whyEmployersNeedThisNow:
+      'Growing food wholesalers lose 12% monthly margin from uncounted stock and late invoices.',
+    scopeSummary:
+      'Reconcile physical SKU bin counts, clean weekly supplier ledgers, and set reorder thresholds.',
+    podLeadRole: '30–46+ Experienced Specialist/Mentor (QA Lead)',
+    podDeliveryRole: '15–29 Emerging/Early-Career Builder (Paid Delivery)',
+    keywords: ['inventory', 'bookkeeping', 'cash', 'ledger', 'stock', 'sme', 'invoice', 'finance', 'sku'],
+  },
+  {
+    id: 'opp-tailoring-batch-03',
+    title: 'Custom Uniform Tailoring Batch QA & Pattern Lead (2 Weeks · Paid)',
+    skillTrackId: 'craft-tailoring',
+    studioDomain: 'SME Finance',
+    workMode: 'local',
+    fellowshipEligible: true,
+    durationLabel: '2 Weeks · Paid Returnship Pod',
+    estimatedHours: 14,
+    payoutUsd: 440,
+    partnerOrg: 'Nairobi Cooperative Garments',
+    partnerLocation: 'Community Workshop Hub',
+    whyEmployersNeedThisNow:
+      'School uniform tenders require consistent seam grading and zero-waste cutting layouts on deadline.',
+    scopeSummary:
+      'Lead sizing pattern checks, stitch quality sign-off, and workshop batch packing schedules.',
+    podLeadRole: '30–46+ Experienced Specialist/Mentor (QA Lead)',
+    podDeliveryRole: '15–29 Emerging/Early-Career Builder (Paid Delivery)',
+    keywords: ['tailoring', 'pattern', 'seam', 'garment', 'craft', 'woodwork', 'design', 'uniform', 'qa'],
+  },
+  {
+    id: 'opp-multilingual-support-04',
+    title: 'Multilingual Product Support & Translation Sprint (Remote · Paid)',
+    skillTrackId: 'digital-code',
+    studioDomain: 'Tech',
+    workMode: 'remote',
+    fellowshipEligible: false,
+    durationLabel: '10 Days · Remote Paid Sprint',
+    estimatedHours: 8,
+    payoutUsd: 410,
+    partnerOrg: 'LumenAid Civic Helpdesk',
+    partnerLocation: 'Async Distributed Team',
+    whyEmployersNeedThisNow:
+      'Cross-border service apps lose first-time users when onboarding guides skip local idioms.',
+    scopeSummary:
+      'Translate 40 core help workflows, resolve ticket edge cases, and QA Arabic/Swahili/French copy.',
+    podLeadRole: '30–46+ Experienced Specialist/Mentor (QA Lead)',
+    podDeliveryRole: '15–29 Emerging/Early-Career Builder (Paid Delivery)',
+    keywords: ['translation', 'language', 'support', 'bilingual', 'arabic', 'swahili', 'french', 'ops', 'remote'],
+  },
+  {
+    id: 'opp-accessibility-audit-05',
+    title: 'Web/Mobile Storefront Accessibility Audit & Fix (Remote · Paid)',
+    skillTrackId: 'digital-code',
+    studioDomain: 'Tech',
+    workMode: 'remote',
+    fellowshipEligible: true,
+    durationLabel: '2 Weeks · Paid Fellowship Track',
+    estimatedHours: 12,
+    payoutUsd: 520,
+    partnerOrg: 'SokoBridge Digital Fellowship',
+    partnerLocation: 'Remote Product Pod',
+    whyEmployersNeedThisNow:
+      'Mobile-first merchants lose low-bandwidth buyers when checkout screens fail screen-reader or 3G checks.',
+    scopeSummary:
+      'Audit mobile storefront contrast, keyboard navigation, offline states, and ship clean UI patches.',
+    podLeadRole: '30–46+ Experienced Specialist/Mentor (QA Lead)',
+    podDeliveryRole: '15–29 Emerging/Early-Career Builder (Paid Delivery)',
+    keywords: ['web', 'mobile', 'app', 'accessibility', 'qa', 'code', 'audit', 'typescript', 'offline', 'fix'],
+  },
+];
+
+export function isComplianceClearedForWork(vault?: WorkReadyVault | null): boolean {
+  if (!vault) return false;
+  const vaultReady = Boolean(
+    vault.identityCompleted && vault.contractCompleted && vault.payoutCompleted
+  );
+  const kycCleared = Boolean(
+    vault.financialIdentityCleared && vault.financialRailTested && vault.financialTaxCleared
+  );
+  const identityAndPayoutReady = Boolean(vault.identityCompleted && vault.payoutCompleted);
+  return Boolean(
+    vault.onboardingPackGenerated || vaultReady || kycCleared || identityAndPayoutReady
+  );
+}
+
+export function rankMatchedWorkOpportunities(params: {
+  portfolio: LivingProofPortfolio;
+  profile: PractitionerProfile;
+  passport: CompetencyPassport | null;
+  vault?: WorkReadyVault | null;
+}): RankedMatchedWorkOpportunity[] {
+  const { portfolio, profile, passport, vault } = params;
+  const hasUploadedProof = Boolean(portfolio.analysis);
+  const preClearedToContract = isComplianceClearedForWork(vault);
+  const userPodSeat = getUserPodSeat(profile.ageStage);
+  const trackMeta = getSkillTrackOption(portfolio.skillTrackId);
+
+  const haystack = [
+    profile.problemStatement,
+    portfolio.problemSolvedCaption,
+    portfolio.voiceWalkthrough,
+    portfolio.peerVouch,
+    passport?.studioDomain ?? '',
+    passport?.fieldMatch ?? '',
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  return MATCHED_WORK_OPPORTUNITIES.map((opp, idx) => {
+    const exactTrackMatch = opp.skillTrackId === portfolio.skillTrackId;
+    const domainMatch =
+      passport?.studioDomain === opp.studioDomain ||
+      trackMeta.studioDomain === opp.studioDomain;
+    const keywordHits = opp.keywords.filter((kw) => haystack.includes(kw)).length;
+
+    let score = 68 + (idx % 3) * 3;
+    if (exactTrackMatch) score += 20;
+    else if (domainMatch) score += 10;
+    if (hasUploadedProof && exactTrackMatch) score += 7;
+    else if (hasUploadedProof) score += 4;
+    score += Math.min(8, keywordHits * 2);
+
+    const finalScore = Math.max(66, Math.min(99, score));
+    const isStrongFit =
+      (exactTrackMatch && hasUploadedProof) ||
+      (exactTrackMatch && keywordHits > 0) ||
+      finalScore >= 86;
+
+    const isUpskillingBridgeFit = finalScore >= 65 && finalScore <= 90;
+
+    const fitReasonLabel = isStrongFit
+      ? hasUploadedProof
+        ? 'Strong Fit — Aligned with Your Uploaded Proof'
+        : `Strong Fit — Aligned with ${trackMeta.title}`
+      : domainMatch
+        ? `Aligned with your ${opp.studioDomain} skill focus`
+        : 'Cross-age pod match ready for proof attachment';
+
+    return {
+      ...opp,
+      matchScore: finalScore,
+      isStrongFit,
+      isUpskillingBridgeFit,
+      fitReasonLabel,
+      userPodSeat,
+      preClearedToContract,
+    };
+  }).sort((a, b) => Number(b.isStrongFit) - Number(a.isStrongFit) || b.matchScore - a.matchScore);
+}
+
+export function filterMatchedWorkOpportunities(
+  opportunities: RankedMatchedWorkOpportunity[],
+  mode: MatchedWorkMode
+): RankedMatchedWorkOpportunity[] {
+  if (mode === 'all') return opportunities;
+  if (mode === 'local') return opportunities.filter((o) => o.workMode === 'local');
+  if (mode === 'remote') return opportunities.filter((o) => o.workMode === 'remote');
+  return opportunities.filter((o) => o.fellowshipEligible);
+}
+
+const PRESEEDED_UPSKILLING_BRIDGES: Record<
+  string,
+  Omit<JobToFitUpskillingBridge, 'opportunityId' | 'source' | 'updatedAtIso'>
+> = {
+  'opp-solar-diagnostics-01': {
+    whatYouAlreadyProve: [
+      '48V LiFePO4 battery cell-balancing & DC load-sag troubleshooting',
+      'Clean physical breaker wiring & clinic microgrid fault isolation',
+    ],
+    singleMissingBridge: {
+      skillTitle: 'Inverter Grounding Safety Check',
+      practicalWhy:
+        'Mombasa CleanGrid requires a logged earth-leakage & chassis continuity reading before energizing rural clinic vaccine banks.',
+      frameworkTag: 'UNESCO UQP · ILO RPL Standard',
+    },
+    optionAMicroBridge: {
+      title: '48V Earthing & Surge Continuity Field Check',
+      durationLabel: '4 Days · Practical TVET/RPL Module',
+      actionSummary:
+        'Complete a hands-on clamp-meter earth-resistance check and upload 1 signed continuity photo sheet.',
+      stipendPillLabel: 'Partner Fee-Waiver / Stipend Eligible',
+      stipendCovers: 'Covers TVET RPL assessment fee, mobile data bundle & clamp-meter kit loan',
+    },
+    optionBApprenticeshipPod: {
+      title: 'ILO Upgraded Solar Apprenticeship Pod',
+      mentorPairingLabel: 'Paired with 30–46+ Certified Master Mentor (Eng. Samuel Kariuki)',
+      cohesionNote:
+        'Open to both refugee & host-community talent for mutual social cohesion · On-the-job hours convert directly into verified RPL credits.',
+      paidApprenticeStipendUsd: 480,
+    },
+  },
+  'opp-sme-bookkeeping-02': {
+    whatYouAlreadyProve: [
+      'Physical SKU bin-count reconciliation & weekly supplier ledger cleanup',
+      'Reliable delivery timelines & clear workshop stock variance logging',
+    ],
+    singleMissingBridge: {
+      skillTitle: 'ILO Fair-Pricing & Quote Sheet',
+      practicalWhy:
+        'Karatina Fresh Distributors requires a standardized landed-cost margin & tax-exempt voucher sheet for wholesale buyers.',
+      frameworkTag: 'UNESCO UQP · ILO RPL Standard',
+    },
+    optionAMicroBridge: {
+      title: 'Wholesale Margin & Tax-Exempt Voucher Micro-Bridge',
+      durationLabel: '3 Days · Practical TVET/RPL Module',
+      actionSummary:
+        'Practice building a 1-page wholesale quote & reorder threshold sheet from 20 real depot invoices.',
+      stipendPillLabel: 'Partner Fee-Waiver / Stipend Eligible',
+      stipendCovers: 'Covers bookkeeping exam waiver & 5GB mobile data bundle',
+    },
+    optionBApprenticeshipPod: {
+      title: 'ILO Upgraded SME Finance Apprenticeship Pod',
+      mentorPairingLabel: 'Paired with 30–46+ Certified Master Mentor (Grace Mukasa)',
+      cohesionNote:
+        'Open to both refugee & host-community talent for mutual social cohesion · On-the-job hours convert directly into verified RPL credits.',
+      paidApprenticeStipendUsd: 390,
+    },
+  },
+  'opp-tailoring-batch-03': {
+    whatYouAlreadyProve: [
+      'Consistent garment seam construction & zero-waste fabric layout discipline',
+      'Workshop-ready craft quality backed by visual proof samples',
+    ],
+    singleMissingBridge: {
+      skillTitle: 'Industrial Seam Tolerance & Batch Spec Sheet',
+      practicalWhy:
+        'Nairobi Cooperative Garments requires a standardized ±2mm sizing tolerance sign-off card for 200-unit school uniform tenders.',
+      frameworkTag: 'UNESCO UQP · ILO RPL Standard',
+    },
+    optionAMicroBridge: {
+      title: 'Batch Pattern Grading & Seam QA Micro-Bridge',
+      durationLabel: '5 Days · Practical TVET/RPL Module',
+      actionSummary:
+        'Grade a 3-size uniform run and log a photo measurement checklist against cooperative tender tolerances.',
+      stipendPillLabel: 'Partner Fee-Waiver / Stipend Eligible',
+      stipendCovers: 'Covers fabric sample kit, caliper tool stipend & TVET trade test waiver',
+    },
+    optionBApprenticeshipPod: {
+      title: 'ILO Upgraded Garment QA Apprenticeship Pod',
+      mentorPairingLabel: 'Paired with 30–46+ Certified Master Mentor (Master Tailor Amina)',
+      cohesionNote:
+        'Open to both refugee & host-community talent for mutual social cohesion · On-the-job hours convert directly into verified RPL credits.',
+      paidApprenticeStipendUsd: 440,
+    },
+  },
+  'opp-multilingual-support-04': {
+    whatYouAlreadyProve: [
+      'Culturally accurate multilingual communication across Arabic, Swahili, French & English',
+      'Empathetic user ticket triage & clear step-by-step problem resolution',
+    ],
+    singleMissingBridge: {
+      skillTitle: 'Remote Sprint Handoff Notes',
+      practicalWhy:
+        'LumenAid Civic Helpdesk runs async across 3 time zones and needs structured 3-bullet glossary & escalation handoff logs.',
+      frameworkTag: 'UNESCO UQP · ILO RPL Standard',
+    },
+    optionAMicroBridge: {
+      title: 'Async Ticket Escalation & Glossary QA Micro-Bridge',
+      durationLabel: '3 Days · Practical TVET/RPL Module',
+      actionSummary:
+        'Complete 5 sample helpdesk shift handoffs using structured markdown tags and back-translation checks.',
+      stipendPillLabel: 'Partner Fee-Waiver / Stipend Eligible',
+      stipendCovers: 'Covers 10GB remote work data bundle & UQP digital badge fee waiver',
+    },
+    optionBApprenticeshipPod: {
+      title: 'ILO Upgraded Localization Apprenticeship Pod',
+      mentorPairingLabel: 'Paired with 30–46+ Certified Master Mentor (Dr. Amina Haddad)',
+      cohesionNote:
+        'Open to both refugee & host-community talent for mutual social cohesion · On-the-job hours convert directly into verified RPL credits.',
+      paidApprenticeStipendUsd: 410,
+    },
+  },
+  'opp-accessibility-audit-05': {
+    whatYouAlreadyProve: [
+      'Low-bandwidth mobile UI testing & practical front-end troubleshooting',
+      'Structured bug reproduction & clear technical documentation',
+    ],
+    singleMissingBridge: {
+      skillTitle: 'WCAG Keyboard-Trap & Contrast Sign-Off Sheet',
+      practicalWhy:
+        'SokoBridge Digital Fellowship requires a 1-page screen-reader focus order & 4.5:1 contrast verification log before merging checkout fixes.',
+      frameworkTag: 'UNESCO UQP · ILO RPL Standard',
+    },
+    optionAMicroBridge: {
+      title: 'Mobile Accessibility & Screen-Reader QA Micro-Bridge',
+      durationLabel: '4 Days · Practical TVET/RPL Module',
+      actionSummary:
+        'Audit a 3-step mobile checkout flow for keyboard focus traps and attach annotated before/after contrast tokens.',
+      stipendPillLabel: 'Partner Fee-Waiver / Stipend Eligible',
+      stipendCovers: 'Covers accessibility certification fee waiver & prepaid data stipend',
+    },
+    optionBApprenticeshipPod: {
+      title: 'ILO Upgraded Digital Engineering Apprenticeship Pod',
+      mentorPairingLabel: 'Paired with 30–46+ Certified Master Mentor (Eng. Tomasz Kowalski)',
+      cohesionNote:
+        'Open to both refugee & host-community talent for mutual social cohesion · On-the-job hours convert directly into verified RPL credits.',
+      paidApprenticeStipendUsd: 520,
+    },
+  },
+};
+
+export function buildPreseededUpskillingBridge(params: {
+  opportunity: MatchedWorkOpportunity;
+  portfolio: LivingProofPortfolio;
+  profile: PractitionerProfile;
+  passport: CompetencyPassport | null;
+}): JobToFitUpskillingBridge {
+  const { opportunity, portfolio, passport } = params;
+  const preset =
+    PRESEEDED_UPSKILLING_BRIDGES[opportunity.id] ??
+    PRESEEDED_UPSKILLING_BRIDGES['opp-solar-diagnostics-01'];
+
+  const passportSkills =
+    passport?.verifiedSkills
+      .map((s) => s.name.trim())
+      .filter((s) => s.length >= 4)
+      .slice(0, 2) ?? [];
+
+  const proofHighlights =
+    portfolio.analysis?.visualHighlights
+      .map((h) => h.trim())
+      .filter((h) => h.length >= 8)
+      .slice(0, 2) ?? [];
+
+  const exactTrackMatch = portfolio.skillTrackId === opportunity.skillTrackId;
+
+  let strengthOne = preset.whatYouAlreadyProve[0];
+  let strengthTwo = preset.whatYouAlreadyProve[1];
+
+  if (exactTrackMatch && proofHighlights.length >= 1) {
+    strengthOne = proofHighlights[0].slice(0, 115);
+  } else if (passportSkills.length >= 1) {
+    strengthOne = `Verified Passport Competence: ${passportSkills[0]}`;
+  }
+
+  if (exactTrackMatch && proofHighlights.length >= 2) {
+    strengthTwo = proofHighlights[1].slice(0, 115);
+  } else if (passportSkills.length >= 2) {
+    strengthTwo = `Verified Field Evidence: ${passportSkills[1]}`;
+  } else if (portfolio.problemSolvedCaption.trim().length >= 10) {
+    strengthTwo = `Demonstrated Craft Proof: ${portfolio.problemSolvedCaption.trim().slice(0, 100)}`;
+  }
+
+  return {
+    opportunityId: opportunity.id,
+    whatYouAlreadyProve: [strengthOne, strengthTwo],
+    singleMissingBridge: { ...preset.singleMissingBridge },
+    optionAMicroBridge: { ...preset.optionAMicroBridge },
+    optionBApprenticeshipPod: {
+      ...preset.optionBApprenticeshipPod,
+      paidApprenticeStipendUsd: opportunity.payoutUsd,
+    },
+    source: 'preset',
+    updatedAtIso: new Date().toISOString(),
+  };
+}
+
+export interface AdaptiveVerificationRouteOption {
+  id: VerificationRouteId;
+  shortTag: string;
+  frameworkBadge: string;
+  title: string;
+  subtitle: string;
+  bestForAges: AgeStage[];
+}
+
+export const ADAPTIVE_VERIFICATION_ROUTES: AdaptiveVerificationRouteOption[] = [
+  {
+    id: 'route-a-foreign',
+    shortTag: 'Route A',
+    frameworkBadge: 'WES Gateway / ENIC-NARIC Track',
+    title: 'Foreign Qualification or Partial Copy',
+    subtitle:
+      'Enter or upload a photo of a foreign degree, partial transcript, or professional license to map host-country NQF equivalency.',
+    bestForAges: ['30-45', '18-29'],
+  },
+  {
+    id: 'route-b-uqp',
+    shortTag: 'Route B',
+    frameworkBadge: 'UNESCO UQP Structured Track',
+    title: 'Missing or Lost Paperwork',
+    subtitle:
+      'For formal education or deep experience with zero documents. Complete a concise 3-part background reconstruction & oral technical defense.',
+    bestForAges: ['46+', '30-45'],
+  },
+  {
+    id: 'route-c-rpl',
+    shortTag: 'Route C',
+    frameworkBadge: 'ILO & KNQA RPL Portfolio Track',
+    title: 'Hands-On / Informal Craft',
+    subtitle:
+      'For self-taught builders, tradespeople, and 15–17+ emerging talent. Share 1 work photo, a 30-second "How I built/fixed this" walkthrough & optional vouch.',
+    bestForAges: ['15-17', '18-29'],
+  },
+];
+
+export function getRecommendedVerifyRoute(ageStage: AgeStage): VerificationRouteId {
+  if (ageStage === '30-45') return 'route-a-foreign';
+  if (ageStage === '46+') return 'route-b-uqp';
+  return 'route-c-rpl';
+}
+
+export function computePassportTrustTier(params: {
+  passport: CompetencyPassport | null;
+  capabilities: SkillCapability[];
+  endorsements: PeerEndorsement[];
+  contributions?: BriefSubmission[];
+}): {
+  activeTier: PassportTrustTier;
+  tiers: Array<{
+    tier: PassportTrustTier;
+    label: string;
+    shortDesc: string;
+    reached: boolean;
+    isCurrent: boolean;
+  }>;
+} {
+  const { passport, capabilities, endorsements, contributions = [] } = params;
+  const hasMasterEndorsedCap = capabilities.some((c) => c.verificationStatus === 'master-endorsed');
+  const hasFieldVerifiedCap = capabilities.some((c) => c.verificationStatus !== 'pending');
+  const hasVerifiedEndorsement = endorsements.some((e) => e.status === 'verified');
+  const hasCompletedSprint = contributions.some((c) => c.status === 'completed');
+
+  let activeTier: PassportTrustTier = 1;
+  if (passport?.stipendEligible && (hasMasterEndorsedCap || (hasCompletedSprint && hasVerifiedEndorsement))) {
+    activeTier = 4;
+  } else if (hasCompletedSprint && (Boolean(passport) || hasFieldVerifiedCap)) {
+    activeTier = 3;
+  } else if (hasVerifiedEndorsement || hasMasterEndorsedCap || (Boolean(passport) && hasFieldVerifiedCap)) {
+    activeTier = 2;
+  } else {
+    activeTier = 1;
+  }
+
+  if (passport?.trustTier && passport.trustTier > activeTier) {
+    activeTier = passport.trustTier;
+  }
+
+  const definitions: Array<{ tier: PassportTrustTier; label: string; shortDesc: string }> = [
+    {
+      tier: 1,
+      label: '1. AI-Evaluated',
+      shortDesc: 'Practical competency & NQF equivalency mapped',
+    },
+    {
+      tier: 2,
+      label: '2. Peer-Master Verified',
+      shortDesc: 'Co-signed by 30–46+ specialist or field peer',
+    },
+    {
+      tier: 3,
+      label: '3. Paid Sprint Proven',
+      shortDesc: 'Deliverable accepted in live employer sprint',
+    },
+    {
+      tier: 4,
+      label: '4. Accredited RPL / QAB Certified',
+      shortDesc: 'National TVET / RPL assessment & licensing bridged',
+    },
+  ];
+
+  return {
+    activeTier,
+    tiers: definitions.map((d) => ({
+      ...d,
+      reached: d.tier <= activeTier,
+      isCurrent: d.tier === activeTier,
+    })),
+  };
+}
+
+export const FOREIGN_CIVIL_TRANSCRIPT_SAMPLE = {
+  institutionName: 'University of Khartoum — Faculty of Engineering (Partial Copy)',
+  credentialTitle: 'B.Sc. Civil & Structural Engineering (Years 1–4 Completed · License Copy Attached)',
+  hostCountryTarget: 'Kenya (KNQA / EBK) & East Africa Regional Recognition',
+  domain: 'Green Energy' as StudioDomain,
+  responseText:
+    'Completed 4 years of B.Sc. Civil & Structural Engineering coursework and 5 years supervising reinforced concrete foundation pads, gravity-fed water tanks, and 48V solar mini-grid powerhouse structures. Original degree parchment remained in Khartoum during displacement; holding partial semester transcripts (Semesters 1–7) and stamped site commissioning logbooks.',
+  evidenceSummary:
+    'Partial Transcript (Semesters 1–7, Structural Analysis, Hydraulics & Foundation Design) + Municipal Site Engineer Stamp #KH-4418',
+};
+
+export const UQP_STRUCTURED_RECONSTRUCTION_SAMPLE = {
+  backgroundField: 'Off-Grid Solar Microgrids & Clinical Cold-Chain Electrical Systems',
+  yearsPracticed: '7 Years (Lead Technician & Commissioning Supervisor)',
+  languageFluency: 'Arabic (Native), English (Professional Technical), Kiswahili (Working Field)',
+  oralDefense1:
+    'When a 48V LiFePO4 clinic battery bank trips at 03:00 despite showing 54% SOC at dusk, I first isolate the critical vaccine fridge bus, measure individual block voltages under a 25A discharge load to detect a high-resistance cell or loose busbar torque, and recalibrate the BMS low-voltage cutoff and absorption timer.',
+  oralDefense2:
+    'For safety and lockout-tagout on live solar hybrid boards, I open the PV array DC isolator first, disconnect the inverter AC output breaker, discharge inverter capacitors for 5 minutes, verify zero potential with a CAT-III multimeter, and tag the breaker before torque-checking terminals.',
+  alternativeContextNotes:
+    'Maintained 11 rural maternity and vaccine cold-chain microgrids across displacement corridors; mentored 6 junior apprentices without formal paper certificates.',
+};
+
+export const RPL_INFORMAL_CRAFT_SAMPLE = {
+  craftTitle: '48V Solar Inverter, Charge Controller & Breaker Board Assembly',
+  howIBuiltThis:
+    'I wired and balanced this 48V 5kVA hybrid solar distribution board for a community cold-room. I sized the 125A DC main fuse, crimped 35mm² copper lugs with heat-shrink polarity sleeves, separated the essential vaccine chiller load from daytime workshop sockets, and logged a 24-hour thermal load test with zero voltage sag.',
+  clientOrMentorVouch:
+    'Eng. Rami Al-Khatib (46+ Master Microgrid Assessor): "Verified busbar torque, clean earth-bonding, and stable 52.8V float charge under full compressor startup."',
+  samplePhotoDataUrl:
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 220" fill="none">
+        <rect width="360" height="220" rx="16" fill="#142B24"/>
+        <rect x="20" y="20" width="145" height="180" rx="10" fill="#1E3F35" stroke="#2EB88B" stroke-width="2"/>
+        <rect x="36" y="38" width="113" height="48" rx="6" fill="#0F211C" stroke="#5EEAD4" stroke-width="1.5"/>
+        <text x="48" y="67" fill="#5EEAD4" font-family="monospace" font-size="15" font-weight="bold">52.8V · 98% SOC</text>
+        <rect x="185" y="20" width="155" height="180" rx="10" fill="#1E242B" stroke="#C4622D" stroke-width="2"/>
+        <rect x="205" y="44" width="32" height="55" rx="4" fill="#146C53"/>
+        <rect x="247" y="44" width="32" height="55" rx="4" fill="#146C53"/>
+        <rect x="289" y="44" width="32" height="55" rx="4" fill="#C4622D"/>
+        <path d="M165 110 H185" stroke="#5EEAD4" stroke-width="4"/>
+        <text x="36" y="176" fill="#E7F3EE" font-family="sans-serif" font-size="11">48V Hybrid Inverter Bus</text>
+        <text x="205" y="176" fill="#F9E9DF" font-family="sans-serif" font-size="11">DC Breaker &amp; Surge Array</text>
+      </svg>`
+    ),
+};
+
+export function buildAdaptiveCompetencyPassportFallback(params: {
+  ownerUid: string;
+  displayName: string;
+  ageStage: AgeStage;
+  studioDomain: StudioDomain;
+  verificationRoute: VerificationRouteId;
+  responseText: string;
+  evidenceSummary?: string;
+  languageFluency?: string;
+  verifiableId?: string;
+}): CompetencyPassport {
+  const {
+    ownerUid,
+    displayName,
+    ageStage,
+    studioDomain,
+    verificationRoute,
+    evidenceSummary,
+    languageFluency,
+    verifiableId = 'VNA-2026-8412',
+  } = params;
+
+  const isRouteA = verificationRoute === 'route-a-foreign';
+  const isRouteB = verificationRoute === 'route-b-uqp';
+
+  const nqfEquivalencyLevel = isRouteA
+    ? 'NQF Level 6 / KNQA Bachelor Equivalency (WES Gateway / ENIC-NARIC Mapped)'
+    : isRouteB
+      ? 'UNESCO UQP Level 6 · Senior Applied Specialist Equivalency'
+      : 'KNQA / ILO RPL Level 4–5 · Certified Trade & Systems Practitioner';
+
+  const reconstructedCredential = isRouteA
+    ? evidenceSummary?.trim() ||
+      'Foreign Engineering / Technical Qualification (Partial Transcript & Professional License Reconstructed)'
+    : isRouteB
+      ? 'UNESCO Qualifications Passport (UQP) Structured Dossier & Technical Oral Defense Verified'
+      : 'ILO / KNQA Recognition of Prior Learning (RPL) Portfolio of Visual & Practical Evidence';
+
+  const languageProficiency =
+    languageFluency?.trim() ||
+    'Professional Working Proficiency (English · Arabic · Kiswahili Technical Terminology)';
+
+  const workplaceSkills = isRouteA
+    ? [
+        'Host-Country Code & Regulatory Alignment',
+        'Structural / Systems Load Calculation',
+        'Cross-Age Pod Quality Sign-Off',
+      ]
+    : isRouteB
+      ? [
+          'Lockout-Tagout & Field Safety Discipline',
+          'Structured Diagnostic Oral Defense',
+          'Junior Apprentice Mentorship & Handover',
+        ]
+      : [
+          'Precision Assembly & Safety Testing',
+          'Visual As-Built Documentation',
+          'Client Scope & Timeline Reliability',
+        ];
+
+  const verifiedSkills = isRouteA
+    ? [
+        {
+          name: `${studioDomain} Engineering & Structural Systems Design`,
+          confidenceLabel: 'High Confidence',
+          confidenceScore: 93,
+          evidenceNote:
+            'Reconstructed from foreign transcript coursework and verified practical site supervision logs.',
+        },
+        {
+          name: 'Host-Country Technical Standards & Safety Compliance',
+          confidenceLabel: 'Verified Applied',
+          confidenceScore: 89,
+          evidenceNote:
+            'Mapped directly to national NQF Level 6 criteria under WES Gateway / ENIC-NARIC equivalency.',
+        },
+        {
+          name: 'Cross-Age Solution Pod Technical Review',
+          confidenceLabel: 'Verified Applied',
+          confidenceScore: 86,
+          evidenceNote:
+            'Demonstrates clear schematic documentation and multi-generational team leadership.',
+        },
+      ]
+    : isRouteB
+      ? [
+          {
+            name: `${studioDomain} Root-Cause Diagnostics & Fault Isolation`,
+            confidenceLabel: 'High Confidence',
+            confidenceScore: 92,
+            evidenceNote:
+              'Confirmed through UNESCO UQP structured background reconstruction and 2-part technical oral defense.',
+          },
+          {
+            name: 'Critical Load Protection & Preventive Stabilization',
+            confidenceLabel: 'High Confidence',
+            confidenceScore: 88,
+            evidenceNote:
+              'Articulates step-by-step lockout-tagout and load isolation without relying on paper certificates.',
+          },
+          {
+            name: 'Multilingual Field Handoff & SOP Authoring',
+            confidenceLabel: 'Verified Applied',
+            confidenceScore: 85,
+            evidenceNote:
+              'Proven ability to translate complex technical fixes into clear operator checklists.',
+          },
+        ]
+      : [
+          {
+            name: `${studioDomain} Hands-On Installation & Fault Repair`,
+            confidenceLabel: 'High Confidence',
+            confidenceScore: 90,
+            evidenceNote:
+              'Verified via ILO/KNQA RPL work photo evidence and practical "How I built/fixed this" walkthrough.',
+          },
+          {
+            name: 'Electrical / Mechanical Safety & Load Commissioning',
+            confidenceLabel: 'Verified Applied',
+            confidenceScore: 86,
+            evidenceNote:
+              'Demonstrates clean terminal sizing, protective fusing, and verifiable commissioning tests.',
+          },
+          {
+            name: 'Collaborative Sprint Delivery & Peer Reliability',
+            confidenceLabel: 'Verified Applied',
+            confidenceScore: 84,
+            evidenceNote:
+              'Backed by practical craft portfolio and mentor/client quality attestation.',
+          },
+        ];
+
+  const microBridge = isRouteA
+    ? {
+        title: 'Local Statutory Code & National Board Bridging Assessment (KNQA / EBK Fast-Track)',
+        secondaryModule: 'Host-Country Environmental & Grid Interconnection Sign-Off Lab',
+        action:
+          'Complete a 1-day practical portfolio defense and local statutory code module with an accredited national assessor to convert your NQF Level 6 equivalency into full local practicing clearance.',
+        estimatedDuration: '5 Days · Hybrid Statutory Bridging',
+        partnerProgram: 'WES Gateway · KNQA / National Engineering & TVET Bridging Pool',
+        estimatedCostUsd: 75,
+        feeCoverageNote: 'Covers RPL statutory portfolio assessment fee, exam registration & code handbook',
+      }
+    : isRouteB
+      ? {
+          title: 'UNESCO UQP Accredited Assessor Practical Verification & QAB Sign-Off',
+          secondaryModule: 'ILO RPL Field Safety & Calibration Logbook Endorsement',
+          action:
+            'Complete one supervised 4-hour practical verification benchmark with an accredited 46+ Master Assessor to elevate your UQP dossier to Tier-4 QAB certification.',
+          estimatedDuration: '4 Days · Supervised Practical Benchmark',
+          partnerProgram: 'UNESCO Qualifications Passport (UQP) · ILO PROSPECTS Network',
+          estimatedCostUsd: 65,
+          feeCoverageNote: 'Covers UQP assessor sit-in fee, calibration tool kit & 10GB data stipend',
+        }
+      : {
+          title: 'KNQA / ILO RPL Trade Test Grade-1 Portfolio Assessment & Safety Badge',
+          secondaryModule: 'Standardized Client Quote, Lockout-Tagout & As-Built Sign-Off Sheet',
+          action:
+            'Submit your 3-item practical photo portfolio and complete a half-day hands-on trade verification at a partner TVET hub to unlock formal RPL Level 4–5 certification.',
+          estimatedDuration: '3 Days · Practical TVET / RPL Trade Test',
+          partnerProgram: 'ILO Recognition of Prior Learning (RPL) · Regional TVET Guild',
+          estimatedCostUsd: 55,
+          feeCoverageNote: 'Covers TVET RPL trade-test registration, PPE safety kit & transport/data bundle',
+        };
+
+  return {
+    id: makeSafeId('passport'),
+    ownerUid,
+    studioDomain,
+    inputMode: isRouteB ? 'scenario' : 'summary',
+    verificationRoute,
+    verifiableId,
+    nqfEquivalencyLevel,
+    reconstructedCredential,
+    languageProficiency,
+    workplaceSkills,
+    ageStageTrack: `${AGE_STAGE_PATHWAYS[ageStage].shortLabel} · ${
+      isRouteA ? 'WES/ENIC Equivalency' : isRouteB ? 'UNESCO UQP Track' : 'ILO/KNQA RPL Track'
+    }`,
+    fieldMatch: `${studioDomain} Systems Execution & Applied Field Diagnostics`,
+    executiveSummary: `${displayName} holds verified applied competency in ${studioDomain} (${nqfEquivalencyLevel}), evaluated via the ${
+      isRouteA
+        ? 'WES Gateway / ENIC-NARIC Foreign Qualification Reconstruction Track'
+        : isRouteB
+          ? 'UNESCO Qualifications Passport (UQP) Structured Oral Defense Track'
+          : 'ILO & KNQA Recognition of Prior Learning (RPL) Portfolio Track'
+    }. Ready for immediate scoped sprint contracting and cross-age pod collaboration.`,
+    verifiedSkills,
+    microBridge,
+    stipendEligible: false,
+    generatedAtIso: new Date().toISOString(),
+  };
+}
 
 
 

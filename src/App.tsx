@@ -8,7 +8,16 @@ import {
   deleteCloudEndorsement,
   ensureCloudProfile,
   fetchCloudWorkspace,
+  formatFirebaseAuthError,
+  linkAccountProvider,
+  refreshAuthUser,
+  registerWithEmailPassword,
+  resendVerificationEmail,
+  sendPasswordReset,
+  signInWithEmailPassword,
   signInWithGoogle,
+  signInWithMicrosoft,
+  signInWithYahoo,
   signOutAccount,
   subscribeToCapabilities,
   subscribeToContributions,
@@ -28,45 +37,64 @@ import type {
   CohortBlueprintPreview,
   CompetencyPassport,
   ContractPayout,
+  JobToFitUpskillingBridge,
+  LivingProofPortfolio,
   LocaleCode,
+  LockedUpskillingBridgeRecord,
+  MatchedWorkApplication,
   MentorMessage,
   OfflineMutation,
   PeerEndorsement,
   PodMentorProfile,
   PractitionerProfile,
   ProblemBrief,
+  RankedMatchedWorkOpportunity,
   RankedSolutionSprint,
   SharedPassportPayload,
   SkillCapability,
   SprintFeedback,
+  SprintMilestoneKey,
   SprintRatingScore,
   UnlockViewMode,
+  UpskillingBridgePathOption,
   WorkReadyVault,
   WorkspaceTab,
 } from './types/kora';
 import { TRANSLATIONS, getLocaleMeta } from './utils/i18n';
 import {
+  loadLocalMatchedWorkApplications,
+  loadLocalProofPortfolio,
+  loadLocalSprintMilestones,
+  loadLocalUpskillingBridges,
   loadLocalWorkspace,
   saveLastSyncedIso,
   saveLocalCapabilities,
   saveLocalContributions,
   saveLocalEndorsements,
+  saveLocalMatchedWorkApplications,
   saveLocalMentorMessages,
   saveLocalPassport,
   saveLocalPayouts,
   saveLocalProfile,
+  saveLocalProofPortfolio,
   saveLocalSprintFeedback,
+  saveLocalSprintMilestones,
+  saveLocalUpskillingBridges,
   saveLocalVault,
   saveOfflineQueue,
 } from './utils/offlineStore';
 import {
   advancePayoutStatus,
   buildMentorQuickReply,
+  countWorkplaceSignals,
+  isComplianceClearedForWork,
   makeSafeId,
   normalizeAgeStage,
   normalizeLocale,
+  normalizeSprintMilestones,
   parseSharedPassportToken,
   promoteVerificationStatus,
+  toggleSprintMilestoneList,
 } from './utils/talentEngine';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { MessagingProvider } from './contexts/MessagingContext';
@@ -77,10 +105,12 @@ import { VerifyView } from './components/VerifyView';
 import { UnlockView } from './components/UnlockView';
 import { SolveView } from './components/SolveView';
 import { PulseView } from './components/PulseView';
+import { ClearedView } from './components/ClearedView';
 import { PartnerScaleDrawer } from './components/PartnerScaleDrawer';
 import { SharedPassportView } from './components/SharedPassportView';
 import { MentorMessagingDrawer } from './components/MentorMessagingDrawer';
 import { CommandPalette } from './components/CommandPalette';
+import { AccountSyncModal, type EmailVaultSyncStatus } from './components/AccountSyncModal';
 
 export default function App() {
   const searchParams =
@@ -110,6 +140,18 @@ export default function App() {
   );
   const [offlineQueue, setOfflineQueue] = useState<OfflineMutation[]>(initialState.queue);
   const [lastSyncedIso, setLastSyncedIso] = useState<string | null>(initialState.lastSyncedIso);
+  const [proofPortfolio, setProofPortfolio] = useState<LivingProofPortfolio>(() =>
+    loadLocalProofPortfolio()
+  );
+  const [sprintMilestonesByBrief, setSprintMilestonesByBrief] = useState<
+    Record<string, SprintMilestoneKey[]>
+  >(() => loadLocalSprintMilestones());
+  const [matchedApplications, setMatchedApplications] = useState<MatchedWorkApplication[]>(() =>
+    loadLocalMatchedWorkApplications()
+  );
+  const [lockedBridges, setLockedBridges] = useState<LockedUpskillingBridgeRecord[]>(() =>
+    loadLocalUpskillingBridges()
+  );
 
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => {
     if (typeof window === 'undefined') return 'verify';
@@ -134,6 +176,7 @@ export default function App() {
   });
   const [isScaleDrawerOpen, setIsScaleDrawerOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isAccountSyncOpen, setIsAccountSyncOpen] = useState(false);
   const [sharePassportSignal, setSharePassportSignal] = useState(0);
   const [voiceTriggerSignal, setVoiceTriggerSignal] = useState(0);
   const [endorseBannerDismissed, setEndorseBannerDismissed] = useState(false);
@@ -142,6 +185,15 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [emailVaultStatus, setEmailVaultStatus] = useState<EmailVaultSyncStatus | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem('vuka.emailVaultStatus');
+      return raw ? (JSON.parse(raw) as EmailVaultSyncStatus) : null;
+    } catch {
+      return null;
+    }
+  });
   const [globalToast, setGlobalToast] = useState<{
     id: string;
     variant: 'offline' | 'syncing' | 'synced';
@@ -259,7 +311,7 @@ export default function App() {
 
   const flushQueue = useCallback(
     async (user: User, queueSnapshot: OfflineMutation[], currentProfile: PractitionerProfile) => {
-      if (!isOnline) return;
+      if (!isOnline || !user.emailVerified) return;
       setIsSyncing(true);
       try {
         await ensureCloudProfile(user.uid, currentProfile, user.email || currentProfile.email);
@@ -326,9 +378,9 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Hydrate and subscribe when authenticated + online
+  // Hydrate and subscribe when authenticated + emailVerified + online
   useEffect(() => {
-    if (!authReady || !authUser || !isOnline) return;
+    if (!authReady || !authUser || !authUser.emailVerified || !isOnline) return;
 
     let unsubCaps: (() => void) | undefined;
     let unsubContribs: (() => void) | undefined;
@@ -417,39 +469,366 @@ export default function App() {
     };
     // Only re-subscribe when auth state or connectivity changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authReady, authUser?.uid, isOnline]);
+  }, [authReady, authUser?.uid, authUser?.emailVerified, isOnline]);
 
-  const handleSignIn = async () => {
+  const canWriteCloud = Boolean(authUser && authUser.emailVerified && isOnline);
+
+  const finalizeSignedInUser = async (user: User, fallbackDisplayName?: string) => {
+    setAuthUser(user);
+    const updatedProfile: PractitionerProfile = {
+      ...profile,
+      uid: user.uid,
+      email: user.email || profile.email,
+      displayName:
+        profile.displayName === 'Practitioner'
+          ? user.displayName || fallbackDisplayName || profile.displayName
+          : profile.displayName,
+      updatedAtIso: new Date().toISOString(),
+    };
+    setProfile(updatedProfile);
+    saveLocalProfile(updatedProfile);
+    if (user.emailVerified) {
+      await flushQueue(user, offlineQueue, updatedProfile);
+    }
+  };
+
+  const handleOpenAccountSync = () => {
+    setAuthError(null);
+    setIsAccountSyncOpen(true);
+  };
+
+  const handleProviderSignIn = async (provider: 'google' | 'microsoft' | 'yahoo') => {
     setAuthError(null);
     try {
-      const user = await signInWithGoogle();
-      const updatedProfile: PractitionerProfile = {
-        ...profile,
-        uid: user.uid,
-        email: user.email || profile.email,
-        displayName:
-          profile.displayName === 'Practitioner' && user.displayName
-            ? user.displayName
-            : profile.displayName,
-        updatedAtIso: new Date().toISOString(),
-      };
-      setProfile(updatedProfile);
-      saveLocalProfile(updatedProfile);
-      await flushQueue(user, offlineQueue, updatedProfile);
+      const user =
+        provider === 'google'
+          ? await signInWithGoogle()
+          : provider === 'microsoft'
+            ? await signInWithMicrosoft()
+            : await signInWithYahoo();
+      await finalizeSignedInUser(user);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to complete Google sign-in.';
+      const message = formatFirebaseAuthError(err);
       setAuthError(message);
+      throw new Error(message);
+    }
+  };
+
+  const handleEmailSignIn = async (email: string, password: string) => {
+    setAuthError(null);
+    try {
+      const user = await signInWithEmailPassword(email, password);
+      await finalizeSignedInUser(user);
+    } catch (err) {
+      const message = formatFirebaseAuthError(err);
+      setAuthError(message);
+      throw new Error(message);
+    }
+  };
+
+  const handleEmailRegister = async (email: string, password: string, displayName: string) => {
+    setAuthError(null);
+    try {
+      const user = await registerWithEmailPassword(email, password, displayName);
+      await finalizeSignedInUser(user, displayName);
+    } catch (err) {
+      const message = formatFirebaseAuthError(err);
+      setAuthError(message);
+      throw new Error(message);
+    }
+  };
+
+  const handleSendPasswordReset = async (email: string) => {
+    setAuthError(null);
+    try {
+      await sendPasswordReset(email);
+    } catch (err) {
+      const message = formatFirebaseAuthError(err);
+      setAuthError(message);
+      throw new Error(message);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setAuthError(null);
+    if (!authUser) return;
+    try {
+      await resendVerificationEmail();
+    } catch (err) {
+      const message = formatFirebaseAuthError(err);
+      setAuthError(message);
+      throw new Error(message);
+    }
+  };
+
+  const handleRefreshVerificationAndSync = async () => {
+    setAuthError(null);
+    if (!authUser) return;
+    try {
+      const refreshed = await refreshAuthUser();
+      setAuthUser(refreshed);
+      if (refreshed && refreshed.emailVerified) {
+        await flushQueue(refreshed, offlineQueue, profile);
+      } else {
+        throw new Error(
+          'Your email is not verified yet. Please click the verification link in your inbox and try again.'
+        );
+      }
+    } catch (err) {
+      const message = formatFirebaseAuthError(err);
+      setAuthError(message);
+      throw new Error(message);
+    }
+  };
+
+  const handleLinkProvider = async (provider: 'google' | 'microsoft' | 'yahoo') => {
+    setAuthError(null);
+    if (!authUser) return;
+    try {
+      const updatedUser = await linkAccountProvider(provider);
+      setAuthUser(updatedUser);
+      await flushQueue(updatedUser, offlineQueue, profile);
+    } catch (err) {
+      const message = formatFirebaseAuthError(err);
+      setAuthError(message);
+      throw new Error(message);
     }
   };
 
   const handleSignOut = async () => {
     await signOutAccount();
     setAuthUser(null);
+    setEmailVaultStatus(null);
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('vuka.emailVaultStatus');
+    }
+  };
+
+  const handleSyncToEmailVault = async (
+    targetEmail: string,
+    targetDisplayName: string,
+    providerLabel = 'email-vault'
+  ): Promise<EmailVaultSyncStatus> => {
+    const cleanEmail = targetEmail.trim().toLowerCase();
+    const cleanName = targetDisplayName.trim() || profile.displayName || cleanEmail.split('@')[0];
+
+    setIsSyncing(true);
+    try {
+      const updatedProfile: PractitionerProfile = {
+        ...profile,
+        email: cleanEmail,
+        displayName: cleanName,
+        updatedAtIso: new Date().toISOString(),
+      };
+      setProfile(updatedProfile);
+      saveLocalProfile(updatedProfile);
+
+      let consentToken = `VNA-CONSENT-${cleanEmail.slice(0, 4).toUpperCase()}2026`;
+      let updatedAtIso = new Date().toISOString();
+
+      if (isOnline) {
+        const res = await fetch('/api/sync/email-vault', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: cleanEmail,
+            displayName: cleanName,
+            provider: providerLabel,
+            payload: {
+              profile: updatedProfile,
+              capabilities,
+              contributions,
+              passport,
+              vault,
+              endorsements,
+              payouts,
+              proofPortfolio,
+              sprintFeedback,
+            },
+          }),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as {
+            consentToken?: string;
+            updatedAtIso?: string;
+          };
+          if (data.consentToken) consentToken = data.consentToken;
+          if (data.updatedAtIso) updatedAtIso = data.updatedAtIso;
+        }
+      }
+
+      const statusRecord: EmailVaultSyncStatus = {
+        email: cleanEmail,
+        displayName: cleanName,
+        provider: providerLabel,
+        consentToken,
+        updatedAtIso,
+      };
+
+      setEmailVaultStatus(statusRecord);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('vuka.emailVaultStatus', JSON.stringify(statusRecord));
+      }
+
+      setOfflineQueue(saveOfflineQueue([]));
+      setLastSyncedIso(updatedAtIso);
+      saveLastSyncedIso(updatedAtIso);
+
+      setGlobalToast({
+        id: `email-vault-synced-${Date.now()}`,
+        variant: 'synced',
+        title: 'Personal Data Stored & Synced to Email',
+        message: `Workspace records for ${cleanEmail} are safely stored with Zero-Raw-ID protection (${consentToken}).`,
+      });
+
+      return statusRecord;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleRestoreFromEmailVault = async (targetEmail: string): Promise<boolean> => {
+    const cleanEmail = targetEmail.trim().toLowerCase();
+    if (!cleanEmail || !isOnline) return false;
+
+    setIsSyncing(true);
+    try {
+      const res = await fetch(`/api/sync/email-vault?email=${encodeURIComponent(cleanEmail)}`);
+      if (!res.ok) return false;
+
+      const data = (await res.json()) as {
+        found?: boolean;
+        record?: {
+          normalizedEmail: string;
+          displayName: string;
+          provider: string;
+          consentToken: string;
+          updatedAtIso: string;
+          payload?: {
+            profile?: PractitionerProfile;
+            capabilities?: SkillCapability[];
+            contributions?: BriefSubmission[];
+            passport?: CompetencyPassport | null;
+            vault?: WorkReadyVault;
+            endorsements?: PeerEndorsement[];
+            payouts?: ContractPayout[];
+            proofPortfolio?: LivingProofPortfolio;
+            sprintFeedback?: SprintFeedback[];
+          };
+        };
+      };
+
+      if (!data.found || !data.record) return false;
+      const snap = data.record.payload || {};
+
+      if (snap.profile) {
+        setProfile(snap.profile);
+        saveLocalProfile(snap.profile);
+      }
+      if (Array.isArray(snap.capabilities) && snap.capabilities.length > 0) {
+        setCapabilities(snap.capabilities);
+        saveLocalCapabilities(snap.capabilities);
+      }
+      if (Array.isArray(snap.contributions) && snap.contributions.length > 0) {
+        setContributions(snap.contributions);
+        saveLocalContributions(snap.contributions);
+      }
+      if (snap.passport) {
+        setPassport(snap.passport);
+        saveLocalPassport(snap.passport);
+      }
+      if (snap.vault) {
+        setVault(snap.vault);
+        saveLocalVault(snap.vault);
+      }
+      if (Array.isArray(snap.endorsements) && snap.endorsements.length > 0) {
+        setEndorsements(snap.endorsements);
+        saveLocalEndorsements(snap.endorsements);
+      }
+      if (Array.isArray(snap.payouts) && snap.payouts.length > 0) {
+        setPayouts(snap.payouts);
+        saveLocalPayouts(snap.payouts);
+      }
+      if (snap.proofPortfolio) {
+        setProofPortfolio(snap.proofPortfolio);
+        saveLocalProofPortfolio(snap.proofPortfolio);
+      }
+      if (Array.isArray(snap.sprintFeedback) && snap.sprintFeedback.length > 0) {
+        setSprintFeedback(snap.sprintFeedback);
+        saveLocalSprintFeedback(snap.sprintFeedback);
+      }
+
+      const statusRecord: EmailVaultSyncStatus = {
+        email: data.record.normalizedEmail,
+        displayName: data.record.displayName,
+        provider: data.record.provider,
+        consentToken: data.record.consentToken,
+        updatedAtIso: data.record.updatedAtIso,
+      };
+      setEmailVaultStatus(statusRecord);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('vuka.emailVaultStatus', JSON.stringify(statusRecord));
+      }
+      setLastSyncedIso(data.record.updatedAtIso);
+      saveLastSyncedIso(data.record.updatedAtIso);
+
+      setGlobalToast({
+        id: `email-vault-restored-${Date.now()}`,
+        variant: 'synced',
+        title: 'Workspace Restored from Email Vault',
+        message: `Restored personal competency passport, portfolio, and progress for ${data.record.normalizedEmail}.`,
+      });
+      return true;
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleSyncNow = async () => {
-    if (!authUser || !isOnline) return;
-    await flushQueue(authUser, offlineQueue, profile);
+    const activeEmail = authUser?.email || emailVaultStatus?.email || profile.email;
+    if (!isOnline) {
+      setGlobalToast({
+        id: `offline-pwa-saved-${Date.now()}`,
+        variant: 'offline',
+        title: 'Saved to Offline PWA Queue',
+        message: `All ${offlineQueue.length} local update(s) are cached in your Offline PWA store and will sync automatically when online.`,
+      });
+      return;
+    }
+
+    if (authUser && authUser.emailVerified) {
+      await flushQueue(authUser, offlineQueue, profile);
+      if (authUser.email) {
+        await handleSyncToEmailVault(
+          authUser.email,
+          authUser.displayName || profile.displayName,
+          'firebase-verified'
+        );
+      }
+      return;
+    }
+
+    if (activeEmail && activeEmail.includes('@')) {
+      await handleSyncToEmailVault(
+        activeEmail,
+        authUser?.displayName || emailVaultStatus?.displayName || profile.displayName,
+        emailVaultStatus?.provider || 'email-vault'
+      );
+      return;
+    }
+
+    // Even before an email is linked, flush local PWA queue timestamp and offer email backup
+    const nowIso = new Date().toISOString();
+    setOfflineQueue(saveOfflineQueue([]));
+    setLastSyncedIso(nowIso);
+    saveLastSyncedIso(nowIso);
+    setGlobalToast({
+      id: `pwa-local-synced-${Date.now()}`,
+      variant: 'synced',
+      title: 'PWA Local Queue Verified & Synced',
+      message:
+        'Your workspace is safely persisted in local PWA storage. Connect an email anytime to back up across devices.',
+    });
   };
 
   const updateProfileState = (next: PractitionerProfile) => {
@@ -461,7 +840,7 @@ export default function App() {
       payload: next,
       queuedAtIso: new Date().toISOString(),
     };
-    if (authUser && isOnline) {
+    if (canWriteCloud && authUser) {
       void ensureCloudProfile(authUser.uid, next, authUser.email || next.email).then(() => {
         const nowIso = new Date().toISOString();
         setLastSyncedIso(nowIso);
@@ -649,6 +1028,34 @@ export default function App() {
         kind: 'upsert_vault',
         payload: ownedVault,
         queuedAtIso: ownedVault.updatedAtIso,
+      });
+    }
+  };
+
+  const handleUpdateProofPortfolio = (nextPortfolio: LivingProofPortfolio) => {
+    setProofPortfolio(nextPortfolio);
+    saveLocalProofPortfolio(nextPortfolio);
+
+    const nextReady = Boolean(nextPortfolio.analysis);
+    const nextTrack = nextPortfolio.skillTrackId;
+    const nextLocalScore = nextPortfolio.analysis?.localReadinessPct ?? vault.proofLocalScore ?? 0;
+    const nextRemoteScore = nextPortfolio.analysis?.remoteReadinessPct ?? vault.proofRemoteScore ?? 0;
+    const nextSignalsCount = countWorkplaceSignals(nextPortfolio.workplaceSignals);
+
+    if (
+      Boolean(vault.proofPortfolioReady) !== nextReady ||
+      vault.proofSkillTrack !== nextTrack ||
+      (vault.proofLocalScore ?? 0) !== nextLocalScore ||
+      (vault.proofRemoteScore ?? 0) !== nextRemoteScore ||
+      (vault.workplaceSignalsCount ?? 0) !== nextSignalsCount
+    ) {
+      handleUpdateVault({
+        ...vault,
+        proofPortfolioReady: nextReady,
+        proofSkillTrack: nextTrack,
+        proofLocalScore: nextLocalScore,
+        proofRemoteScore: nextRemoteScore,
+        workplaceSignalsCount: nextSignalsCount,
       });
     }
   };
@@ -920,7 +1327,7 @@ export default function App() {
     setSelectedBriefId(sprint.id);
     ensureEscrowPayout(sprint.id, sprint.title, sprint.partnerOrg, sprint.payoutUsd);
 
-    if (authUser && isOnline) {
+    if (canWriteCloud && authUser) {
       void upsertCloudContribution(authUser.uid, newContrib);
     } else {
       enqueueMutation({
@@ -930,6 +1337,215 @@ export default function App() {
         queuedAtIso: now,
       });
     }
+  };
+
+  const handleToggleSprintMilestone = (briefId: string, milestone: SprintMilestoneKey) => {
+    const existingContrib = contributions.find((c) => c.briefId === briefId);
+    const currentMilestones = normalizeSprintMilestones(
+      existingContrib?.milestonesDone ?? sprintMilestonesByBrief[briefId],
+      existingContrib?.status === 'completed'
+    );
+    const nextMilestones = toggleSprintMilestoneList(currentMilestones, milestone);
+
+    const nextMap: Record<string, SprintMilestoneKey[]> = {
+      ...sprintMilestonesByBrief,
+      [briefId]: nextMilestones,
+    };
+    setSprintMilestonesByBrief(nextMap);
+    saveLocalSprintMilestones(nextMap);
+
+    if (existingContrib && existingContrib.status !== 'completed') {
+      const now = new Date().toISOString();
+      const updatedContrib: BriefSubmission = {
+        ...existingContrib,
+        milestonesDone: nextMilestones,
+        updatedAtIso: now,
+      };
+      const nextContribs = contributions.map((c) =>
+        c.id === existingContrib.id ? updatedContrib : c
+      );
+      setContributions(nextContribs);
+      saveLocalContributions(nextContribs);
+
+      if (canWriteCloud && authUser) {
+        void upsertCloudContribution(authUser.uid, updatedContrib);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_contribution',
+          payload: updatedContrib,
+          queuedAtIso: now,
+        });
+      }
+    }
+  };
+
+  const handleApplyMatchedWork = (opportunity: RankedMatchedWorkOpportunity) => {
+    const now = new Date().toISOString();
+    const alreadyApplied =
+      matchedApplications.some((app) => app.opportunityId === opportunity.id) ||
+      (vault.appliedOpportunityIds ?? []).includes(opportunity.id);
+
+    if (!alreadyApplied) {
+      const newApplication: MatchedWorkApplication = {
+        id: makeSafeId('match-app'),
+        opportunityId: opportunity.id,
+        opportunityTitle: opportunity.title,
+        partnerOrg: opportunity.partnerOrg,
+        payoutUsd: opportunity.payoutUsd,
+        workMode: opportunity.workMode,
+        appliedAtIso: now,
+        bundleSummary: {
+          passportAttached: true,
+          proofAttached: Boolean(proofPortfolio.analysis),
+          complianceCleared: isComplianceClearedForWork(vault),
+        },
+      };
+      const nextApps = [newApplication, ...matchedApplications];
+      setMatchedApplications(nextApps);
+      saveLocalMatchedWorkApplications(nextApps);
+    }
+
+    // Ensure an in-progress sprint record & escrow payout exist so progress & payouts track cleanly
+    if (!contributions.some((c) => c.briefId === opportunity.id)) {
+      const existingMilestones = normalizeSprintMilestones(
+        sprintMilestonesByBrief[opportunity.id],
+        false
+      );
+      const newContrib: BriefSubmission = {
+        id: makeSafeId('sub'),
+        ownerUid: authUser?.uid ?? profile.uid,
+        briefId: opportunity.id,
+        briefTitle: opportunity.title,
+        domain: opportunity.studioDomain,
+        status: 'in-progress',
+        solutionNotes: `Living Proof Application Bundle submitted to ${opportunity.partnerOrg} (${opportunity.durationLabel}).`,
+        hoursLogged: 1,
+        payoutUsd: opportunity.payoutUsd,
+        milestonesDone: existingMilestones,
+        createdAtIso: now,
+        updatedAtIso: now,
+      };
+      const nextContribs = [newContrib, ...contributions];
+      setContributions(nextContribs);
+      saveLocalContributions(nextContribs);
+      setSelectedBriefId(opportunity.id);
+
+      if (canWriteCloud && authUser) {
+        void upsertCloudContribution(authUser.uid, newContrib);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_contribution',
+          payload: newContrib,
+          queuedAtIso: now,
+        });
+      }
+    }
+
+    ensureEscrowPayout(
+      opportunity.id,
+      opportunity.title,
+      opportunity.partnerOrg,
+      opportunity.payoutUsd
+    );
+
+    const nextAppliedIds = Array.from(
+      new Set([...(vault.appliedOpportunityIds ?? []), opportunity.id])
+    );
+    const nextMatchedCount = Math.max(
+      nextAppliedIds.length,
+      (vault.matchedWorkCount ?? 0) + (alreadyApplied ? 0 : 1)
+    );
+
+    handleUpdateVault({
+      ...vault,
+      matchedWorkCount: nextMatchedCount,
+      appliedOpportunityIds: nextAppliedIds,
+    });
+  };
+
+  const handleStartUpskillingBridge = (params: {
+    opportunity: RankedMatchedWorkOpportunity;
+    selectedOption: UpskillingBridgePathOption;
+    bridge: JobToFitUpskillingBridge;
+  }) => {
+    const { opportunity, selectedOption, bridge } = params;
+    const now = new Date().toISOString();
+
+    const alreadyLocked =
+      lockedBridges.some((rec) => rec.opportunityId === opportunity.id) ||
+      (vault.lockedBridgeOpportunityIds ?? []).includes(opportunity.id);
+
+    const record: LockedUpskillingBridgeRecord = {
+      id: makeSafeId('bridge-lock'),
+      opportunityId: opportunity.id,
+      opportunityTitle: opportunity.title,
+      partnerOrg: opportunity.partnerOrg,
+      selectedOption,
+      missingSkillTitle: bridge.singleMissingBridge.skillTitle,
+      lockedAtIso: now,
+    };
+
+    const nextLockedRecords = [
+      record,
+      ...lockedBridges.filter((rec) => rec.opportunityId !== opportunity.id),
+    ];
+    setLockedBridges(nextLockedRecords);
+    saveLocalUpskillingBridges(nextLockedRecords);
+
+    // Log the verified RPL/UQP bridge milestone into capabilities if not already logged
+    const existingCapTitles = new Set(
+      capabilities.map((c) => c.title.trim().toLowerCase())
+    );
+    const bridgeCapTitle = `${bridge.singleMissingBridge.skillTitle} (${
+      selectedOption === 'micro-bridge' ? 'UQP/RPL Micro-Bridge' : 'ILO Apprenticeship Pod'
+    })`;
+    if (!existingCapTitles.has(bridgeCapTitle.toLowerCase())) {
+      const bridgeCap: SkillCapability = {
+        id: makeSafeId('cap'),
+        ownerUid: authUser?.uid ?? profile.uid,
+        title: bridgeCapTitle,
+        domain: opportunity.studioDomain,
+        proofSummary:
+          selectedOption === 'micro-bridge'
+            ? `${bridge.optionAMicroBridge.title} (${bridge.optionAMicroBridge.durationLabel}) — ${bridge.optionAMicroBridge.actionSummary}`
+            : `${bridge.optionBApprenticeshipPod.title} (${bridge.optionBApprenticeshipPod.mentorPairingLabel}) — ${bridge.optionBApprenticeshipPod.cohesionNote}`,
+        certificationRef: 'UNESCO UQP · ILO RPL Standard',
+        verificationStatus: 'field-verified',
+        confidenceScore: 88,
+        createdAtIso: now,
+        updatedAtIso: now,
+      };
+      const nextCaps = [bridgeCap, ...capabilities];
+      setCapabilities(nextCaps);
+      saveLocalCapabilities(nextCaps);
+
+      if (canWriteCloud && authUser) {
+        void upsertCloudCapability(authUser.uid, bridgeCap);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_capability',
+          payload: bridgeCap,
+          queuedAtIso: now,
+        });
+      }
+    }
+
+    const nextLockedIds = Array.from(
+      new Set([...(vault.lockedBridgeOpportunityIds ?? []), opportunity.id])
+    );
+    const nextBridgesCount = Math.max(
+      nextLockedIds.length,
+      (vault.upskillingBridgesCount ?? 0) + (alreadyLocked ? 0 : 1)
+    );
+
+    handleUpdateVault({
+      ...vault,
+      upskillingBridgesCount: nextBridgesCount,
+      lockedBridgeOpportunityIds: nextLockedIds,
+    });
   };
 
   const handleSaveDraft = (submissionId: string, notes: string, hoursLogged: number) => {
@@ -949,7 +1565,7 @@ export default function App() {
     saveLocalContributions(nextList);
 
     if (updated) {
-      if (authUser && isOnline) {
+      if (canWriteCloud && authUser) {
         void upsertCloudContribution(authUser.uid, updated);
       } else {
         enqueueMutation({
@@ -964,6 +1580,11 @@ export default function App() {
 
   const handleSubmitSolution = (submissionId: string, notes: string, hoursLogged: number) => {
     const now = new Date().toISOString();
+    const allMilestones: SprintMilestoneKey[] = [
+      'analysis-complete',
+      'draft-ready',
+      'final-submission',
+    ];
     let updated: BriefSubmission | null = null;
     const nextList = contributions.map((c) => {
       if (c.id !== submissionId || c.status === 'completed') return c;
@@ -972,6 +1593,7 @@ export default function App() {
         status: 'completed',
         solutionNotes: notes,
         hoursLogged,
+        milestonesDone: allMilestones,
         updatedAtIso: now,
       };
       return updated;
@@ -983,6 +1605,13 @@ export default function App() {
       const completedItem: BriefSubmission = updated;
       setRecentCompletedContribution(completedItem);
 
+      const nextMilestonesMap: Record<string, SprintMilestoneKey[]> = {
+        ...sprintMilestonesByBrief,
+        [completedItem.briefId]: allMilestones,
+      };
+      setSprintMilestonesByBrief(nextMilestonesMap);
+      saveLocalSprintMilestones(nextMilestonesMap);
+
       // Advance matching escrow payout into processing automatically on milestone delivery
       const matchingPayout = payouts.find(
         (p) => p.sprintId === completedItem.briefId && p.status === 'escrow-held'
@@ -991,7 +1620,7 @@ export default function App() {
         handleAdvancePayout(matchingPayout.id);
       }
 
-      if (authUser && isOnline) {
+      if (canWriteCloud && authUser) {
         void upsertCloudContribution(authUser.uid, completedItem);
       } else {
         enqueueMutation({
@@ -1185,6 +1814,37 @@ export default function App() {
     />
   );
 
+  const activeSyncedEmail = authUser?.email ?? emailVaultStatus?.email ?? (profile.email || null);
+  const activeSyncedName =
+    authUser?.displayName ?? emailVaultStatus?.displayName ?? (activeSyncedEmail ? profile.displayName : null);
+
+  const accountSyncModalElement = (
+    <AccountSyncModal
+      isOpen={isAccountSyncOpen}
+      onClose={() => setIsAccountSyncOpen(false)}
+      user={authUser}
+      defaultEmail={activeSyncedEmail || ''}
+      defaultDisplayName={profile.displayName}
+      emailVaultStatus={emailVaultStatus}
+      isOnline={isOnline}
+      isSyncing={isSyncing}
+      queuedCount={offlineQueue.length}
+      lastSyncedIso={lastSyncedIso}
+      authError={authError}
+      onClearError={() => setAuthError(null)}
+      onSignInWithProvider={handleProviderSignIn}
+      onSignInWithEmail={handleEmailSignIn}
+      onRegisterWithEmail={handleEmailRegister}
+      onSendPasswordReset={handleSendPasswordReset}
+      onResendVerification={handleResendVerification}
+      onRefreshVerificationAndSync={handleRefreshVerificationAndSync}
+      onLinkProvider={handleLinkProvider}
+      onSignOut={handleSignOut}
+      onSyncToEmailVault={handleSyncToEmailVault}
+      onRestoreFromEmailVault={handleRestoreFromEmailVault}
+    />
+  );
+
   const globalToastElement = (
     <AnimatePresence mode="wait">
       {globalToast && (
@@ -1281,6 +1941,7 @@ export default function App() {
           onBeginCrossing={(payload) => handleLandingHandoff(payload, 'verify')}
           onOpenHiringPartners={(payload) => handleLandingHandoff(payload, 'unlock', 'partner')}
           onEnterStudio={(payload) => handleLandingHandoff(payload, 'verify')}
+          onPreviewCleared={(payload) => handleLandingHandoff(payload, 'cleared')}
           onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
           t={t}
         />
@@ -1300,11 +1961,14 @@ export default function App() {
         <TopNav
           activeTab={activeTab}
           onSelectTab={setActiveTab}
-          userEmail={authUser?.email ?? null}
-          userDisplayName={authUser?.displayName ?? null}
+          userEmail={activeSyncedEmail}
+          userDisplayName={activeSyncedName}
           isOnline={isOnline}
+          isSyncing={isSyncing}
           queuedCount={offlineQueue.length}
-          onSignIn={handleSignIn}
+          lastSyncedIso={lastSyncedIso}
+          onSyncNow={handleSyncNow}
+          onSignIn={handleOpenAccountSync}
           onSignOut={handleSignOut}
           onBackToHome={() => setViewMode('landing')}
           onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
@@ -1319,7 +1983,7 @@ export default function App() {
           onToggleTheme={handleToggleTheme}
           isOnline={isOnline}
           queuedCount={offlineQueue.length}
-          isSignedIn={Boolean(authUser)}
+          isSignedIn={Boolean(authUser || activeSyncedEmail)}
           isSyncing={isSyncing}
           onSyncNow={handleSyncNow}
           t={t}
@@ -1367,6 +2031,7 @@ export default function App() {
             <VerifyView
               profile={profile}
               capabilities={capabilities}
+              contributions={contributions}
               passport={passport}
               endorsements={endorsements}
               isOnline={isOnline}
@@ -1420,10 +2085,19 @@ export default function App() {
               capabilities={capabilities}
               passport={passport}
               vault={vault}
+              proofPortfolio={proofPortfolio}
               contributions={contributions}
+              sprintMilestonesByBrief={sprintMilestonesByBrief}
+              matchedApplications={matchedApplications}
+              lockedBridges={lockedBridges}
               selectedBriefId={selectedBriefId}
+              isOnline={isOnline}
               speechLang={localeMeta.speechLang}
               t={t}
+              onUpdateProofPortfolio={handleUpdateProofPortfolio}
+              onApplyMatchedWork={handleApplyMatchedWork}
+              onStartUpskillingBridge={handleStartUpskillingBridge}
+              onToggleSprintMilestone={handleToggleSprintMilestone}
               onSelectBrief={(briefId) => setSelectedBriefId(briefId)}
               onJoinSprintPod={handleJoinSprintPod}
               onSaveDraft={handleSaveDraft}
@@ -1445,7 +2119,7 @@ export default function App() {
               payouts={payouts}
               sprintFeedback={sprintFeedback}
               celebratedContribution={recentCompletedContribution}
-              userEmail={authUser?.email ?? null}
+              userEmail={activeSyncedEmail}
               lastSyncedIso={lastSyncedIso}
               queuedCount={offlineQueue.length}
               isOnline={isOnline}
@@ -1453,16 +2127,32 @@ export default function App() {
               t={t}
               onAddSprintFeedback={handleAddSprintFeedback}
               onDismissCelebration={() => setRecentCompletedContribution(null)}
-              onSignIn={handleSignIn}
+              onSignIn={handleOpenAccountSync}
               onSyncNow={handleSyncNow}
               onGoToUnlock={() => setActiveTab('unlock')}
               onGoToVerify={() => setActiveTab('verify')}
               onGoToSolve={() => setActiveTab('solve')}
+              onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
+            />
+          )}
+
+          {activeTab === 'cleared' && (
+            <ClearedView
+              profile={profile}
+              capabilities={capabilities}
+              contributions={contributions}
+              passport={passport}
+              vault={vault}
+              endorsements={endorsements}
+              payouts={payouts}
+              onSelectTab={setActiveTab}
+              t={t}
             />
           )}
         </main>
         {scaleDrawerElement}
         {commandPaletteElement}
+        {accountSyncModalElement}
         <MentorMessagingDrawer />
         {globalToastElement}
       </div>

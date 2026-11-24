@@ -24,6 +24,16 @@ function getStepIndex(status: PayoutLifecycleStatus): number {
   return 2;
 }
 
+function getStatusPillStyles(status: PayoutLifecycleStatus): string {
+  if (status === 'released') {
+    return 'bg-[#E7F3EE] dark:bg-[#142B24] border-[#146C53]/35 dark:border-[#2EB88B]/40 text-[#146C53] dark:text-[#2EB88B]';
+  }
+  if (status === 'processing') {
+    return 'bg-[#F9ECE5] dark:bg-[#2D1E17] border-[#C4622D]/35 dark:border-[#E07B46]/40 text-[#B04A1A] dark:text-[#F09A6A]';
+  }
+  return 'bg-[#FEF3C7] dark:bg-[#2F2411] border-[#D97706]/35 dark:border-[#F59E0B]/40 text-[#92400E] dark:text-[#FBBF24]';
+}
+
 export const PayoutStatusCard: React.FC<PayoutStatusCardProps> = ({
   payouts,
   onAdvancePayout,
@@ -34,6 +44,9 @@ export const PayoutStatusCard: React.FC<PayoutStatusCardProps> = ({
   const totalReleasedUsd = payouts
     .filter((p) => p.status === 'released')
     .reduce((sum, p) => sum + p.amountUsd, 0);
+  const escrowCount = payouts.filter((p) => p.status === 'escrow-held').length;
+  const processingCount = payouts.filter((p) => p.status === 'processing').length;
+  const releasedCount = payouts.filter((p) => p.status === 'released').length;
 
   return (
     <section
@@ -45,16 +58,16 @@ export const PayoutStatusCard: React.FC<PayoutStatusCardProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-5 border-b border-[#E8E3DB] dark:border-[#2C3037]">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#146C53] dark:text-[#2EB88B]">
-            Contract Payment Lifecycle · Payout Status
+            Contract Payment Lifecycle · Contribution Payout Health
           </p>
           <h2
             id="payout-status-heading"
             className="mt-1 font-display text-xl sm:text-2xl font-medium text-[#17191C] dark:text-[#F4F2EE]"
           >
-            Transparent milestone settlement
+            Contribution Payout Health
           </h2>
           <p className="mt-1 text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE]">
-            Track every contract payout clearly from Escrow Held through Processing to Released.
+            Maps every sprint contribution payment live from Escrow Held through Processing to Released.
           </p>
         </div>
 
@@ -73,6 +86,44 @@ export const PayoutStatusCard: React.FC<PayoutStatusCardProps> = ({
             </span>
           </div>
         </div>
+      </div>
+
+      {/* Contribution Payout Health Summary Indicator */}
+      <div
+        data-testid="contribution-payout-health"
+        className="rounded-xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
+      >
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-semibold text-[#17191C] dark:text-[#F4F2EE] me-1">
+            Contribution Payout Health:
+          </span>
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border font-semibold font-mono-tabular tabular-nums ${getStatusPillStyles('escrow-held')}`}
+          >
+            <span className="w-2 h-2 rounded-full bg-[#D97706] dark:bg-[#F59E0B]" aria-hidden="true" />
+            <span>Escrow Held ({escrowCount})</span>
+          </span>
+          <span aria-hidden="true" className="text-[#8A847A]">→</span>
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border font-semibold font-mono-tabular tabular-nums ${getStatusPillStyles('processing')}`}
+          >
+            <span className="w-2 h-2 rounded-full bg-[#C4622D] dark:bg-[#E07B46]" aria-hidden="true" />
+            <span>Processing ({processingCount})</span>
+          </span>
+          <span aria-hidden="true" className="text-[#8A847A]">→</span>
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border font-semibold font-mono-tabular tabular-nums ${getStatusPillStyles('released')}`}
+          >
+            <span className="w-2 h-2 rounded-full bg-[#146C53] dark:bg-[#2EB88B]" aria-hidden="true" />
+            <span>Released ({releasedCount})</span>
+          </span>
+        </div>
+
+        <span className="text-[11px] font-mono-tabular tabular-nums text-[#575B62] dark:text-[#A3A7AE]">
+          {payouts.length > 0
+            ? `${Math.round(((releasedCount + processingCount * 0.5) / payouts.length) * 100)}% settlement velocity`
+            : 'No entries queued'}
+        </span>
       </div>
 
       {/* Payout Lifecycle Rows */}
@@ -119,13 +170,8 @@ export const PayoutStatusCard: React.FC<PayoutStatusCardProps> = ({
                     </span>
 
                     <span
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap border ${
-                        isReleased
-                          ? 'bg-[#E7F3EE] dark:bg-[#142B24] border-[#146C53]/30 dark:border-[#2EB88B]/35 text-[#146C53] dark:text-[#2EB88B]'
-                          : payout.status === 'processing'
-                            ? 'bg-[#F9ECE5] dark:bg-[#2D1E17] border-[#C4622D]/30 dark:border-[#E07B46]/35 text-[#C4622D] dark:text-[#E07B46]'
-                            : 'bg-[#F2EEE8] dark:bg-[#22252A] border-[#E8E3DB] dark:border-[#2C3037] text-[#17191C] dark:text-[#F4F2EE]'
-                      }`}
+                      data-testid={`payout-health-pill-${payout.id}`}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap border ${getStatusPillStyles(payout.status)}`}
                     >
                       {isReleased ? (
                         <CheckCircle2 className="w-3.5 h-3.5" />

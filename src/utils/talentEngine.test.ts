@@ -1,55 +1,74 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ADAPTIVE_VERIFICATION_ROUTES,
   AGE_STAGE_PATHWAYS,
   COMPLIANCE_COUNTRY_PRESETS,
   CONTRACTING_STRUCTURES,
   FATF_TIERED_KYC_BRIDGE,
   FINANCIAL_PAYOUT_RAILS,
   FINANCIAL_READINESS_CHECKLIST_ITEMS,
+  FOREIGN_CIVIL_TRANSCRIPT_SAMPLE,
   IDENTITY_DOCUMENT_TIERS,
+  MATCHED_WORK_OPPORTUNITIES,
   PRACTICAL_SCENARIOS,
   SEED_BRIEFS,
+  SKILL_TRACK_OPTIONS,
   SOLUTION_SPRINTS,
+  SPRINT_MILESTONE_STEPS,
   STUDIO_DOMAINS,
   TARGET_WORK_MODES,
   advancePayoutStatus,
+  buildAdaptiveCompetencyPassportFallback,
   buildCohortBlueprint,
   buildEndorsementShareLink,
   buildLedgerCsv,
   buildMentorQuickReply,
+  buildOfflineLivingProofAnalysis,
   buildOnboardingPackTemplate,
+  buildPreseededUpskillingBridge,
   buildSharedPassportLink,
   buildSharedPassportPayload,
   buildSprintAgreementText,
   compactOfflineQueue,
+  computeAgeAndCohesionBreakdown,
   computeAnalyticsSummary,
   computeBriefMatchScore,
   computeFeedbackSummary,
   computeFinancialCrossingProgress,
   computeKnowledgeToWorkFlow,
   computeMilestoneBadges,
+  computePassportTrustTier,
   computePeerFlywheelMetrics,
   computeSdgPulseMetrics,
   computeSprintDueAlerts,
   computeSprintPerformanceSeries,
   computeVaultReadiness,
+  countWorkplaceSignals,
+  createInitialLivingProofPortfolio,
   createInitialProfile,
   createInitialVault,
   enforceUnderFifteenWords,
   filterAndRankBriefs,
+  filterMatchedWorkOpportunities,
   filterSolutionSprints,
   getAssignedMentorForSprint,
   getMatchedFatfKycTier,
   getPreseededComplianceRoute,
+  getRecommendedVerifyRoute,
   getSprintComplexityLevel,
+  getSprintMilestoneProgress,
   getUserPodSeat,
+  isComplianceClearedForWork,
   isValidFirebaseId,
   normalizeAgeStage,
   normalizeLocale,
+  normalizeSprintMilestones,
   parseSharedPassportToken,
   promoteVerificationStatus,
+  rankMatchedWorkOpportunities,
   rankSolutionSprints,
+  toggleSprintMilestoneList,
 } from './talentEngine';
 import type {
   BriefSubmission,
@@ -1000,6 +1019,517 @@ test('Hiring Partner Onboarding Dossier structures, 1-page agreement generator, 
   assert.ok(sdg16After.microStory.includes('1-Click Onboarding Pack'));
 });
 
+test('Living Proof Portfolio generates local & remote readiness scores and increments SDGs 8, 10 & 17', () => {
+  assert.equal(SKILL_TRACK_OPTIONS.length, 5);
+  const initialPortfolio = createInitialLivingProofPortfolio();
+  assert.equal(initialPortfolio.skillTrackId, 'trades-solar');
+  assert.equal(countWorkplaceSignals(initialPortfolio.workplaceSignals), 0);
+
+  const signals = {
+    clearTimelines: true,
+    qualitySafetyCheck: true,
+    clientCommunication: true,
+  };
+  assert.equal(countWorkplaceSignals(signals), 3);
+
+  const solarAnalysis = buildOfflineLivingProofAnalysis({
+    skillTrackId: 'trades-solar',
+    imageCount: 2,
+    problemSolvedCaption: 'Wired 48V solar inverter and labeled DC breakers at 52.4V.',
+    voiceWalkthrough: 'Verified load balance and surge protection for rural clinic.',
+    peerVouch: 'Confirmed by clinic supervisor Fatima',
+    workplaceSignals: signals,
+  });
+  assert.equal(solarAnalysis.visualHighlights.length, 3);
+  assert.ok(solarAnalysis.localReadinessPct > solarAnalysis.remoteReadinessPct);
+  assert.ok(solarAnalysis.localReadinessPct >= 90);
+
+  const digitalAnalysis = buildOfflineLivingProofAnalysis({
+    skillTrackId: 'digital-code',
+    imageCount: 1,
+    problemSolvedCaption: 'Built offline conflict-resolver module for clinic tablets.',
+    voiceWalkthrough: 'Added unit tests and retry queue deduplication.',
+    peerVouch: '',
+    workplaceSignals: signals,
+  });
+  assert.ok(digitalAnalysis.remoteReadinessPct > digitalAnalysis.localReadinessPct);
+
+  const profile = createInitialProfile({ ageStage: '30-45', onboarded: true });
+  const baseVault = createInitialVault('u1');
+  const proofVault = {
+    ...baseVault,
+    proofPortfolioReady: true,
+    proofSkillTrack: 'trades-solar' as const,
+    proofLocalScore: solarAnalysis.localReadinessPct,
+    proofRemoteScore: solarAnalysis.remoteReadinessPct,
+    workplaceSignalsCount: 3,
+  };
+
+  const sdgBefore = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: samplePassport,
+    endorsements: [],
+    vault: baseVault,
+    payouts: [],
+    contributions: [],
+  });
+  const sdgAfter = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: samplePassport,
+    endorsements: [],
+    vault: proofVault,
+    payouts: [],
+    contributions: [],
+  });
+
+  for (const sdgNum of [8, 10, 17] as const) {
+    const beforeCard = sdgBefore.find((m) => m.sdgNumber === sdgNum)!;
+    const afterCard = sdgAfter.find((m) => m.sdgNumber === sdgNum)!;
+    assert.ok(
+      afterCard.numericValue > beforeCard.numericValue,
+      `Expected SDG ${sdgNum} to increment (${beforeCard.numericValue} -> ${afterCard.numericValue})`
+    );
+  }
+});
+
+test('interactive Sprint Milestone progress bar toggles Analysis Complete, Draft Ready, and Final Submission cleanly', () => {
+  assert.equal(SPRINT_MILESTONE_STEPS.length, 3);
+  assert.deepEqual(
+    SPRINT_MILESTONE_STEPS.map((s) => s.label),
+    ['Analysis Complete', 'Draft Ready', 'Final Submission']
+  );
+
+  let milestones = normalizeSprintMilestones(undefined, false);
+  assert.deepEqual(milestones, []);
+  assert.equal(getSprintMilestoneProgress(milestones, false).completedCount, 0);
+  assert.equal(getSprintMilestoneProgress(milestones, false).percentage, 0);
+
+  milestones = toggleSprintMilestoneList(milestones, 'analysis-complete');
+  assert.deepEqual(milestones, ['analysis-complete']);
+  assert.equal(getSprintMilestoneProgress(milestones, false).completedCount, 1);
+  assert.equal(getSprintMilestoneProgress(milestones, false).percentage, 33);
+
+  milestones = toggleSprintMilestoneList(milestones, 'draft-ready');
+  assert.deepEqual(milestones, ['analysis-complete', 'draft-ready']);
+  assert.equal(getSprintMilestoneProgress(milestones, false).completedCount, 2);
+  assert.equal(getSprintMilestoneProgress(milestones, false).percentage, 67);
+
+  milestones = toggleSprintMilestoneList(milestones, 'final-submission');
+  assert.deepEqual(milestones, ['analysis-complete', 'draft-ready', 'final-submission']);
+  assert.equal(getSprintMilestoneProgress(milestones, false).completedCount, 3);
+  assert.equal(getSprintMilestoneProgress(milestones, false).percentage, 100);
+
+  // Unchecking Draft Ready preserves canonical order of remaining milestones
+  milestones = toggleSprintMilestoneList(milestones, 'draft-ready');
+  assert.deepEqual(milestones, ['analysis-complete', 'final-submission']);
+
+  // Completed sprint submissions always report 3/3 (100%)
+  const completedProgress = getSprintMilestoneProgress([], true);
+  assert.equal(completedProgress.completedCount, 3);
+  assert.equal(completedProgress.percentage, 100);
+});
+
+test('Matched Work & Cross-Age Solution Flows rank uploaded proof fit, filter work modes, and increment SDG 8 & SDG 17', () => {
+  assert.equal(MATCHED_WORK_OPPORTUNITIES.length, 5);
+
+  const profile = createInitialProfile({
+    ageStage: '30-45',
+    problemStatement: '48V solar inverter diagnostics and battery balancing',
+    onboarded: true,
+  });
+  const baseVault = createInitialVault('u1');
+  const clearedVault = {
+    ...baseVault,
+    identityCompleted: true,
+    contractCompleted: true,
+    payoutCompleted: true,
+  };
+  assert.equal(isComplianceClearedForWork(baseVault), false);
+  assert.equal(isComplianceClearedForWork(clearedVault), true);
+
+  const basePortfolio = createInitialLivingProofPortfolio();
+  const portfolio = {
+    ...basePortfolio,
+    analysis: buildOfflineLivingProofAnalysis({
+      skillTrackId: 'trades-solar',
+      imageCount: 2,
+      problemSolvedCaption: 'Wired 48V solar inverter and labeled DC breakers at 52.4V.',
+      voiceWalkthrough: 'Verified load balance and surge protection for rural clinic.',
+      peerVouch: 'Confirmed by clinic supervisor Fatima',
+      workplaceSignals: {
+        clearTimelines: true,
+        qualitySafetyCheck: true,
+        clientCommunication: true,
+      },
+    }),
+  };
+  const ranked = rankMatchedWorkOpportunities({
+    profile,
+    portfolio,
+    vault: clearedVault,
+    passport: samplePassport,
+  });
+
+  assert.equal(ranked.length, 5);
+  assert.equal(ranked[0].id, 'opp-solar-diagnostics-01');
+  assert.equal(ranked[0].isStrongFit, true);
+  assert.equal(ranked[0].fitReasonLabel, 'Strong Fit — Aligned with Your Uploaded Proof');
+  assert.equal(ranked[0].preClearedToContract, true);
+  assert.equal(ranked[0].userPodSeat, 'lead');
+
+  assert.equal(filterMatchedWorkOpportunities(ranked, 'all').length, 5);
+  assert.equal(filterMatchedWorkOpportunities(ranked, 'local').length, 3);
+  assert.equal(filterMatchedWorkOpportunities(ranked, 'remote').length, 2);
+  assert.equal(filterMatchedWorkOpportunities(ranked, 'fellowship').length, 3);
+
+  const sdgBefore = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: samplePassport,
+    endorsements: [],
+    vault: clearedVault,
+    payouts: [],
+    contributions: [],
+  });
+
+  const appliedVault = {
+    ...clearedVault,
+    matchedWorkCount: 1,
+    appliedOpportunityIds: ['match-solar-diag-01'],
+  };
+
+  const sdgAfter = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: samplePassport,
+    endorsements: [],
+    vault: appliedVault,
+    payouts: [],
+    contributions: [],
+  });
+
+  const sdg8Before = sdgBefore.find((m) => m.sdgNumber === 8)!;
+  const sdg8After = sdgAfter.find((m) => m.sdgNumber === 8)!;
+  const sdg17Before = sdgBefore.find((m) => m.sdgNumber === 17)!;
+  const sdg17After = sdgAfter.find((m) => m.sdgNumber === 17)!;
+
+  assert.ok(sdg8After.numericValue > sdg8Before.numericValue);
+  assert.ok(sdg17After.numericValue > sdg17Before.numericValue);
+});
+
+test('Job-to-Fit Upskilling Bridge detects 65%-90% fit roles, outputs UNESCO UQP & ILO RPL options, and increments SDG 4 & SDG 10', () => {
+  const profile = createInitialProfile({
+    ageStage: '30-45',
+    problemStatement: '48V solar inverter diagnostics and battery balancing',
+    onboarded: true,
+  });
+  const baseVault = createInitialVault('u1');
+  const portfolio = createInitialLivingProofPortfolio();
+
+  const ranked = rankMatchedWorkOpportunities({
+    profile,
+    portfolio,
+    vault: baseVault,
+    passport: samplePassport,
+  });
+
+  // Opportunities in 65%–90% fit range activate the Demand-First Upskilling Bridge
+  const bridgeFits = ranked.filter((o) => o.isUpskillingBridgeFit);
+  assert.ok(bridgeFits.length >= 3, 'Expected multiple opportunities to fall in the 65%-90% fit range');
+  for (const opp of bridgeFits) {
+    assert.ok(opp.matchScore >= 65 && opp.matchScore <= 90);
+  }
+
+  for (const opp of MATCHED_WORK_OPPORTUNITIES) {
+    const bridge = buildPreseededUpskillingBridge({
+      opportunity: opp,
+      portfolio,
+      profile,
+      passport: samplePassport,
+    });
+    assert.equal(bridge.opportunityId, opp.id);
+    assert.equal(bridge.whatYouAlreadyProve.length, 2);
+    assert.ok(bridge.singleMissingBridge.skillTitle.length >= 4);
+    assert.ok(bridge.singleMissingBridge.frameworkTag.includes('UNESCO UQP'));
+    assert.ok(bridge.singleMissingBridge.frameworkTag.includes('ILO RPL'));
+    assert.equal(
+      bridge.optionAMicroBridge.stipendPillLabel,
+      'Partner Fee-Waiver / Stipend Eligible'
+    );
+    assert.ok(bridge.optionBApprenticeshipPod.mentorPairingLabel.includes('30–46+'));
+    assert.ok(bridge.optionBApprenticeshipPod.cohesionNote.includes('RPL credits'));
+    assert.equal(bridge.optionBApprenticeshipPod.paidApprenticeStipendUsd, opp.payoutUsd);
+  }
+
+  const sdgBefore = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: samplePassport,
+    endorsements: [],
+    vault: baseVault,
+    payouts: [],
+    contributions: [],
+  });
+
+  const bridgeLockedVault = {
+    ...baseVault,
+    upskillingBridgesCount: 1,
+    lockedBridgeOpportunityIds: ['opp-sme-bookkeeping-02'],
+  };
+
+  const sdgAfter = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: samplePassport,
+    endorsements: [],
+    vault: bridgeLockedVault,
+    payouts: [],
+    contributions: [],
+  });
+
+  const sdg4Before = sdgBefore.find((m) => m.sdgNumber === 4)!;
+  const sdg4After = sdgAfter.find((m) => m.sdgNumber === 4)!;
+  const sdg10Before = sdgBefore.find((m) => m.sdgNumber === 10)!;
+  const sdg10After = sdgAfter.find((m) => m.sdgNumber === 10)!;
+
+  assert.equal(sdg4After.numericValue - sdg4Before.numericValue, 2);
+  assert.ok(sdg4After.microStory.includes('Target 4.4'));
+  assert.equal(sdg10After.numericValue - sdg10Before.numericValue, 2);
+  assert.ok(sdg10After.microStory.includes('Target 10.2'));
+});
+
+test('Tab 4 Pulse UN 2030 Agenda target tags, Knowledge-to-Work Flow stages, and Age & Cohesion Breakdown align with UQP and ILO PROSPECTS', () => {
+  const profile = createInitialProfile({
+    ageStage: '18-29',
+    problemStatement: 'Solar inverter diagnostics and mobile sync',
+    onboarded: true,
+  });
+  const vault = {
+    ...createInitialVault('u1'),
+    proofLocalScore: 90,
+    proofRemoteScore: 84,
+    upskillingBridgesCount: 1,
+    matchedWorkCount: 1,
+  };
+
+  const inputs = {
+    profile,
+    capabilities: [sampleCap],
+    passport: samplePassport,
+    endorsements: [],
+    vault,
+    payouts: [],
+    contributions: [],
+  };
+
+  const sdgMetrics = computeSdgPulseMetrics(inputs);
+  assert.equal(sdgMetrics.length, 5);
+  assert.equal(sdgMetrics[0].unTargetTag, 'Targets 4.4 & 4.5 — Quality Upskilling');
+  assert.equal(sdgMetrics[1].unTargetTag, 'Targets 8.5, 8.8 & 8.10 — Decent Work');
+  assert.equal(sdgMetrics[2].unTargetTag, 'Targets 10.2 & 10.7 — Reduced Inequalities');
+  assert.equal(sdgMetrics[3].unTargetTag, 'Targets 16.6 & 16.9 — Strong Institutions');
+  assert.equal(sdgMetrics[4].unTargetTag, 'Target 17.17 — Partnerships');
+
+  const flow = computeKnowledgeToWorkFlow(inputs);
+  assert.deepEqual(
+    flow.map((s) => s.label),
+    [
+      'Paperless Intake',
+      'Verified Passport',
+      'Compliance Cleared',
+      'Upskilling Bridge / Paid Placement',
+    ]
+  );
+
+  const breakdown = computeAgeAndCohesionBreakdown(inputs);
+  assert.equal(breakdown.youth15To29Pct + breakdown.specialist30To46PlusPct, 100);
+  assert.equal(breakdown.localWorkPct + breakdown.remoteWorkPct, 100);
+  assert.equal(breakdown.activeAgeStage, '18-29');
+  assert.ok(breakdown.activeAgeGroupLabel.includes('Youth Builder'));
+  assert.ok(breakdown.cohesionPodsCount >= 20);
+});
+
+import {
+  DeterministicComplianceCache,
+  TokenBucketRateLimiter,
+  VisionCircuitBreaker,
+  enforceRefugeePrivacyGuard,
+  partnerScaleStore,
+  signCompetencyPassport,
+} from './serverArchitecture';
+
+test('serverArchitecture: signCompetencyPassport produces deterministic VNA-2026-XXXX verifiable ID and HMAC-SHA256 signature', () => {
+  const signed = signCompetencyPassport(
+    {
+      summary: 'Verified off-grid solar inverter diagnostic specialist.',
+      capabilities: [{ name: 'Solar PV Balancing' }, { name: 'DC Breaker Isolation' }],
+    },
+    'Green Energy',
+    '30-45'
+  );
+
+  assert.ok(signed.verifiableId.startsWith('VNA-2026-'));
+  assert.ok(signed.signature.startsWith('hmac-sha256:'));
+  assert.equal(signed.privacyMode, 'ZERO_RAW_ID_PII_SEPARATED');
+});
+
+test('serverArchitecture: DeterministicComplianceCache serves repeated country + docTier + workMode lookups in <30ms', () => {
+  const cache = new DeterministicComplianceCache<{ accessTier: string }>(24 * 60 * 60 * 1000);
+  const miss = cache.get('Kenya', 'refugee-id', 'cross-border-remote');
+  assert.equal(miss.hit, false);
+
+  cache.set('Kenya', 'refugee-id', 'cross-border-remote', { accessTier: 'Enabling' });
+
+  const startMs = Date.now();
+  const hit = cache.get('kenya', 'REFUGEE-ID', 'cross-border-remote');
+  const elapsedMs = Date.now() - startMs;
+
+  assert.equal(hit.hit, true);
+  assert.equal(hit.value?.accessTier, 'Enabling');
+  assert.ok(elapsedMs < 30);
+  assert.equal(cache.getStats().hits, 1);
+});
+
+test('serverArchitecture: enforceRefugeePrivacyGuard strips raw ID numbers and issues VNA-CONSENT-XXXX token', () => {
+  const guarded = enforceRefugeePrivacyGuard({
+    displayName: 'Amina Hassan',
+    nationalId: 'AB12345678',
+    responseText: 'My raw serial is KRA98765432 and I wired a 48V solar array.',
+  });
+
+  assert.equal(guarded.zeroRawIdEnforced, true);
+  assert.ok(guarded.consentToken.startsWith('VNA-CONSENT-'));
+  assert.equal(guarded.sanitizedPayload.nationalId, '[REDACTED_ZERO_RAW_ID_POLICY]');
+  assert.ok(
+    String(guarded.sanitizedPayload.responseText).includes('[TIER_VERIFIED_ID_REDACTED]')
+  );
+  assert.ok(guarded.strippedPiiFieldsCount >= 2);
+});
+
+test('serverArchitecture: VisionCircuitBreaker trips cleanly to grounded fallback on timeout or upstream error', async () => {
+  const breaker = new VisionCircuitBreaker(50);
+
+  const tripped = await breaker.execute(
+    async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return { source: 'ai' };
+    },
+    (reason) => ({ source: 'fallback', reason })
+  );
+
+  assert.equal(tripped.trippedFallback, true);
+  assert.equal((tripped.result as { source: string }).source, 'fallback');
+  assert.equal(breaker.getMetrics().fallbackTrips, 1);
+});
+
+test('serverArchitecture: TokenBucketRateLimiter and partnerScaleStore cohort provisioner & email vault work reliably', () => {
+  const limiter = new TokenBucketRateLimiter(2, 1);
+  assert.equal(limiter.consume('ip-1').allowed, true);
+  assert.equal(limiter.consume('ip-1').allowed, true);
+  const throttled = limiter.consume('ip-1');
+  assert.equal(throttled.allowed, false);
+  assert.ok(throttled.retryAfterSeconds >= 1);
+
+  const cohort = partnerScaleStore.provisionCohort({
+    regionId: 'uganda',
+    sectorId: 'climate_agri',
+    languageCode: 'sw',
+    cohortSize: 150,
+  });
+  assert.ok(cohort.cohortId.startsWith('COHORT-UG-'));
+
+  const vaultRecord = partnerScaleStore.saveEmailVault({
+    email: 'Practitioner@Hotmail.com',
+    displayName: 'Omar Farouk',
+    provider: 'microsoft',
+    payload: { passportId: 'VNA-2026-TEST' },
+  });
+  assert.equal(vaultRecord.normalizedEmail, 'practitioner@hotmail.com');
+  assert.equal(vaultRecord.zeroRawIdProtected, true);
+  assert.ok(partnerScaleStore.getEmailVault('practitioner@hotmail.com') !== null);
+});
+
+test('Tab 1 [Verify] Adaptive 3-Route Verification Router, 4-Tier Trust Indicator, and SDG 4 Stipend Trigger work end-to-end', () => {
+  assert.equal(ADAPTIVE_VERIFICATION_ROUTES.length, 3);
+  assert.equal(getRecommendedVerifyRoute('30-45'), 'route-a-foreign');
+  assert.equal(getRecommendedVerifyRoute('46+'), 'route-b-uqp');
+  assert.equal(getRecommendedVerifyRoute('18-29'), 'route-c-rpl');
+  assert.equal(getRecommendedVerifyRoute('15-17'), 'route-c-rpl');
+
+  const routeAPassport = buildAdaptiveCompetencyPassportFallback({
+    ownerUid: 'u1',
+    displayName: 'Eng. Tariq Al-Mansoor',
+    ageStage: '30-45',
+    studioDomain: 'Green Energy',
+    verificationRoute: 'route-a-foreign',
+    responseText: FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.responseText,
+    evidenceSummary: FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.evidenceSummary,
+    verifiableId: 'VNA-2026-8412',
+  });
+
+  assert.equal(routeAPassport.verifiableId, 'VNA-2026-8412');
+  assert.ok(routeAPassport.nqfEquivalencyLevel?.includes('NQF Level 6'));
+  assert.ok((routeAPassport.workplaceSkills?.length ?? 0) >= 3);
+  assert.equal(routeAPassport.microBridge.estimatedCostUsd, 75);
+  assert.ok(routeAPassport.microBridge.secondaryModule);
+
+  const tier1 = computePassportTrustTier({
+    passport: routeAPassport,
+    capabilities: [],
+    endorsements: [],
+    contributions: [],
+  });
+  assert.equal(tier1.activeTier, 1);
+
+  const tier3 = computePassportTrustTier({
+    passport: routeAPassport,
+    capabilities: [sampleCap],
+    endorsements: [],
+    contributions: [
+      {
+        id: 'c1',
+        ownerUid: 'u1',
+        briefId: 'brief-coldchain-03',
+        briefTitle: 'Solar-Direct Cold-Chain Compressor Retrofit Plan',
+        domain: 'Green Energy',
+        status: 'completed',
+        solutionNotes: 'Done',
+        hoursLogged: 5,
+        payoutUsd: 350,
+        createdAtIso: '2026-11-24T00:00:00Z',
+        updatedAtIso: '2026-11-24T00:00:00Z',
+      },
+    ],
+  });
+  assert.equal(tier3.activeTier, 3);
+
+  const profile = createInitialProfile({ ageStage: '30-45', onboarded: true });
+  const vault = createInitialVault('u1');
+  const sdgBeforeStipend = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: routeAPassport,
+    endorsements: [],
+    vault,
+    payouts: [],
+    contributions: [],
+  }).find((m) => m.sdgNumber === 4)!;
+
+  const sdgAfterStipend = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: { ...routeAPassport, stipendEligible: true },
+    endorsements: [],
+    vault,
+    payouts: [],
+    contributions: [],
+  }).find((m) => m.sdgNumber === 4)!;
+
+  assert.equal(sdgAfterStipend.numericValue - sdgBeforeStipend.numericValue, 1);
+  assert.ok(sdgAfterStipend.microStory.includes('Stipend Pre-Approved'));
+});
 
 
 

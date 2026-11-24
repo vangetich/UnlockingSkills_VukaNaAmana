@@ -250,6 +250,10 @@
         "payoutUsd": {
           "type": "number"
         },
+        "milestonesDone": {
+          "type": "array",
+          "description": "Bounded list (max 3) of completed sprint milestones."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"
@@ -335,6 +339,37 @@
         "onboardingHostCountry": {
           "type": "string",
           "maxLength": 80
+        },
+        "proofPortfolioReady": {
+          "type": "boolean"
+        },
+        "proofSkillTrack": {
+          "type": "string",
+          "enum": ["trades-solar", "craft-tailoring", "business-finance", "digital-code", "agri-care"],
+          "maxLength": 32
+        },
+        "proofLocalScore": {
+          "type": "number"
+        },
+        "proofRemoteScore": {
+          "type": "number"
+        },
+        "workplaceSignalsCount": {
+          "type": "number"
+        },
+        "matchedWorkCount": {
+          "type": "number"
+        },
+        "appliedOpportunityIds": {
+          "type": "array",
+          "description": "Bounded list (max 20) of Matched Work opportunity IDs applied to with Living Proof."
+        },
+        "upskillingBridgesCount": {
+          "type": "number"
+        },
+        "lockedBridgeOpportunityIds": {
+          "type": "array",
+          "description": "Bounded list (max 20) of Matched Work opportunity IDs where a Job-to-Fit Upskilling Bridge spot was locked."
         },
         "createdAt": {
           "type": "string",

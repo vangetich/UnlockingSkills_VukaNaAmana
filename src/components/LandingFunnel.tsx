@@ -1,5 +1,17 @@
 import React, { useState } from 'react';
-import { ArrowDown, ArrowRight, Globe, Mic, Moon, Square, Sun, WifiOff } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpDown,
+  Globe,
+  Mic,
+  Moon,
+  Square,
+  Sun,
+  WifiOff,
+} from 'lucide-react';
+import { motion } from 'motion/react';
 import type { AgeStage, LocaleCode, ThemeMode } from '../types/kora';
 import {
   LOCALE_OPTIONS,
@@ -16,20 +28,34 @@ import {
 
 interface FunnelSectionArrowProps {
   position: 'top' | 'middle' | 'bottom';
-  targetId: string;
-  label: string;
+  upTargetId: string;
+  upLabel: string;
+  downTargetId: string;
+  downLabel: string;
   stepTag: string;
 }
 
 const FunnelSectionArrow: React.FC<FunnelSectionArrowProps> = ({
   position,
-  targetId,
-  label,
+  upTargetId,
+  upLabel,
+  downTargetId,
+  downLabel,
   stepTag,
 }) => {
   const isMiddle = position === 'middle';
-  const handleScroll = () => {
-    document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const [flowDirection, setFlowDirection] = useState<'down' | 'up'>(
+    position === 'bottom' ? 'up' : 'down'
+  );
+
+  const scrollToSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const handleToggleDirection = () => {
+    const nextDir = flowDirection === 'down' ? 'up' : 'down';
+    setFlowDirection(nextDir);
+    scrollToSection(nextDir === 'up' ? upTargetId : downTargetId);
   };
 
   return (
@@ -37,46 +63,128 @@ const FunnelSectionArrow: React.FC<FunnelSectionArrowProps> = ({
       data-testid={`landing-arrow-${position}`}
       className="relative z-10 mt-10 sm:mt-14 flex flex-col items-center"
     >
-      <span
+      <motion.span
         aria-hidden="true"
-        className={`w-px h-7 sm:h-9 ${
+        animate={{ opacity: [0.45, 0.9, 0.45] }}
+        transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
+        className={`w-px h-6 sm:h-8 ${
           isMiddle
             ? 'bg-gradient-to-b from-transparent to-[#C4622D]/60 dark:to-[#E07B46]/60'
             : 'bg-gradient-to-b from-transparent to-[#146C53]/60 dark:to-[#2EB88B]/60'
         }`}
       />
-      <button
-        type="button"
-        onClick={handleScroll}
-        aria-label={label}
-        className={`group min-h-[42px] px-4 py-2 rounded-full border bg-white/90 dark:bg-[#1A1C20]/90 backdrop-blur-xs text-xs font-medium inline-flex items-center gap-2.5 transition-all hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 ${
+      <div
+        role="group"
+        aria-label={`Section ${stepTag} bidirectional vertical navigation`}
+        className={`inline-flex items-stretch rounded-full border bg-white/95 dark:bg-[#1A1C20]/95 backdrop-blur-xs shadow-xs overflow-hidden max-w-full ${
           isMiddle
-            ? 'border-[#C4622D]/30 dark:border-[#E07B46]/35 text-[#17191C] dark:text-[#F4F2EE] hover:border-[#C4622D] dark:hover:border-[#E07B46] focus-visible:ring-[#C4622D]'
-            : 'border-[#146C53]/30 dark:border-[#2EB88B]/35 text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] dark:hover:border-[#2EB88B] focus-visible:ring-[#146C53]'
+            ? 'border-[#C4622D]/30 dark:border-[#E07B46]/35'
+            : 'border-[#146C53]/30 dark:border-[#2EB88B]/35'
         }`}
       >
-        <span
-          className={`font-mono-tabular text-[11px] font-semibold ${
-            isMiddle
-              ? 'text-[#C4622D] dark:text-[#E07B46]'
-              : 'text-[#146C53] dark:text-[#2EB88B]'
+        {/* Left Side: Upward Movement */}
+        <button
+          type="button"
+          onClick={() => {
+            setFlowDirection('up');
+            scrollToSection(upTargetId);
+          }}
+          aria-label={upLabel}
+          data-testid={`landing-arrow-up-${position}`}
+          className={`group min-h-[42px] pl-2.5 pr-3 sm:pl-3 sm:pr-4 py-1.5 inline-flex items-center gap-2 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#146C53] ${
+            flowDirection === 'up'
+              ? 'bg-[#E7F3EE]/60 dark:bg-[#142B24]/60 text-[#146C53] dark:text-[#2EB88B]'
+              : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] hover:bg-[#FAF8F5] dark:hover:bg-[#23262B]'
           }`}
         >
-          {stepTag}
-        </span>
-        <span className="text-[#575B62] dark:text-[#A3A7AE] group-hover:text-[#17191C] dark:group-hover:text-[#F4F2EE] transition-colors">
-          {label}
-        </span>
-        <span
-          className={`w-6 h-6 rounded-full flex items-center justify-center transition-transform group-hover:translate-y-0.5 ${
-            isMiddle
-              ? 'bg-[#F9ECE5] dark:bg-[#2D1E17] text-[#C4622D] dark:text-[#E07B46]'
-              : 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+          <motion.span
+            animate={flowDirection === 'up' ? { y: [0, -2.5, 0] } : { y: 0 }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+            className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-transform group-hover:-translate-y-0.5 ${
+              isMiddle
+                ? 'bg-[#F9ECE5] dark:bg-[#2D1E17] text-[#C4622D] dark:text-[#E07B46]'
+                : 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+            }`}
+          >
+            <ArrowUp className="w-3.5 h-3.5" />
+          </motion.span>
+          <span className="hidden sm:inline whitespace-nowrap">{upLabel}</span>
+          <span className="sm:hidden whitespace-nowrap">Up</span>
+        </button>
+
+        {/* Interactive Center Toggleable Up/Down Bidirectional Crossing Control */}
+        <button
+          type="button"
+          onClick={handleToggleDirection}
+          data-testid={`landing-arrow-toggle-${position}`}
+          aria-pressed={flowDirection === 'up'}
+          aria-label={`Toggle Up/Down crossing flow for section ${stepTag} (current: ${flowDirection.toUpperCase()})`}
+          title="Toggle Up/Down Bidirectional Crossing Flow"
+          className="px-2.5 sm:px-3.5 border-x border-[#E8E3DB] dark:border-[#2C3037] inline-flex items-center gap-1.5 bg-[#FAF8F5]/85 dark:bg-[#121315]/75 hover:bg-[#E7F3EE]/50 dark:hover:bg-[#142B24]/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#146C53]"
+        >
+          <motion.span
+            key={flowDirection}
+            initial={{ rotate: flowDirection === 'up' ? 180 : 0, scale: 0.85 }}
+            animate={{
+              rotate: flowDirection === 'up' ? 180 : 0,
+              scale: 1,
+              y: flowDirection === 'down' ? [0, 1.5, 0] : [0, -1.5, 0],
+            }}
+            transition={{
+              rotate: { type: 'spring', stiffness: 260, damping: 20 },
+              y: { duration: 2, repeat: Infinity, ease: 'easeInOut' },
+            }}
+            className={`w-5 h-5 rounded-full flex items-center justify-center ${
+              isMiddle
+                ? 'bg-[#C4622D]/15 text-[#C4622D] dark:text-[#E07B46]'
+                : 'bg-[#146C53]/15 text-[#146C53] dark:text-[#2EB88B]'
+            }`}
+          >
+            <ArrowUpDown className="w-3 h-3" />
+          </motion.span>
+          <span
+            className={`font-mono-tabular text-[11px] font-semibold ${
+              isMiddle
+                ? 'text-[#C4622D] dark:text-[#E07B46]'
+                : 'text-[#146C53] dark:text-[#2EB88B]'
+            }`}
+          >
+            {stepTag}
+          </span>
+          <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-[#17191C] dark:text-[#F4F2EE]">
+            {flowDirection === 'down' ? 'Up/Down · ↓' : 'Up/Down · ↑'}
+          </span>
+        </button>
+
+        {/* Right Side: Downward Movement */}
+        <button
+          type="button"
+          onClick={() => {
+            setFlowDirection('down');
+            scrollToSection(downTargetId);
+          }}
+          aria-label={downLabel}
+          data-testid={`landing-arrow-down-${position}`}
+          className={`group min-h-[42px] pl-3 pr-2.5 sm:pl-4 sm:pr-3 py-1.5 inline-flex items-center gap-2 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#146C53] ${
+            flowDirection === 'down'
+              ? 'bg-[#F9ECE5]/60 dark:bg-[#2D1E17]/60 text-[#17191C] dark:text-[#F4F2EE]'
+              : 'text-[#17191C] dark:text-[#F4F2EE] hover:bg-[#FAF8F5] dark:hover:bg-[#23262B]'
           }`}
         >
-          <ArrowDown className="w-3.5 h-3.5" />
-        </span>
-      </button>
+          <span className="whitespace-nowrap truncate max-w-[160px] sm:max-w-none">{downLabel}</span>
+          <motion.span
+            animate={flowDirection === 'down' ? { y: [0, 2.5, 0] } : { y: 0 }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+            className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-transform group-hover:translate-y-0.5 ${
+              isMiddle
+                ? 'bg-[#F9ECE5] dark:bg-[#2D1E17] text-[#C4622D] dark:text-[#E07B46]'
+                : 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+            }`}
+          >
+            <ArrowDown className="w-3.5 h-3.5" />
+          </motion.span>
+        </button>
+      </div>
     </div>
   );
 };
@@ -93,6 +201,7 @@ interface LandingFunnelProps {
   onBeginCrossing: (payload: { problemStatement: string; ageStage: AgeStage }) => void;
   onOpenHiringPartners: (payload: { problemStatement: string; ageStage: AgeStage }) => void;
   onEnterStudio: (payload: { problemStatement: string; ageStage: AgeStage }) => void;
+  onPreviewCleared?: (payload: { problemStatement: string; ageStage: AgeStage }) => void;
   onOpenScaleDrawer: () => void;
   t: TranslationDictionary;
 }
@@ -111,6 +220,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
   onBeginCrossing,
   onOpenHiringPartners,
   onEnterStudio,
+  onPreviewCleared,
   onOpenScaleDrawer,
   t,
 }) => {
@@ -297,7 +407,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
         <section
           id="landing-hero-section"
           aria-labelledby="landing-hero-headline"
-          className="relative overflow-hidden pt-12 pb-12 sm:pt-20 sm:pb-16"
+          className="scroll-mt-16 relative overflow-hidden pt-12 pb-12 sm:pt-20 sm:pb-16"
         >
           <TopographicAscentMotif variant="landing" />
 
@@ -409,14 +519,30 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
                   <ArrowRight className="w-4 h-4 rtl:rotate-180" />
                 </button>
               </div>
+
+              {onPreviewCleared && (
+                <div className="mt-3 pt-3 border-t border-[#E8E3DB] dark:border-[#2C3037] text-center">
+                  <button
+                    type="button"
+                    onClick={() => onPreviewCleared(currentPayload)}
+                    data-testid="landing-hero-preview-cleared-btn"
+                    className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] hover:underline cursor-pointer inline-flex items-center gap-1"
+                  >
+                    <span>Preview Where This Leads</span>
+                    <span aria-hidden="true">→</span>
+                  </button>
+                </div>
+              )}
             </form>
 
-            {/* Top Arrow Unit -> 3-Pillar Crossing Strip */}
+            {/* Top Arrow Unit: Up to Hero Start / Down to 3-Pillar Crossing Strip */}
             <FunnelSectionArrow
               position="top"
-              targetId="landing-pillars-section"
+              upTargetId="landing-hero-section"
+              upLabel="Back to top"
+              downTargetId="landing-pillars-section"
+              downLabel="Explore the 3-pillar crossing"
               stepTag="01"
-              label="Explore the 3-pillar crossing"
             />
           </div>
         </section>
@@ -425,7 +551,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
         <section
           id="landing-pillars-section"
           aria-labelledby="pillars-heading"
-          className="relative overflow-hidden border-t border-[#E8E3DB] dark:border-[#2C3037] py-16 sm:py-20"
+          className="scroll-mt-16 relative overflow-hidden border-t border-[#E8E3DB] dark:border-[#2C3037] py-16 sm:py-20"
         >
           <WovenBridgeArcsMotif variant="landing" />
 
@@ -480,12 +606,14 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               ))}
             </div>
 
-            {/* Middle Arrow Unit -> Age-Versatility Preview */}
+            {/* Middle Arrow Unit: Up to Hero / Down to Age-Versatility Preview */}
             <FunnelSectionArrow
               position="middle"
-              targetId="landing-age-section"
+              upTargetId="landing-hero-section"
+              upLabel="Back to problem input"
+              downTargetId="landing-age-section"
+              downLabel="Preview your age-stage pathway"
               stepTag="02"
-              label="Preview your age-stage pathway"
             />
           </div>
         </section>
@@ -494,7 +622,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
         <section
           id="landing-age-section"
           aria-labelledby="age-versatility-heading"
-          className="relative overflow-hidden border-t border-[#E8E3DB] dark:border-[#2C3037] py-16 sm:py-20"
+          className="scroll-mt-16 relative overflow-hidden border-t border-[#E8E3DB] dark:border-[#2C3037] py-16 sm:py-20"
         >
           <RippleConstellationMotif variant="landing" />
 
@@ -641,12 +769,14 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               </div>
             </div>
 
-            {/* Bottom Arrow Unit -> Tagline Footer Anchor */}
+            {/* Bottom Arrow Unit: Up to 3-Pillar Strip / Down to Tagline Footer Anchor */}
             <FunnelSectionArrow
               position="bottom"
-              targetId="landing-footer-anchor"
+              upTargetId="landing-pillars-section"
+              upLabel="Back to 3 pillars"
+              downTargetId="landing-footer-anchor"
+              downLabel="Our guiding promise"
               stepTag="03"
-              label="Our guiding promise"
             />
           </div>
         </section>
@@ -656,7 +786,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
       <footer
         id="landing-footer-anchor"
         data-testid="landing-footer-anchor"
-        className="border-t border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] py-10 sm:py-14 px-4 sm:px-6 text-center"
+        className="scroll-mt-16 border-t border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] py-10 sm:py-14 px-4 sm:px-6 text-center"
       >
         <div className="max-w-3xl mx-auto space-y-2.5">
           <p className="font-display text-lg sm:text-xl md:text-2xl font-medium tracking-tight text-[#17191C] dark:text-[#F4F2EE]">

@@ -1,47 +1,65 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Award,
   Check,
-  ChevronDown,
-  ChevronUp,
+  CheckCircle2,
+  Compass,
   Copy,
-  ExternalLink,
+  Eye,
   FileCheck2,
+  FileText,
+  GraduationCap,
+  Hammer,
+  ImagePlus,
   Loader2,
-  Lock,
-  Pencil,
-  RotateCcw,
+  Mic,
+  MicOff,
+  Plus,
+  QrCode,
   Share2,
   ShieldCheck,
   Sparkles,
   Trash2,
-  Users,
+  UserCheck,
+  Wrench,
+  X,
 } from 'lucide-react';
 import type {
   AgeStage,
+  BriefSubmission,
   CompetencyPassport,
   PeerEndorsement,
   PractitionerProfile,
   SharedPassportPayload,
   SkillCapability,
   StudioDomain,
+  VerificationRouteId,
 } from '../types/kora';
-import { getStageLabel, type TranslationDictionary } from '../utils/i18n';
 import {
+  ADAPTIVE_VERIFICATION_ROUTES,
+  AGE_STAGE_PATHWAYS,
+  FOREIGN_CIVIL_TRANSCRIPT_SAMPLE,
   PRACTICAL_SCENARIOS,
   PRACTICE_DOMAINS,
+  RPL_INFORMAL_CRAFT_SAMPLE,
   STUDIO_DOMAINS,
+  UQP_STRUCTURED_RECONSTRUCTION_SAMPLE,
+  buildAdaptiveCompetencyPassportFallback,
   buildSharedPassportLink,
   buildSharedPassportPayload,
+  computeMilestoneBadges,
+  computePassportTrustTier,
+  getRecommendedVerifyRoute,
   makeSafeId,
+  sanitizeText,
 } from '../utils/talentEngine';
-import { VoiceInput, VoiceTextarea } from './VoiceField';
-import { PassportPreviewModal } from './PassportPreviewModal';
-import { PeerEndorsementPanel } from './PeerEndorsementPanel';
+import type { TranslationDictionary } from '../utils/i18n';
+import { WovenBridgeArcsMotif } from './ResilienceMotifs';
 
 interface VerifyViewProps {
   profile: PractitionerProfile;
   capabilities: SkillCapability[];
+  contributions?: BriefSubmission[];
   passport: CompetencyPassport | null;
   endorsements: PeerEndorsement[];
   isOnline: boolean;
@@ -60,7 +78,7 @@ interface VerifyViewProps {
   onDeleteCapability: (capabilityId: string) => void;
   onSavePassport: (passport: CompetencyPassport) => void;
   onTogglePassportStipend: (eligible: boolean) => void;
-  onImportPassportSkills: (passport: CompetencyPassport) => number;
+  onImportPassportSkills: (sourcePassport: CompetencyPassport) => number;
   onRequestEndorsement: (input: {
     collaboratorName: string;
     collaboratorRole: string;
@@ -76,11 +94,36 @@ interface VerifyViewProps {
   voiceTriggerSignal?: number;
 }
 
-const STAGES: AgeStage[] = ['15-17', '18-29', '30-45', '46+'];
+interface SpeechRecognitionAlternativeLike {
+  transcript: string;
+}
+
+interface SpeechRecognitionResultLike {
+  0: SpeechRecognitionAlternativeLike;
+  isFinal?: boolean;
+}
+
+interface SpeechRecognitionEventLike {
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+
+interface SpeechRecognitionInstance {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
 
 export const VerifyView: React.FC<VerifyViewProps> = ({
   profile,
   capabilities,
+  contributions = [],
   passport,
   endorsements,
   isOnline,
@@ -100,1160 +143,2023 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
   sharePassportSignal = 0,
   voiceTriggerSignal = 0,
 }) => {
-  // Practitioner focus editor
-  const [editingFocus, setEditingFocus] = useState(false);
-  const [draftProblem, setDraftProblem] = useState(profile.problemStatement);
-  const [draftStage, setDraftStage] = useState<AgeStage>(profile.ageStage);
+  // Adaptive Verification Route pre-selected by Age Stage from Landing Funnel
+  const recommendedRoute = useMemo(
+    () => getRecommendedVerifyRoute(profile.ageStage),
+    [profile.ageStage]
+  );
 
-  // Talent Studio 3-step state
-  const [studioStep, setStudioStep] = useState<1 | 2 | 3>(passport ? 3 : 1);
-  const [inputMode, setInputMode] = useState<'summary' | 'scenario'>('summary');
+  const [verificationRoute, setVerificationRoute] = useState<VerificationRouteId>(
+    passport?.verificationRoute ?? recommendedRoute
+  );
   const [studioDomain, setStudioDomain] = useState<StudioDomain>(
     passport?.studioDomain ?? 'Green Energy'
   );
-  const [studioResponse, setStudioResponse] = useState(profile.problemStatement);
-  const [showStudioEvidence, setShowStudioEvidence] = useState(false);
-  const [studioPortfolio, setStudioPortfolio] = useState('');
-  const [studioCert, setStudioCert] = useState('');
-  const [studioEndorsement, setStudioEndorsement] = useState('');
 
+  // Sync recommended route when user switches Age Stage from the Landing Funnel (unless a passport route is locked)
   useEffect(() => {
-    setDraftProblem(profile.problemStatement);
-    setDraftStage(profile.ageStage);
-    if (profile.problemStatement.trim()) {
-      setStudioResponse((prev) => (prev.trim() ? prev : profile.problemStatement));
+    if (!passport?.verificationRoute) {
+      setVerificationRoute(recommendedRoute);
     }
-  }, [profile.problemStatement, profile.ageStage]);
+  }, [recommendedRoute, passport?.verificationRoute]);
 
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [verifyError, setVerifyError] = useState<string | null>(null);
+  // Route A State: Foreign Qualification or Partial Copy (WES Gateway / ENIC-NARIC Track)
+  const [routeAInstitution, setRouteAInstitution] = useState(
+    FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.institutionName
+  );
+  const [routeACredential, setRouteACredential] = useState(
+    FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.credentialTitle
+  );
+  const [routeAHostCountry, setRouteAHostCountry] = useState(
+    FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.hostCountryTarget
+  );
+  const [routeAResponseText, setRouteAResponseText] = useState(
+    profile.problemStatement || FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.responseText
+  );
+  const [routeADocumentLabel, setRouteADocumentLabel] = useState<string>(
+    'Partial Transcript (Semesters 1–7) · Civil & Structural Engineering'
+  );
+  const routeAFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Route B State: Missing or Lost Paperwork (UNESCO UQP Structured Track — 3-part guided flow)
+  const [uqpStep, setUqpStep] = useState<1 | 2 | 3>(1);
+  const [uqpField, setUqpField] = useState(
+    UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.backgroundField
+  );
+  const [uqpYears, setUqpYears] = useState(
+    UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.yearsPracticed
+  );
+  const [uqpLanguage, setUqpLanguage] = useState(
+    UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.languageFluency
+  );
+  const [uqpDefense1, setUqpDefense1] = useState(
+    UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.oralDefense1
+  );
+  const [uqpDefense2, setUqpDefense2] = useState(
+    UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.oralDefense2
+  );
+  const [uqpContextNotes, setUqpContextNotes] = useState(
+    UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.alternativeContextNotes
+  );
+
+  // Route C State: Hands-On / Informal Craft (ILO & KNQA RPL Portfolio Track)
+  const [rplCraftTitle, setRplCraftTitle] = useState(
+    RPL_INFORMAL_CRAFT_SAMPLE.craftTitle
+  );
+  const [rplWalkthrough, setRplWalkthrough] = useState(
+    RPL_INFORMAL_CRAFT_SAMPLE.howIBuiltThis
+  );
+  const [rplVouch, setRplVouch] = useState(
+    RPL_INFORMAL_CRAFT_SAMPLE.clientOrMentorVouch
+  );
+  const [rplPhotoDataUrl, setRplPhotoDataUrl] = useState<string>(
+    RPL_INFORMAL_CRAFT_SAMPLE.samplePhotoDataUrl
+  );
+  const [rplPhotoLabel, setRplPhotoLabel] = useState<string>(
+    '48V Hybrid Inverter & DC Breaker Board Assembly'
+  );
+  const rplFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [isEvaluating, setIsEvaluating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [skillsImported, setSkillsImported] = useState(false);
+
+  // Voice-Note Microphone State
+  const [isListening, setIsListening] = useState(false);
+  const [voiceTargetField, setVoiceTargetField] = useState<
+    'route-a' | 'uqp-1' | 'uqp-2' | 'rpl'
+  >('route-a');
+  const [voiceStatusNote, setVoiceStatusNote] = useState<string | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+
+  // Secondary Quick-Add Manual Skill Drawer
+  const [showManualAdd, setShowManualAdd] = useState(false);
+  const [title, setTitle] = useState('');
+  const [domain, setDomain] = useState<string>(PRACTICE_DOMAINS[0]);
+  const [proofSummary, setProofSummary] = useState('');
+  const [portfolioRef, setPortfolioRef] = useState('');
+
+  // Peer Endorsement Form State
+  const [showEndorseForm, setShowEndorseForm] = useState(false);
+  const [endorseName, setEndorseName] = useState('');
+  const [endorseRole, setEndorseRole] = useState('');
+  const [endorseOrg, setEndorseOrg] = useState('');
+  const [endorseSkill, setEndorseSkill] = useState(
+    capabilities[0]?.title ?? '48V Solar Inverter & Lithium Bank Diagnostics'
+  );
+  const [endorseDirectQuote, setEndorseDirectQuote] = useState('');
+  const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [copiedEndorseId, setCopiedEndorseId] = useState<string | null>(null);
+
+  // Export / Share Verified Passport Modal State
   const [showExportModal, setShowExportModal] = useState(false);
-  const [importBanner, setImportBanner] = useState<string | null>(null);
-  const [sharedLinkState, setSharedLinkState] = useState<{
-    url: string;
-    payload: SharedPassportPayload;
-    copied: boolean;
-  } | null>(null);
+  const [copiedPassportLink, setCopiedPassportLink] = useState(false);
 
-  const handleGenerateSharePassportLink = async () => {
-    const payload = buildSharedPassportPayload({
-      profile,
-      passport,
-      capabilities,
-      endorsements,
-    });
+  const currentScenario = PRACTICAL_SCENARIOS[studioDomain];
+
+  const milestoneBadges = useMemo(
+    () => computeMilestoneBadges(capabilities, contributions, passport),
+    [capabilities, contributions, passport]
+  );
+
+  const trustLadder = useMemo(
+    () =>
+      computePassportTrustTier({
+        passport,
+        capabilities,
+        endorsements,
+        contributions,
+      }),
+    [passport, capabilities, endorsements, contributions]
+  );
+
+  const sharedPassportPayload = useMemo(
+    () =>
+      buildSharedPassportPayload({
+        profile,
+        passport,
+        capabilities,
+        endorsements,
+      }),
+    [profile, passport, capabilities, endorsements]
+  );
+
+  const sharedPassportUrl = useMemo(() => {
     const origin =
       typeof window !== 'undefined' ? window.location.origin : 'https://vukanaamana.app';
-    const url = buildSharedPassportLink(origin, payload);
-    let copied = false;
+    return buildSharedPassportLink(origin, sharedPassportPayload);
+  }, [sharedPassportPayload]);
+
+  const handleCopySharedPassportLink = async () => {
     try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-        copied = true;
-      }
+      await navigator.clipboard.writeText(sharedPassportUrl);
+      setCopiedPassportLink(true);
+      window.setTimeout(() => setCopiedPassportLink(false), 2600);
     } catch {
-      copied = false;
+      setCopiedPassportLink(false);
     }
-    setSharedLinkState({ url, payload, copied });
   };
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {
+          // ignore cleanup error
+        }
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (sharePassportSignal > 0) {
-      void handleGenerateSharePassportLink();
+      setShowExportModal(true);
     }
-    // Trigger Share Passport when Cmd+K invokes Share Passport
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sharePassportSignal]);
 
   useEffect(() => {
-    if (voiceTriggerSignal > 0) {
-      setStudioStep(1);
-      window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('vuka:trigger-voice-input'));
-      }, 60);
+    if (voiceTriggerSignal > 0 && !isListening) {
+      handleToggleVoiceNote(
+        verificationRoute === 'route-a-foreign'
+          ? 'route-a'
+          : verificationRoute === 'route-b-uqp'
+            ? 'uqp-1'
+            : 'rpl'
+      );
     }
   }, [voiceTriggerSignal]);
 
-  const handleCopySharedLink = async () => {
-    if (!sharedLinkState) return;
+  const appendTranscriptToActiveField = (
+    target: 'route-a' | 'uqp-1' | 'uqp-2' | 'rpl',
+    transcript: string
+  ) => {
+    const cleaned = transcript.trim();
+    if (!cleaned) return;
+    if (target === 'route-a') {
+      setRouteAResponseText((prev) => `${prev.trim()} ${cleaned}`.trim());
+    } else if (target === 'uqp-1') {
+      setUqpDefense1((prev) => `${prev.trim()} ${cleaned}`.trim());
+    } else if (target === 'uqp-2') {
+      setUqpDefense2((prev) => `${prev.trim()} ${cleaned}`.trim());
+    } else {
+      setRplWalkthrough((prev) => `${prev.trim()} ${cleaned}`.trim());
+    }
+  };
+
+  const handleToggleVoiceNote = (
+    target: 'route-a' | 'uqp-1' | 'uqp-2' | 'rpl' = 'route-a'
+  ) => {
+    setVoiceTargetField(target);
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const win = window as unknown as {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    const SpeechRec = win.SpeechRecognition || win.webkitSpeechRecognition;
+
+    if (!SpeechRec) {
+      const sampleVoicePrompt =
+        studioDomain === 'Green Energy'
+          ? 'Voice Note Transcribed: I isolated the 48V critical vaccine refrigerator bus, load-tested each LiFePO4 block under 25A draw, identified a 0.45V sag on Block #3 caused by a corroded M8 lug, re-torqued the busbar to 14Nm, and stabilized overnight autonomy.'
+          : studioDomain === 'Tech'
+            ? 'Voice Note Transcribed: I added a deterministic client mutation ID stored in IndexedDB with exponential backoff and a server-side idempotency ledger so 2G retries never duplicate inventory deductions.'
+            : studioDomain === 'Healthcare Ops'
+              ? 'Voice Note Transcribed: I quarantined the 9.4°C excursion lot in a sealed bin, cross-checked the WHO VVM2 stability table, rotated backup cold-boxes, and briefed multilingual triage nurses.'
+              : 'Voice Note Transcribed: I built a 13-week rolling cash-flow ledger, staged raw-material supplier payouts into two milestones, and accelerated 50% buyer deposits to close the Friday liquidity gap.';
+
+      appendTranscriptToActiveField(target, sampleVoicePrompt);
+      setVoiceStatusNote(
+        'Voice-to-text simulated (browser Speech API unavailable in this frame).'
+      );
+      return;
+    }
+
     try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(sharedLinkState.url);
-      }
-      setSharedLinkState((prev) => (prev ? { ...prev, copied: true } : null));
+      const rec = new SpeechRec();
+      rec.lang = speechLang || 'en-US';
+      rec.interimResults = false;
+      rec.continuous = false;
+
+      rec.onresult = (event: SpeechRecognitionEventLike) => {
+        const transcript = Array.from(event.results)
+          .map((res) => res[0]?.transcript ?? '')
+          .join(' ')
+          .trim();
+        if (transcript) {
+          appendTranscriptToActiveField(target, transcript);
+          setVoiceStatusNote('Voice note captured and appended.');
+        }
+      };
+
+      rec.onerror = () => {
+        setIsListening(false);
+        setVoiceStatusNote(
+          'Microphone permission unavailable — you can type or tap a 1-click sample preset.'
+        );
+      };
+
+      rec.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = rec;
+      setIsListening(true);
+      setVoiceStatusNote(`Listening (${speechLang})... speak naturally about how you solve problems.`);
+      rec.start();
     } catch {
-      setSharedLinkState((prev) => (prev ? { ...prev, copied: true } : null));
+      setIsListening(false);
+      setVoiceStatusNote('Could not start microphone in this browser environment.');
     }
   };
 
-  // Manual capability ledger form
-  const [capTitle, setCapTitle] = useState('');
-  const [capDomain, setCapDomain] = useState<string>(PRACTICE_DOMAINS[0]);
-  const [capProof, setCapProof] = useState('');
-  const [capPortfolio, setCapPortfolio] = useState('');
-  const [capCert, setCapCert] = useState('');
-  const [capEndorsement, setCapEndorsement] = useState('');
-  const [formError, setFormError] = useState<string | null>(null);
+  // Sample Preset Triggers
+  const handleApplyRouteASample = () => {
+    setStudioDomain(FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.domain);
+    setRouteAInstitution(FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.institutionName);
+    setRouteACredential(FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.credentialTitle);
+    setRouteAHostCountry(FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.hostCountryTarget);
+    setRouteAResponseText(FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.responseText);
+    setRouteADocumentLabel(FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.evidenceSummary);
+    setAiError(null);
+  };
 
-  const stageMeta = getStageLabel(profile.ageStage, t);
-  const activeScenario = PRACTICAL_SCENARIOS[studioDomain];
+  const handleApplyRouteBSample = () => {
+    setStudioDomain('Green Energy');
+    setUqpField(UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.backgroundField);
+    setUqpYears(UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.yearsPracticed);
+    setUqpLanguage(UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.languageFluency);
+    setUqpDefense1(UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.oralDefense1);
+    setUqpDefense2(UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.oralDefense2);
+    setUqpContextNotes(UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.alternativeContextNotes);
+    setAiError(null);
+  };
 
-  const handleSaveFocus = (e: React.FormEvent) => {
+  const handleApplyRouteCSample = () => {
+    setStudioDomain('Green Energy');
+    setRplCraftTitle(RPL_INFORMAL_CRAFT_SAMPLE.craftTitle);
+    setRplWalkthrough(RPL_INFORMAL_CRAFT_SAMPLE.howIBuiltThis);
+    setRplVouch(RPL_INFORMAL_CRAFT_SAMPLE.clientOrMentorVouch);
+    setRplPhotoDataUrl(RPL_INFORMAL_CRAFT_SAMPLE.samplePhotoDataUrl);
+    setRplPhotoLabel('48V Hybrid Inverter & DC Breaker Board Assembly (Sample Photo)');
+    setAiError(null);
+  };
+
+  const handleRouteAFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRouteADocumentLabel(`${file.name} (${Math.max(1, Math.round(file.size / 1024))} KB · Uploaded)`);
+  };
+
+  const handleRplPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRplPhotoLabel(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setRplPhotoDataUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleVerifyWithAi = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (draftProblem.trim().length < 3) return;
-    onUpdateProfileFocus(draftProblem.trim(), draftStage);
-    setEditingFocus(false);
-  };
+    setAiError(null);
 
-  const handleRunVerification = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const cleaned = studioResponse.trim();
-    if (cleaned.length < 12) {
-      setVerifyError(
-        'Please share at least a short paragraph describing your past work or practical scenario solution.'
+    let combinedResponseText = '';
+    let combinedEvidenceSummary = '';
+    let languageFluency = '';
+    let institutionName = '';
+    let hostCountryTarget = '';
+    let clientVouch = '';
+
+    if (verificationRoute === 'route-a-foreign') {
+      combinedResponseText = [
+        `Foreign Qualification / Partial Copy: ${routeACredential}`,
+        `Original Institution: ${routeAInstitution}`,
+        `Target Host-Country Recognition: ${routeAHostCountry}`,
+        `Practical Experience & Coursework Reconstruction: ${routeAResponseText}`,
+      ].join('\n');
+      combinedEvidenceSummary = `${routeACredential} · ${routeADocumentLabel}`;
+      institutionName = routeAInstitution;
+      hostCountryTarget = routeAHostCountry;
+    } else if (verificationRoute === 'route-b-uqp') {
+      combinedResponseText = [
+        `Part 1 (Background Reconstruction): Field: ${uqpField} | Years Practiced: ${uqpYears} | Languages: ${uqpLanguage}`,
+        `Part 2A (Technical Diagnostic Defense): ${uqpDefense1}`,
+        `Part 2B (Field Safety & Lockout-Tagout Defense): ${uqpDefense2}`,
+        `Part 3 (Alternative Context & Leadership Notes): ${uqpContextNotes}`,
+      ].join('\n\n');
+      combinedEvidenceSummary = `UNESCO UQP 3-Part Structured Reconstruction (${uqpYears} in ${uqpField})`;
+      languageFluency = uqpLanguage;
+    } else {
+      combinedResponseText = [
+        `Hands-On Craft / System Built: ${rplCraftTitle}`,
+        `30-Second "How I Built / Fixed This" Walkthrough: ${rplWalkthrough}`,
+        rplVouch ? `Past-Client / Master Mentor Vouch: ${rplVouch}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      combinedEvidenceSummary = `ILO/KNQA RPL Visual Evidence (${rplPhotoLabel}) + Practical Walkthrough`;
+      clientVouch = rplVouch;
+    }
+
+    if (combinedResponseText.trim().length < 15) {
+      setAiError(
+        'Please share a short explanation or tap the 1-click sample preset so the verification engine can map your competency.'
       );
       return;
     }
 
+    setIsEvaluating(true);
+    setSkillsImported(false);
+
+    // Offline or instant fallback path
     if (!isOnline) {
-      setVerifyError(
-        'You are currently offline. AI Passport verification requires an internet connection, while manual capability recording below works offline.'
-      );
+      const offlinePassport = buildAdaptiveCompetencyPassportFallback({
+        ownerUid: profile.uid,
+        displayName: profile.displayName,
+        ageStage: profile.ageStage,
+        studioDomain,
+        verificationRoute,
+        responseText: combinedResponseText,
+        evidenceSummary: combinedEvidenceSummary,
+        languageFluency,
+      });
+      onSavePassport(offlinePassport);
+      onUpdateProfileFocus(combinedResponseText.slice(0, 360), profile.ageStage);
+      setIsEvaluating(false);
       return;
     }
-
-    setVerifyError(null);
-    setImportBanner(null);
-    setStudioStep(2);
-    setIsVerifying(true);
-
-    const evidenceParts = [
-      studioPortfolio.trim() ? `Portfolio: ${studioPortfolio.trim()}` : '',
-      studioCert.trim() ? `Certification: ${studioCert.trim()}` : '',
-      studioEndorsement.trim() ? `Peer Endorsement: ${studioEndorsement.trim()}` : '',
-    ].filter(Boolean);
 
     try {
       const res = await fetch('/api/verify/passport', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          inputMode,
+          verificationRoute,
+          inputMode: verificationRoute === 'route-b-uqp' ? 'scenario' : 'summary',
           studioDomain,
           scenarioPrompt:
-            inputMode === 'scenario'
-              ? `${activeScenario.title}: ${activeScenario.context} ${activeScenario.question}`
-              : undefined,
-          responseText: cleaned,
+            verificationRoute === 'route-b-uqp'
+              ? `${currentScenario.title}: ${currentScenario.question}`
+              : '',
+          responseText: combinedResponseText.trim(),
           ageStage: profile.ageStage,
           displayName: profile.displayName,
-          problemStatement: profile.problemStatement,
-          evidenceSummary: evidenceParts.join(' | '),
-          locale: profile.preferredLocale,
+          evidenceSummary: combinedEvidenceSummary,
+          languageFluency,
+          institutionName,
+          hostCountryTarget,
+          clientVouch,
         }),
       });
 
-      const data = (await res.json()) as {
-        error?: string;
-        passport?: {
-          ageStageTrack: string;
-          fieldMatch: string;
-          executiveSummary: string;
-          verifiedSkills: CompetencyPassport['verifiedSkills'];
-          microBridge: CompetencyPassport['microBridge'];
-        };
-        studioDomain?: StudioDomain;
-        inputMode?: 'summary' | 'scenario';
-        generatedAtIso?: string;
-      };
-
+      const data = await res.json();
       if (!res.ok || !data.passport) {
-        throw new Error(
-          data.error || 'Unable to generate your Living Competency Passport right now.'
-        );
+        throw new Error(data.error || 'Could not complete verification.');
       }
 
-      const generatedPassport: CompetencyPassport = {
-        id: makeSafeId('pass'),
+      const fallbackBase = buildAdaptiveCompetencyPassportFallback({
         ownerUid: profile.uid,
-        studioDomain: data.studioDomain ?? studioDomain,
-        inputMode: data.inputMode ?? inputMode,
-        ageStageTrack: data.passport.ageStageTrack,
-        fieldMatch: data.passport.fieldMatch,
-        executiveSummary: data.passport.executiveSummary,
-        verifiedSkills: data.passport.verifiedSkills ?? [],
-        microBridge: data.passport.microBridge,
-        stipendEligible: false,
-        generatedAtIso: data.generatedAtIso ?? new Date().toISOString(),
+        displayName: profile.displayName,
+        ageStage: profile.ageStage,
+        studioDomain,
+        verificationRoute,
+        responseText: combinedResponseText,
+        evidenceSummary: combinedEvidenceSummary,
+        languageFluency,
+        verifiableId: data.verifiableId || data.passport.verifiableId || 'VNA-2026-8412',
+      });
+
+      const createdPassport: CompetencyPassport = {
+        ...fallbackBase,
+        ...data.passport,
+        id: makeSafeId('passport'),
+        ownerUid: profile.uid,
+        studioDomain,
+        verificationRoute,
+        inputMode: verificationRoute === 'route-b-uqp' ? 'scenario' : 'summary',
+        verifiableId:
+          data.verifiableId || data.passport.verifiableId || fallbackBase.verifiableId,
+        nqfEquivalencyLevel:
+          data.passport.nqfEquivalencyLevel || fallbackBase.nqfEquivalencyLevel,
+        reconstructedCredential:
+          data.passport.reconstructedCredential || fallbackBase.reconstructedCredential,
+        languageProficiency:
+          data.passport.languageProficiency || fallbackBase.languageProficiency,
+        workplaceSkills:
+          Array.isArray(data.passport.workplaceSkills) &&
+          data.passport.workplaceSkills.length > 0
+            ? data.passport.workplaceSkills
+            : fallbackBase.workplaceSkills,
+        microBridge: {
+          ...fallbackBase.microBridge,
+          ...(data.passport.microBridge ?? {}),
+        },
+        stipendEligible: passport?.stipendEligible ?? false,
+        generatedAtIso: data.generatedAtIso || new Date().toISOString(),
       };
 
-      onSavePassport(generatedPassport);
-      setStudioStep(3);
-    } catch (err) {
-      setVerifyError(
-        err instanceof Error
-          ? err.message
-          : 'Verification engine encountered an error. Please retry.'
-      );
+      onSavePassport(createdPassport);
+      onUpdateProfileFocus(combinedResponseText.trim().slice(0, 360), profile.ageStage);
+    } catch {
+      // Seamless deterministic fallback so verification never blocks the practitioner
+      const fallbackPassport = buildAdaptiveCompetencyPassportFallback({
+        ownerUid: profile.uid,
+        displayName: profile.displayName,
+        ageStage: profile.ageStage,
+        studioDomain,
+        verificationRoute,
+        responseText: combinedResponseText,
+        evidenceSummary: combinedEvidenceSummary,
+        languageFluency,
+      });
+      onSavePassport(fallbackPassport);
+      onUpdateProfileFocus(combinedResponseText.trim().slice(0, 360), profile.ageStage);
     } finally {
-      setIsVerifying(false);
+      setIsEvaluating(false);
     }
   };
 
-  const handleCommitPassportSkills = () => {
-    if (!passport) return;
-    const added = onImportPassportSkills(passport);
-    setImportBanner(
-      added > 0
-        ? `Added ${added} verified ${added === 1 ? 'skill' : 'skills'} to your capability ledger.`
-        : 'All skills from this passport are already recorded in your capability ledger.'
-    );
-  };
-
-  const handleCreateCapability = (e: React.FormEvent) => {
+  const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (capTitle.trim().length < 2 || capProof.trim().length < 4) {
-      setFormError(t.validationCapabilityRequired);
-      return;
-    }
-    setFormError(null);
+    const cleanTitle = sanitizeText(title, 120);
+    const cleanProof = sanitizeText(proofSummary, 360);
+    if (!cleanTitle || !cleanProof) return;
+
     onAddCapability({
-      title: capTitle.trim(),
-      domain: capDomain,
-      proofSummary: capProof.trim(),
-      portfolioRef: capPortfolio.trim() || undefined,
-      certificationRef: capCert.trim() || undefined,
-      peerEndorsement: capEndorsement.trim() || undefined,
+      title: cleanTitle,
+      domain,
+      proofSummary: cleanProof,
+      portfolioRef: sanitizeText(portfolioRef, 160) || undefined,
     });
-    setCapTitle('');
-    setCapProof('');
-    setCapPortfolio('');
-    setCapCert('');
-    setCapEndorsement('');
+
+    setTitle('');
+    setProofSummary('');
+    setPortfolioRef('');
+    setShowManualAdd(false);
   };
 
-  const renderStatusText = (status: SkillCapability['verificationStatus']) => {
-    if (status === 'master-endorsed') return t.statusMasterEndorsed;
-    if (status === 'field-verified') return t.statusFieldVerified;
-    return t.statusPending;
+  const handleCreateEndorsement = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = sanitizeText(endorseName, 80);
+    const cleanRole = sanitizeText(endorseRole, 80);
+    const cleanOrg = sanitizeText(endorseOrg, 80);
+    const cleanSkill = sanitizeText(endorseSkill, 120);
+    const cleanQuote = sanitizeText(endorseDirectQuote, 260);
+    if (!cleanName || !cleanSkill) return;
+
+    onRequestEndorsement({
+      collaboratorName: cleanName,
+      collaboratorRole: cleanRole || 'Field Collaborator',
+      organization: cleanOrg || 'Regional Partner Hub',
+      capabilityTitle: cleanSkill,
+      endorsementText: cleanQuote || undefined,
+      sourceTab: 'verify',
+    });
+
+    setEndorseName('');
+    setEndorseRole('');
+    setEndorseOrg('');
+    setEndorseDirectQuote('');
+    setShowEndorseForm(false);
   };
+
+  const handleCopyShareLink = async (item: PeerEndorsement) => {
+    const shareUrl = `${window.location.origin}${window.location.pathname}?endorse=${encodeURIComponent(
+      item.shareToken
+    )}&skill=${encodeURIComponent(item.capabilityTitle)}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedEndorseId(item.id);
+      window.setTimeout(() => setCopiedEndorseId(null), 2400);
+    } catch {
+      setCopiedEndorseId(item.id);
+      window.setTimeout(() => setCopiedEndorseId(null), 2400);
+    }
+  };
+
+  const verifiedEndorsementsCount = endorsements.filter(
+    (e) => e.status === 'verified'
+  ).length;
 
   return (
-    <section aria-labelledby="verify-heading" className="space-y-10">
-      {/* Header + Practitioner Focus */}
-      <div className="border-b border-[#E8E3DB] dark:border-[#2C3037] pb-8">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+    <div className="space-y-8">
+      {/* Editorial Section Header */}
+      <section className="relative overflow-hidden bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] rounded-2xl p-6 sm:p-8 shadow-sm">
+        <WovenBridgeArcsMotif />
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-medium text-[#575B62] dark:text-[#A3A7AE]">
-              {profile.displayName}
-              <span aria-hidden="true"> · </span>
-              {stageMeta.title}
-            </p>
-            <h1
-              id="verify-heading"
-              className="font-display text-2xl sm:text-3xl font-medium tracking-tight mt-1 text-[#17191C] dark:text-[#F4F2EE]"
-            >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase tracking-widest font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                TAB 1 · CREDENTIAL & SKILLS VERIFICATION ENGINE
+              </span>
+              <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4]">
+                UNESCO UQP · WES Gateway / ENIC-NARIC · ILO / KNQA RPL
+              </span>
+              <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-[#F9E9DF] dark:bg-[#2E1D15] text-[#C4622D] dark:text-[#F59E6C]">
+                {AGE_STAGE_PATHWAYS[profile.ageStage].shortLabel}
+              </span>
+            </div>
+            <h1 className="font-serif text-2xl sm:text-3xl font-semibold text-[#17191C] dark:text-[#F4F2EE] mt-1">
               {t.verifyHeading}
             </h1>
-            <p className="mt-2 text-sm sm:text-base text-[#575B62] dark:text-[#A3A7AE] max-w-2xl">
-              Show your real-world judgment through past work or a short practical scenario—no CV or paper degree required.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setDraftProblem(profile.problemStatement);
-              setDraftStage(profile.ageStage);
-              setEditingFocus((v) => !v);
-            }}
-            className="min-h-[42px] px-4 py-2 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 self-start sm:self-auto transition-colors"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            <span>{t.editFocusButton}</span>
-          </button>
-        </div>
-
-        {!editingFocus ? (
-          profile.problemStatement.trim() ? (
-            <p className="mt-5 text-base sm:text-lg font-medium text-[#17191C] dark:text-[#F4F2EE] leading-relaxed max-w-3xl">
-              “{profile.problemStatement}”
-            </p>
-          ) : (
-            <p className="mt-5 text-sm text-[#575B62] dark:text-[#A3A7AE] max-w-2xl">
+            <p className="text-sm text-[#5A6068] dark:text-[#A3A9B3] mt-1 max-w-2xl">
               {t.verifyLead}
             </p>
-          )
-        ) : (
-          <form onSubmit={handleSaveFocus} className="mt-6 space-y-4 max-w-2xl">
-            <VoiceTextarea
-              id="edit-focus-problem"
-              label={t.problemInputLabel}
-              value={draftProblem}
-              onChange={setDraftProblem}
-              speechLang={speechLang}
-              t={t}
-              maxLength={500}
-              rows={2}
-            />
-            <div className="flex flex-wrap gap-2">
-              {STAGES.map((st) => {
-                const label = getStageLabel(st, t);
-                const active = draftStage === st;
-                return (
-                  <button
-                    key={st}
-                    type="button"
-                    onClick={() => setDraftStage(st)}
-                    className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap ${
-                      active
-                        ? 'bg-[#E7F3EE] dark:bg-[#142B24] border-[#146C53] dark:border-[#2EB88B] text-[#146C53] dark:text-[#2EB88B]'
-                        : 'bg-white dark:bg-[#1A1C20] border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE]'
-                    }`}
-                  >
-                    {label.title}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="submit"
-                className="min-h-[42px] px-5 py-2 rounded-lg bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold transition-colors whitespace-nowrap"
-              >
-                {t.saveFocusButton}
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditingFocus(false)}
-                className="min-h-[42px] px-4 py-2 rounded-lg text-xs font-medium text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] whitespace-nowrap"
-              >
-                {t.cancelLabel}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-
-      {/* TALENT STUDIO: 3-Step Progressive "Show, Don't Tell" Verification */}
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
-              Talent Studio · Show, Don&apos;t Tell
-            </p>
-            <h2 className="font-display text-xl sm:text-2xl font-medium text-[#17191C] dark:text-[#F4F2EE] mt-0.5">
-              Living Competency Passport
-            </h2>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Crisp 3-Step Progress Navigation */}
-            <ol
-              aria-label="Verification steps"
-              className="flex items-center gap-2 sm:gap-3 text-xs font-medium"
-            >
-              <li>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!isVerifying) {
-                      setVerifyError(null);
-                      setStudioStep(1);
-                    }
-                  }}
-                  className={`px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
-                    studioStep === 1
-                      ? 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B] font-semibold'
-                      : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
-                  }`}
-                >
-                  1. Input
-                </button>
-              </li>
-              <li aria-hidden="true" className="text-[#8A847A]">
-                ·
-              </li>
-              <li>
-                <span
-                  className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap ${
-                    studioStep === 2
-                      ? 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B] font-semibold'
-                      : 'text-[#575B62] dark:text-[#A3A7AE]'
-                  }`}
-                >
-                  2. AI Engine
-                </span>
-              </li>
-              <li aria-hidden="true" className="text-[#8A847A]">
-                ·
-              </li>
-              <li>
-                <button
-                  type="button"
-                  disabled={!passport || isVerifying}
-                  onClick={() => passport && setStudioStep(3)}
-                  className={`px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap disabled:opacity-45 ${
-                    studioStep === 3
-                      ? 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B] font-semibold'
-                      : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
-                  }`}
-                >
-                  3. Passport
-                </button>
-              </li>
-            </ol>
-
+          <div className="flex flex-wrap items-center gap-2.5 self-start">
             <button
               type="button"
-              data-testid="share-passport-btn"
-              onClick={() => void handleGenerateSharePassportLink()}
-              className="min-h-[38px] px-3.5 py-1.5 rounded-xl border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-[#E7F3EE]/80 dark:bg-[#142B24]/90 hover:bg-[#D5E7DD] dark:hover:bg-[#1E392D] text-[#146C53] dark:text-[#2EB88B] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              onClick={() => setShowExportModal(true)}
+              data-testid="export-verified-passport-btn"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#146C53] hover:bg-[#0F5440] text-white text-xs font-semibold transition-colors cursor-pointer shadow-xs"
             >
               <Share2 className="w-3.5 h-3.5" />
-              <span>Share Passport</span>
+              Share / Export Passport
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowManualAdd((prev) => !prev)}
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] transition-colors cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+              {showManualAdd ? 'Hide Manual Skill Form' : 'Quick-Add Individual Skill'}
             </button>
           </div>
         </div>
 
-        {/* Secure Read-Only Share Passport Link Panel */}
-        {sharedLinkState && (
-          <div
-            role="status"
-            data-testid="share-passport-panel"
-            className="rounded-2xl bg-[#E7F3EE]/75 dark:bg-[#142B24]/85 border border-[#146C53]/35 dark:border-[#2EB88B]/40 p-4 sm:p-5 space-y-3"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
-                <Lock className="w-3.5 h-3.5 shrink-0" />
-                <span>
-                  Read-Only Living Competency Passport Link Ready ·{' '}
-                  <span className="font-mono-tabular">{sharedLinkState.payload.readOnlySignature}</span>
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSharedLinkState(null)}
-                className="text-xs font-medium text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]"
-              >
-                Close
-              </button>
+        {/* Step 1 — Adaptive Verification Router ("What proof do you have with you today?") */}
+        <div className="relative z-10 mt-6 pt-6 border-t border-[#E8E3DB] dark:border-[#2C3037]">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3.5">
+            <div>
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                Step 1 · Adaptive Verification Router
+              </span>
+              <h2 className="font-serif text-lg sm:text-xl font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                What proof do you have with you today?
+              </h2>
             </div>
+            <span className="text-xs text-[#5A6068] dark:text-[#A3A9B3]">
+              Pre-highlighted for your <strong>{profile.ageStage}</strong> career stage · Switch anytime
+            </span>
+          </div>
 
-            <p className="text-xs text-[#43484E] dark:text-[#C4C9D0]">
-              Share externally with hiring partners or institutions—displays verified skills and peer endorsements in read-only mode without exposing private account details.
-            </p>
+          <div
+            className="grid grid-cols-1 md:grid-cols-3 gap-3.5"
+            data-testid="adaptive-verification-router"
+          >
+            {ADAPTIVE_VERIFICATION_ROUTES.map((route) => {
+              const isSelected = verificationRoute === route.id;
+              const isRecommended = recommendedRoute === route.id;
+              const RouteIcon =
+                route.id === 'route-a-foreign'
+                  ? GraduationCap
+                  : route.id === 'route-b-uqp'
+                    ? Compass
+                    : Hammer;
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-              <input
-                type="text"
-                readOnly
-                aria-label="Read-only passport share URL"
-                data-testid="share-passport-url-input"
-                value={sharedLinkState.url}
-                className="flex-1 min-h-[40px] rounded-xl bg-white dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] px-3 py-2 text-xs font-mono-tabular text-[#17191C] dark:text-[#F4F2EE] focus:outline-none"
-              />
-              <button
-                type="button"
-                data-testid="copy-shared-passport-link-btn"
-                onClick={() => void handleCopySharedLink()}
-                className="min-h-[40px] px-4 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
-              >
-                {sharedLinkState.copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Link Copied</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copy Link</span>
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                data-testid="preview-shared-passport-btn"
-                onClick={() => onPreviewSharedPassport(sharedLinkState.payload)}
-                className="min-h-[40px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Preview Read-Only</span>
-              </button>
+              return (
+                <button
+                  key={route.id}
+                  type="button"
+                  onClick={() => {
+                    setVerificationRoute(route.id);
+                    setAiError(null);
+                  }}
+                  data-testid={`verify-${route.id}`}
+                  aria-pressed={isSelected}
+                  className={`text-left rounded-2xl p-4 sm:p-5 border transition-all cursor-pointer flex flex-col justify-between ${
+                    isSelected
+                      ? 'border-[#146C53] dark:border-[#2EB88B] bg-[#E7F3EE]/65 dark:bg-[#142B24]/80 shadow-xs ring-1 ring-[#146C53]/30'
+                      : 'border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5]/90 dark:bg-[#121315]/90 hover:border-[#146C53]/50'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#146C53] dark:text-[#2EB88B]">
+                        <RouteIcon className="w-3.5 h-3.5" />
+                        {route.shortTag} · {route.frameworkBadge}
+                      </span>
+                      {isRecommended && (
+                        <span
+                          data-testid={`recommended-badge-${route.id}`}
+                          className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F9E9DF] dark:bg-[#2E1D15] text-[#C4622D] dark:text-[#F59E6C] shrink-0"
+                        >
+                          Recommended ({profile.ageStage})
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="font-serif text-base font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                      {route.title}
+                    </h3>
+                    <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] mt-1.5 leading-relaxed">
+                      {route.subtitle}
+                    </p>
+                  </div>
+
+                  <div className="mt-3.5 pt-2.5 border-t border-[#E8E3DB]/80 dark:border-[#2C3037]/80 flex items-center justify-between text-[11px] font-semibold">
+                    <span
+                      className={
+                        isSelected
+                          ? 'text-[#146C53] dark:text-[#5EEAD4]'
+                          : 'text-[#5A6068] dark:text-[#A3A9B3]'
+                      }
+                    >
+                      {isSelected ? 'Active Verification Track' : 'Select This Route →'}
+                    </span>
+                    <span className="text-[10px] text-[#5A6068] dark:text-[#A3A9B3]">
+                      Ages {route.bestForAges.join(' / ')}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* Progressive Workspace Grid: Active Route Form (Left) + Step 2 & Step 3 Living Competency Passport & Bridging Card (Right) */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column: Progressive Form for Selected Route Only ("Less is More") */}
+        <form
+          onSubmit={handleVerifyWithAi}
+          className="lg:col-span-6 relative overflow-hidden bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] rounded-2xl p-6 space-y-5 shadow-sm"
+        >
+          <WovenBridgeArcsMotif />
+
+          <div className="relative z-10 flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-[#C4622D]" />
+              <h2 className="font-serif text-lg font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                {verificationRoute === 'route-a-foreign'
+                  ? 'Route A · Foreign Qualification or Partial Copy'
+                  : verificationRoute === 'route-b-uqp'
+                    ? 'Route B · UNESCO UQP Structured Reconstruction'
+                    : 'Route C · ILO & KNQA RPL Portfolio of Evidence'}
+              </h2>
+            </div>
+            <span className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4]">
+              {verificationRoute === 'route-a-foreign'
+                ? 'WES Gateway / ENIC-NARIC'
+                : verificationRoute === 'route-b-uqp'
+                  ? 'UNESCO UQP Standard'
+                  : 'ILO / KNQA RPL Standard'}
+            </span>
+          </div>
+
+          {/* Domain Pill Selector */}
+          <div className="relative z-10">
+            <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-2">
+              {t.capabilityDomainLabel}
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {STUDIO_DOMAINS.map((dom) => {
+                const active = studioDomain === dom;
+                return (
+                  <button
+                    key={dom}
+                    type="button"
+                    onClick={() => setStudioDomain(dom)}
+                    className={`px-3 py-2 rounded-xl text-xs font-medium border transition-colors cursor-pointer ${
+                      active
+                        ? 'border-[#146C53] bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4]'
+                        : 'border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#5A6068] dark:text-[#A3A9B3] hover:text-[#17191C]'
+                    }`}
+                  >
+                    {dom}
+                  </button>
+                );
+              })}
             </div>
           </div>
-        )}
 
-        {/* STEP 1: Crisp Progressive Input Card */}
-        {studioStep === 1 && (
-          <form
-            onSubmit={(e) => void handleRunVerification(e)}
-            className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 space-y-6"
-          >
-            {/* Mode Switcher: Past Work Summary vs Practical Scenario */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E8E3DB] dark:border-[#2C3037] pb-5">
-              <div
-                role="tablist"
-                aria-label="Choose verification input method"
-                className="inline-flex p-1 rounded-xl bg-[#F2EEE8] dark:bg-[#22252A] self-start"
-              >
+          {/* ROUTE A FORM: Foreign Qualification or Partial Copy */}
+          {verificationRoute === 'route-a-foreign' && (
+            <div className="relative z-10 space-y-4" data-testid="route-a-form">
+              <div className="rounded-xl border border-[#146C53]/25 bg-[#E7F3EE]/40 dark:bg-[#142B24]/40 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="text-xs text-[#17191C] dark:text-[#F4F2EE]">
+                  <strong className="text-[#146C53] dark:text-[#5EEAD4]">
+                    WES Gateway & ENIC-NARIC Track:
+                  </strong>{' '}
+                  Reconstructs original program level, maps host-country NQF equivalency, and flags exact local licensing steps.
+                </div>
                 <button
                   type="button"
-                  role="tab"
-                  aria-selected={inputMode === 'summary'}
-                  onClick={() => {
-                    setInputMode('summary');
-                    setVerifyError(null);
-                  }}
-                  className={`min-h-[38px] px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
-                    inputMode === 'summary'
-                      ? 'bg-white dark:bg-[#1A1C20] text-[#17191C] dark:text-[#F4F2EE] shadow-xs'
-                      : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
-                  }`}
+                  onClick={handleApplyRouteASample}
+                  data-testid="try-sample-route-a-btn"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#146C53] hover:bg-[#0F5440] text-white text-[11px] font-semibold shrink-0 cursor-pointer transition-colors"
                 >
-                  Share Past Work
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={inputMode === 'scenario'}
-                  onClick={() => {
-                    setInputMode('scenario');
-                    setVerifyError(null);
-                  }}
-                  className={`min-h-[38px] px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
-                    inputMode === 'scenario'
-                      ? 'bg-white dark:bg-[#1A1C20] text-[#17191C] dark:text-[#F4F2EE] shadow-xs'
-                      : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
-                  }`}
-                >
-                  Solve Practical Scenario
+                  <FileCheck2 className="w-3.5 h-3.5" />
+                  Try Sample: Foreign Civil Engineering Transcript
                 </button>
               </div>
 
-              {/* 4 Studio Domains */}
-              <div className="flex flex-wrap gap-2" aria-label="Select studio domain">
-                {STUDIO_DOMAINS.map((domain) => {
-                  const active = studioDomain === domain;
-                  return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                    Original Institution / Issuing Body
+                  </label>
+                  <input
+                    type="text"
+                    value={routeAInstitution}
+                    onChange={(e) => setRouteAInstitution(e.target.value)}
+                    placeholder="e.g., University of Khartoum — Faculty of Engineering"
+                    className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus:border-[#146C53]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                    Target Host-Country Recognition
+                  </label>
+                  <input
+                    type="text"
+                    value={routeAHostCountry}
+                    onChange={(e) => setRouteAHostCountry(e.target.value)}
+                    placeholder="e.g., Kenya (KNQA / EBK) or Jordan"
+                    className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus:border-[#146C53]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                  Qualification, Partial Transcript, or License Held
+                </label>
+                <input
+                  type="text"
+                  value={routeACredential}
+                  onChange={(e) => setRouteACredential(e.target.value)}
+                  placeholder="e.g., B.Sc. Civil Engineering (Semesters 1–7 Copy) or Wireman License"
+                  className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus:border-[#146C53]"
+                />
+              </div>
+
+              {/* Photo / Scan Upload of Foreign Degree or Partial Transcript */}
+              <div className="rounded-xl border border-dashed border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <FileText className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B] shrink-0" />
+                  <div className="truncate">
+                    <p className="text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] truncate">
+                      {routeADocumentLabel}
+                    </p>
+                    <p className="text-[11px] text-[#5A6068] dark:text-[#A3A9B3]">
+                      Partial transcript photo, student ID, or professional license copy (zero raw PII stored)
+                    </p>
+                  </div>
+                </div>
+                <input
+                  ref={routeAFileInputRef}
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={handleRouteAFileUpload}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => routeAFileInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] shrink-0 cursor-pointer"
+                >
+                  Upload Photo / Copy
+                </button>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3]">
+                    Coursework & Practical Engineering / Technical Summary
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleVoiceNote('route-a')}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                      isListening && voiceTargetField === 'route-a'
+                        ? 'border-[#C4622D] bg-[#F9E9DF] text-[#C4622D] animate-pulse'
+                        : 'border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53]'
+                    }`}
+                  >
+                    {isListening && voiceTargetField === 'route-a' ? (
+                      <>
+                        <MicOff className="w-3.5 h-3.5" />
+                        {t.voiceStopLabel}
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                        {t.voiceStartLabel}
+                      </>
+                    )}
+                  </button>
+                </div>
+                <textarea
+                  rows={4}
+                  value={routeAResponseText}
+                  onChange={(e) => setRouteAResponseText(e.target.value)}
+                  placeholder="Describe your completed modules, technical thesis, and real-world projects supervised..."
+                  className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3.5 py-2.5 text-sm text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus:border-[#146C53]"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* ROUTE B FORM: Missing or Lost Paperwork (UNESCO UQP 3-Part Guided Flow) */}
+          {verificationRoute === 'route-b-uqp' && (
+            <div className="relative z-10 space-y-4" data-testid="route-b-form">
+              <div className="rounded-xl border border-[#146C53]/25 bg-[#E7F3EE]/40 dark:bg-[#142B24]/40 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="text-xs text-[#17191C] dark:text-[#F4F2EE]">
+                  <strong className="text-[#146C53] dark:text-[#5EEAD4]">
+                    UNESCO UQP Structured Track:
+                  </strong>{' '}
+                  Concise 3-part guided reconstruction for practitioners whose formal paperwork was lost or left behind.
+                </div>
+                <button
+                  type="button"
+                  onClick={handleApplyRouteBSample}
+                  data-testid="try-sample-route-b-btn"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#146C53] hover:bg-[#0F5440] text-white text-[11px] font-semibold shrink-0 cursor-pointer transition-colors"
+                >
+                  <Compass className="w-3.5 h-3.5" />
+                  Load UQP Sample Dossier
+                </button>
+              </div>
+
+              {/* 3-Part Guided Step Selector */}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { step: 1 as const, label: '1. Background' },
+                  { step: 2 as const, label: '2. Oral Defense' },
+                  { step: 3 as const, label: '3. Context Notes' },
+                ].map((item) => (
+                  <button
+                    key={item.step}
+                    type="button"
+                    onClick={() => setUqpStep(item.step)}
+                    data-testid={`uqp-step-${item.step}-btn`}
+                    className={`px-2.5 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+                      uqpStep === item.step
+                        ? 'border-[#146C53] bg-[#146C53] text-white'
+                        : 'border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#5A6068] dark:text-[#A3A9B3]'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              {uqpStep === 1 && (
+                <div className="space-y-3" data-testid="uqp-part-1">
+                  <div>
+                    <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                      Primary Technical or Professional Field
+                    </label>
+                    <input
+                      type="text"
+                      value={uqpField}
+                      onChange={(e) => setUqpField(e.target.value)}
+                      className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                        Years Practiced & Role Level
+                      </label>
+                      <input
+                        type="text"
+                        value={uqpYears}
+                        onChange={(e) => setUqpYears(e.target.value)}
+                        className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                        Language Fluency
+                      </label>
+                      <input
+                        type="text"
+                        value={uqpLanguage}
+                        onChange={(e) => setUqpLanguage(e.target.value)}
+                        className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
                     <button
-                      key={domain}
                       type="button"
-                      onClick={() => {
-                        setStudioDomain(domain);
-                        setVerifyError(null);
-                      }}
-                      className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap ${
-                        active
-                          ? 'bg-[#146C53] dark:bg-[#2EB88B] border-[#146C53] dark:border-[#2EB88B] text-white dark:text-[#121315]'
-                          : 'bg-[#FAF8F5] dark:bg-[#121315] border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
-                      }`}
+                      onClick={() => setUqpStep(2)}
+                      className="text-xs font-semibold text-[#146C53] dark:text-[#5EEAD4] hover:underline cursor-pointer"
                     >
-                      {domain}
+                      Continue to Part 2: Technical / Oral Defense →
                     </button>
-                  );
-                })}
-              </div>
-            </div>
+                  </div>
+                </div>
+              )}
 
-            {/* Scenario Prompt Card when in scenario mode */}
-            {inputMode === 'scenario' && (
-              <div className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-5 space-y-2.5">
-                <p className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
-                  Practical Field Scenario · {activeScenario.domain}
-                </p>
-                <h3 className="font-display text-lg font-medium text-[#17191C] dark:text-[#F4F2EE]">
-                  {activeScenario.title}
-                </h3>
-                <p className="text-sm leading-relaxed text-[#575B62] dark:text-[#A3A7AE]">
-                  {activeScenario.context}
-                </p>
-                <p className="text-sm font-medium text-[#17191C] dark:text-[#F4F2EE] pt-1">
-                  {activeScenario.question}
-                </p>
-              </div>
-            )}
+              {uqpStep === 2 && (
+                <div className="space-y-3" data-testid="uqp-part-2">
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3]">
+                        Defense Prompt 1 · {currentScenario.title}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleVoiceNote('uqp-1')}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] cursor-pointer"
+                      >
+                        <Mic className="w-3 h-3 text-[#146C53]" />
+                        Voice Defense 1
+                      </button>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={uqpDefense1}
+                      onChange={(e) => setUqpDefense1(e.target.value)}
+                      className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3]">
+                        Defense Prompt 2 · Field Safety, Lockout-Tagout & QA Verification
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleVoiceNote('uqp-2')}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] cursor-pointer"
+                      >
+                        <Mic className="w-3 h-3 text-[#146C53]" />
+                        Voice Defense 2
+                      </button>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={uqpDefense2}
+                      onChange={(e) => setUqpDefense2(e.target.value)}
+                      className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setUqpStep(1)}
+                      className="text-xs text-[#5A6068] hover:underline cursor-pointer"
+                    >
+                      ← Back to Part 1
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUqpStep(3)}
+                      className="text-xs font-semibold text-[#146C53] dark:text-[#5EEAD4] hover:underline cursor-pointer"
+                    >
+                      Continue to Part 3: Alternative Context →
+                    </button>
+                  </div>
+                </div>
+              )}
 
-            {/* Main Voice/Text Response Field */}
-            <VoiceTextarea
-              id="studio-verification-input"
-              label={
-                inputMode === 'scenario'
-                  ? 'Your Practical Solution (Voice or Text)'
-                  : `Summarize Real-World Work You Have Completed in ${studioDomain}`
-              }
-              value={studioResponse}
-              onChange={(val) => {
-                setStudioResponse(val);
-                if (verifyError) setVerifyError(null);
-              }}
-              placeholder={
-                inputMode === 'scenario'
-                  ? activeScenario.placeholder
-                  : 'Describe systems you built, diagnosed, managed, or repaired—include concrete metrics, tools, or outcomes...'
-              }
-              speechLang={speechLang}
-              t={t}
-              maxLength={2400}
-              rows={4}
-              listenToCommandTrigger
-            />
-
-            {/* Optional Supporting Evidence Disclosure */}
-            <div className="border-t border-[#E8E3DB] dark:border-[#2C3037] pt-4">
-              <button
-                type="button"
-                onClick={() => setShowStudioEvidence((v) => !v)}
-                aria-expanded={showStudioEvidence}
-                className="text-xs font-medium text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] inline-flex items-center gap-1.5"
-              >
-                {showStudioEvidence ? (
-                  <ChevronUp className="w-3.5 h-3.5" />
-                ) : (
-                  <ChevronDown className="w-3.5 h-3.5" />
-                )}
-                <span>Attach optional portfolio link, certification, or peer endorsement</span>
-              </button>
-
-              {showStudioEvidence && (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <VoiceInput
-                    id="studio-portfolio-input"
-                    label="Portfolio / Work Sample"
-                    value={studioPortfolio}
-                    onChange={setStudioPortfolio}
-                    placeholder="URL or project reference"
-                    speechLang={speechLang}
-                    t={t}
-                    maxLength={200}
-                  />
-                  <VoiceInput
-                    id="studio-cert-input"
-                    label="Certification / License"
-                    value={studioCert}
-                    onChange={setStudioCert}
-                    placeholder="e.g., IEC Solar Safety Log"
-                    speechLang={speechLang}
-                    t={t}
-                    maxLength={160}
-                  />
-                  <VoiceInput
-                    id="studio-endorsement-input"
-                    label="Peer Endorsement"
-                    value={studioEndorsement}
-                    onChange={setStudioEndorsement}
-                    placeholder="Colleague or supervisor name & role"
-                    speechLang={speechLang}
-                    t={t}
-                    maxLength={200}
-                  />
+              {uqpStep === 3 && (
+                <div className="space-y-3" data-testid="uqp-part-3">
+                  <div>
+                    <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                      Alternative Context Notes (Projects Led, Apprentices Mentored, Community Impact)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={uqpContextNotes}
+                      onChange={(e) => setUqpContextNotes(e.target.value)}
+                      className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                    />
+                  </div>
+                  <div className="flex justify-start">
+                    <button
+                      type="button"
+                      onClick={() => setUqpStep(2)}
+                      className="text-xs text-[#5A6068] hover:underline cursor-pointer"
+                    >
+                      ← Back to Part 2: Oral Defense
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
+          )}
 
-            {verifyError && (
-              <p role="alert" className="text-xs font-medium text-[#B42318] dark:text-[#F97066]">
-                {verifyError}
-              </p>
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <button
-                type="submit"
-                disabled={isVerifying}
-                className="min-h-[46px] px-6 py-2.5 rounded-xl bg-[#C4622D] hover:bg-[#AA5223] dark:bg-[#E07B46] dark:hover:bg-[#CE6A36] text-white dark:text-[#121315] text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap disabled:opacity-50"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Generate Living Competency Passport</span>
-              </button>
-
-              {passport && (
+          {/* ROUTE C FORM: Hands-On / Informal Craft (ILO & KNQA RPL Portfolio Track) */}
+          {verificationRoute === 'route-c-rpl' && (
+            <div className="relative z-10 space-y-4" data-testid="route-c-form">
+              <div className="rounded-xl border border-[#146C53]/25 bg-[#E7F3EE]/40 dark:bg-[#142B24]/40 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="text-xs text-[#17191C] dark:text-[#F4F2EE]">
+                  <strong className="text-[#146C53] dark:text-[#5EEAD4]">
+                    ILO & KNQA RPL Portfolio Track:
+                  </strong>{' '}
+                  Built for self-taught builders, tradespeople, and 15–17+ emerging talent. Share 1 work photo + a 30-second explanation.
+                </div>
                 <button
                   type="button"
-                  onClick={() => setStudioStep(3)}
-                  className="min-h-[42px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] text-xs font-medium text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] whitespace-nowrap"
+                  onClick={handleApplyRouteCSample}
+                  data-testid="try-sample-route-c-btn"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#146C53] hover:bg-[#0F5440] text-white text-[11px] font-semibold shrink-0 cursor-pointer transition-colors"
                 >
-                  View Current Passport
+                  <Wrench className="w-3.5 h-3.5" />
+                  Try Sample: 48V Solar Inverter Board
                 </button>
-              )}
-            </div>
-          </form>
-        )}
+              </div>
 
-        {/* STEP 2: AI Verification Engine Processing / Error State */}
-        {studioStep === 2 && (
-          <div className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-8 sm:p-10 text-center space-y-5">
-            {isVerifying ? (
-              <>
-                <div className="w-12 h-12 rounded-xl bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B] mx-auto flex items-center justify-center">
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                </div>
-                <div className="space-y-1.5 max-w-md mx-auto">
-                  <h3 className="font-display text-xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
-                    Evaluating Practical Competence
-                  </h3>
-                  <p className="text-sm text-[#575B62] dark:text-[#A3A7AE]">
-                    Mapping field rigor, safety practices, and {studioDomain} signals into your Living Competency Passport…
+              {/* 1 Work Photo Preview + Upload */}
+              <div className="rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-3 flex flex-col sm:flex-row items-center gap-3.5">
+                <img
+                  src={rplPhotoDataUrl}
+                  alt={rplPhotoLabel}
+                  className="w-28 h-20 object-cover rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] truncate">
+                    {rplPhotoLabel}
                   </p>
+                  <p className="text-[11px] text-[#5A6068] dark:text-[#A3A9B3] mt-0.5">
+                    RPL Visual Proof of Craft · Evaluates tool discipline, safety, and assembly rigor
+                  </p>
+                  <input
+                    ref={rplFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleRplPhotoUpload}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => rplFileInputRef.current?.click()}
+                    className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[11px] font-medium text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
+                  >
+                    <ImagePlus className="w-3.5 h-3.5 text-[#146C53]" />
+                    Upload Your Work Photo
+                  </button>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                  What You Built, Repaired, or Delivered
+                </label>
+                <input
+                  type="text"
+                  value={rplCraftTitle}
+                  onChange={(e) => setRplCraftTitle(e.target.value)}
+                  className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3]">
+                    30-Second "How I Built / Fixed This" Walkthrough
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleVoiceNote('rpl')}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
+                  >
+                    <Mic className="w-3.5 h-3.5 text-[#146C53]" />
+                    {t.voiceStartLabel}
+                  </button>
+                </div>
+                <textarea
+                  rows={3}
+                  value={rplWalkthrough}
+                  onChange={(e) => setRplWalkthrough(e.target.value)}
+                  className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                  Optional Past-Client or Master Mentor Vouch
+                </label>
+                <input
+                  type="text"
+                  value={rplVouch}
+                  onChange={(e) => setRplVouch(e.target.value)}
+                  placeholder="e.g., Workshop Lead or Client confirmation of quality..."
+                  className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                />
+              </div>
+            </div>
+          )}
+
+          {voiceStatusNote && (
+            <p className="relative z-10 text-xs text-[#146C53] dark:text-[#5EEAD4]">
+              {voiceStatusNote}
+            </p>
+          )}
+
+          {aiError && (
+            <div
+              role="alert"
+              className="relative z-10 rounded-xl border border-[#B42318]/30 bg-[#FEF3F2] dark:bg-[#2C1517] px-3.5 py-2.5 text-xs text-[#B42318] dark:text-[#F97066]"
+            >
+              {aiError}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isEvaluating}
+            data-testid="verify-generate-passport-btn"
+            className="relative z-10 w-full py-3 px-4 rounded-xl bg-[#146C53] hover:bg-[#0F5440] disabled:opacity-50 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+          >
+            {isEvaluating ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Evaluating Competency & Mapping NQF Equivalency...
               </>
             ) : (
               <>
-                <div className="space-y-2 max-w-lg mx-auto">
-                  <h3 className="font-display text-xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
-                    Verification Could Not Be Completed
-                  </h3>
-                  <p role="alert" className="text-sm text-[#B42318] dark:text-[#F97066]">
-                    {verifyError || 'Unexpected error contacting the verification engine.'}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => void handleRunVerification()}
-                    className="min-h-[42px] px-5 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold whitespace-nowrap"
-                  >
-                    Try Again
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setVerifyError(null);
-                      setStudioStep(1);
-                    }}
-                    className="min-h-[42px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] text-xs font-medium text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] whitespace-nowrap"
-                  >
-                    Edit Response
-                  </button>
-                </div>
+                <Sparkles className="w-4 h-4" />
+                Generate Living Competency Passport
               </>
             )}
-          </div>
-        )}
+          </button>
+        </form>
 
-        {/* STEP 3: Living Competency Passport Card */}
-        {studioStep === 3 && passport && (
-          <div className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#146C53]/35 dark:border-[#2EB88B]/40 p-6 sm:p-8 space-y-6">
-            {/* Top Credential Banner */}
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-[#E8E3DB] dark:border-[#2C3037] pb-5">
-              <div>
-                <p className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
-                  Verified Living Competency Passport · {passport.studioDomain}
-                </p>
-                <h3 className="font-display text-2xl font-medium text-[#17191C] dark:text-[#F4F2EE] mt-1">
-                  {passport.fieldMatch}
-                </h3>
-                <p className="text-sm text-[#575B62] dark:text-[#A3A7AE] mt-1">
-                  {passport.ageStageTrack}
-                  {endorsements.filter((e) => e.status === 'verified').length > 0 && (
-                    <>
-                      <span aria-hidden="true"> · </span>
-                      <span className="font-medium text-[#146C53] dark:text-[#2EB88B]">
-                        {endorsements.filter((e) => e.status === 'verified').length} peer endorsement
-                        {endorsements.filter((e) => e.status === 'verified').length === 1 ? '' : 's'} attached
+        {/* Right Column: Step 2 (Upgraded Living Competency Passport) + Step 3 (Bridging & Stipend Enablement Card) */}
+        <div className="lg:col-span-6 space-y-5">
+          {passport ? (
+            <>
+              {/* STEP 2: Upgraded Living Competency Passport Output */}
+              <div
+                data-testid="living-competency-passport-card"
+                className="relative overflow-hidden bg-white dark:bg-[#1A1C20] border-2 border-[#146C53]/35 dark:border-[#2EB88B]/40 rounded-2xl p-6 shadow-sm space-y-5"
+              >
+                <WovenBridgeArcsMotif />
+
+                {/* Top Passport Header & Verifiable ID */}
+                <div className="relative z-10 flex flex-wrap items-start justify-between gap-3 border-b border-[#E8E3DB] dark:border-[#2C3037] pb-4">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 text-xs uppercase tracking-widest font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                        <ShieldCheck className="w-4 h-4" />
+                        Step 2 · Living Competency Passport
                       </span>
-                    </>
-                  )}
-                </p>
-              </div>
-
-              <div className="text-xs font-mono-tabular tabular-nums text-[#575B62] dark:text-[#A3A7AE] sm:text-end shrink-0">
-                <div>{passport.inputMode === 'scenario' ? 'Practical Scenario' : 'Work Summary'}</div>
-                <div className="mt-0.5">
-                  {new Date(passport.generatedAtIso).toLocaleDateString()}
-                </div>
-              </div>
-            </div>
-
-            <p className="text-sm sm:text-base leading-relaxed text-[#17191C] dark:text-[#F4F2EE]">
-              {passport.executiveSummary}
-            </p>
-
-            {/* Verified Core Skills */}
-            <div className="space-y-3">
-              <p className="text-xs font-semibold text-[#575B62] dark:text-[#A3A7AE]">
-                Verified Core Skills
-              </p>
-              <div className="divide-y divide-[#E8E3DB] dark:divide-[#2C3037] border-t border-b border-[#E8E3DB] dark:border-[#2C3037]">
-                {passport.verifiedSkills.map((skill) => (
-                  <div
-                    key={skill.name}
-                    className="py-3.5 flex flex-col sm:flex-row sm:items-baseline justify-between gap-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
-                        {skill.name}
-                      </p>
-                      <p className="text-xs text-[#575B62] dark:text-[#A3A7AE] mt-0.5 leading-relaxed">
-                        {skill.evidenceNote}
-                      </p>
+                      <span
+                        data-testid="passport-verifiable-id"
+                        className="font-mono text-[11px] font-semibold px-2.5 py-0.5 rounded-md bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#17191C] dark:text-[#F4F2EE]"
+                      >
+                        ID: {passport.verifiableId ?? 'VNA-2026-8412'}
+                      </span>
                     </div>
-                    <span className="text-xs font-mono-tabular tabular-nums font-semibold text-[#146C53] dark:text-[#2EB88B] whitespace-nowrap shrink-0">
-                      {skill.confidenceLabel} · {skill.confidenceScore}%
+                    <h3 className="font-serif text-xl font-semibold text-[#17191C] dark:text-[#F4F2EE] mt-1">
+                      {profile.displayName}
+                    </h3>
+                    <p className="text-xs font-medium text-[#C4622D] dark:text-[#F59E6C] mt-0.5">
+                      {passport.ageStageTrack} · {passport.studioDomain}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowExportModal(true)}
+                    data-testid="passport-card-share-btn"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4] hover:bg-[#146C53] hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    Share / Export Passport
+                  </button>
+                </div>
+
+                {/* NQF / RPL Equivalency Level & Reconstructed Credential Map */}
+                <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-[#E7F3EE]/60 dark:bg-[#142B24]/60 border border-[#146C53]/25 p-3.5">
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-[#146C53] dark:text-[#5EEAD4]">
+                      NQF / RPL Equivalency Level
+                    </span>
+                    <p
+                      data-testid="passport-nqf-equivalency"
+                      className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] mt-1"
+                    >
+                      {passport.nqfEquivalencyLevel ??
+                        'NQF Level 6 / KNQA Bachelor Equivalency (UNESCO UQP / RPL Aligned)'}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5">
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-[#5A6068] dark:text-[#A3A9B3]">
+                      Verified Field Match & Origin Summary
+                    </span>
+                    <p className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] mt-1">
+                      {passport.fieldMatch}
+                    </p>
+                    {passport.reconstructedCredential && (
+                      <p className="text-[11px] text-[#5A6068] dark:text-[#A3A9B3] mt-0.5 line-clamp-2">
+                        {passport.reconstructedCredential}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <p className="relative z-10 text-xs text-[#5A6068] dark:text-[#A3A9B3] leading-relaxed">
+                  {passport.executiveSummary}
+                </p>
+
+                {/* Transparent 4-Tier Trust Indicator */}
+                <div
+                  data-testid="passport-trust-ladder"
+                  className="relative z-10 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-3.5 space-y-2.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] uppercase tracking-wider font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                      Transparent 4-Tier Verification Trust Ladder
+                    </span>
+                    <span className="text-[11px] font-semibold text-[#146C53] dark:text-[#5EEAD4]">
+                      Current Stage: Tier {trustLadder.activeTier} of 4
                     </span>
                   </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    {trustLadder.tiers.map((item) => (
+                      <div
+                        key={item.tier}
+                        data-testid={`trust-tier-${item.tier}`}
+                        className={`rounded-lg p-2.5 border text-left transition-all ${
+                          item.isCurrent
+                            ? 'border-[#146C53] dark:border-[#2EB88B] bg-[#E7F3EE] dark:bg-[#142B24] ring-1 ring-[#146C53]/30'
+                            : item.reached
+                              ? 'border-[#146C53]/35 bg-[#E7F3EE]/40 dark:bg-[#142B24]/40'
+                              : 'border-[#E8E3DB] dark:border-[#2C3037] bg-white/70 dark:bg-[#1A1C20]/70 opacity-75'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span
+                            className={`text-[11px] font-semibold ${
+                              item.reached
+                                ? 'text-[#146C53] dark:text-[#5EEAD4]'
+                                : 'text-[#5A6068] dark:text-[#A3A9B3]'
+                            }`}
+                          >
+                            {item.label}
+                          </span>
+                          {item.reached && (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-[#146C53] dark:text-[#5EEAD4] shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-[10px] text-[#5A6068] dark:text-[#A3A9B3] mt-1 leading-snug">
+                          {item.shortDesc}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Verified Core Technical Skills + Workplace & Language Map */}
+                <div className="relative z-10 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-[#5A6068] dark:text-[#A3A9B3]">
+                      Verified Competency Map ({passport.verifiedSkills.length})
+                    </span>
+                    <button
+                      type="button"
+                      disabled={skillsImported}
+                      onClick={() => {
+                        onImportPassportSkills(passport);
+                        setSkillsImported(true);
+                      }}
+                      className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] hover:underline disabled:opacity-50 cursor-pointer"
+                    >
+                      {skillsImported ? '✓ Synced to Evidence Ledger' : '+ Sync Skills to Ledger'}
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {passport.verifiedSkills.map((skill, idx) => (
+                      <div
+                        key={`${skill.name}-${idx}`}
+                        className="rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-3"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                            {skill.name}
+                          </span>
+                          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4]">
+                            {skill.confidenceLabel} · {skill.confidenceScore}%
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] mt-1">
+                          {skill.evidenceNote}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Workplace Skills & Language Fluency Chips */}
+                  <div className="pt-2 flex flex-wrap items-center gap-1.5">
+                    {(
+                      passport.workplaceSkills ?? [
+                        'Safety & Lockout-Tagout Compliance',
+                        'Cross-Age Pod Documentation',
+                        'Scoped Milestone Delivery',
+                      ]
+                    ).map((ws) => (
+                      <span
+                        key={ws}
+                        className="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#17191C] dark:text-[#F4F2EE]"
+                      >
+                        ✓ {ws}
+                      </span>
+                    ))}
+                    <span className="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-[#E7F3EE]/70 dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4]">
+                      Languages:{' '}
+                      {passport.languageProficiency ??
+                        'Professional Working Fluency (English / Regional)'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Subtle, Honest UNESCO-Aligned Transparency Note */}
+                <div
+                  data-testid="unesco-transparency-note"
+                  className="relative z-10 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5]/90 dark:bg-[#121315]/90 px-3.5 py-2.5 text-[11px] text-[#5A6068] dark:text-[#A3A9B3] leading-relaxed"
+                >
+                  <strong className="text-[#17191C] dark:text-[#F4F2EE]">
+                    UNESCO UQP & ILO RPL Transparency Note:
+                  </strong>{' '}
+                  This Living Competency Passport is a verified skills bridge toward direct sprint employment and formal national accreditation. It accelerates employer trust and RPL portfolio assessment while respecting statutory national licensing boards where required.
+                </div>
+              </div>
+
+              {/* STEP 3: Recognized Bridging, Re-Certification & Stipend Enablement Card */}
+              <div
+                data-testid="bridging-stipend-card"
+                className="rounded-2xl border-2 border-[#C4622D]/35 bg-[#F9E9DF]/40 dark:bg-[#2E1D15]/40 p-5 sm:p-6 space-y-4 shadow-xs"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[#C4622D] dark:text-[#F59E6C]">
+                      <Compass className="w-3.5 h-3.5" />
+                      Step 3 · Recognized Bridging, Re-Certification & Stipend Enablement
+                    </span>
+                    <h3 className="font-serif text-base sm:text-lg font-semibold text-[#17191C] dark:text-[#F4F2EE] mt-1">
+                      Exact Gap Identified to Reach Full Formal Certification
+                    </h3>
+                  </div>
+                  <span className="text-xs font-mono font-semibold px-2.5 py-1 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#C4622D]/30 text-[#C4622D] dark:text-[#F59E6C]">
+                    Est. Assessment Cost: ${passport.microBridge.estimatedCostUsd ?? 65} USD
+                  </span>
+                </div>
+
+                {/* 1-2 Recognized Bridging Modules / RPL Assessments */}
+                <div className="space-y-2">
+                  <div className="rounded-xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                        1. {passport.microBridge.title}
+                      </span>
+                      <span className="text-[11px] font-medium text-[#146C53] dark:text-[#5EEAD4] shrink-0">
+                        {passport.microBridge.estimatedDuration}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] mt-1">
+                      {passport.microBridge.action}
+                    </p>
+                  </div>
+
+                  {passport.microBridge.secondaryModule && (
+                    <div className="rounded-xl bg-white/80 dark:bg-[#1A1C20]/80 border border-[#E8E3DB] dark:border-[#2C3037] px-3.5 py-2.5 flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-[#17191C] dark:text-[#F4F2EE]">
+                        2. {passport.microBridge.secondaryModule}
+                      </span>
+                      <span className="text-[11px] text-[#5A6068] dark:text-[#A3A9B3] shrink-0">
+                        {passport.microBridge.partnerProgram}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Practical Enablement: Interactive Partner Fee-Waiver / Exam Stipend Trigger */}
+                <div className="pt-2 border-t border-[#C4622D]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="text-xs text-[#5A6068] dark:text-[#A3A9B3]">
+                    <strong className="text-[#17191C] dark:text-[#F4F2EE]">
+                      Partner Coverage:
+                    </strong>{' '}
+                    {passport.microBridge.feeCoverageNote ??
+                      'Covers RPL assessment fees, bridging exam registration, and mobile data/tools bundle.'}
+                  </div>
+
+                  {passport.stipendEligible ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span
+                        data-testid="stipend-preapproved-badge"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#146C53] text-white text-xs font-semibold shadow-xs"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        Stipend Pre-Approved via Partner Pool
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onTogglePassportStipend(false)}
+                        className="text-[11px] text-[#5A6068] dark:text-[#A3A9B3] underline cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onTogglePassportStipend(true)}
+                      data-testid="request-stipend-toggle-btn"
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#C4622D] hover:bg-[#A85122] text-white text-xs font-semibold transition-colors cursor-pointer shrink-0 shadow-xs"
+                    >
+                      Request Partner Fee-Waiver / Exam Stipend →
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="bg-white dark:bg-[#1A1C20] border border-dashed border-[#E8E3DB] dark:border-[#2C3037] rounded-2xl p-8 text-center space-y-3 flex flex-col items-center justify-center min-h-[360px]">
+              <div className="w-12 h-12 rounded-2xl bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4] flex items-center justify-center">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <h3 className="font-serif text-lg font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                Your Living Competency Passport Awaits
+              </h3>
+              <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] max-w-md leading-relaxed">
+                Select Route A (Foreign Qualification), Route B (Missing Paperwork UQP), or Route C (Hands-On Craft RPL) on the left and tap{' '}
+                <strong>Generate Living Competency Passport</strong> to generate your server-signed passport, NQF equivalency level, and partner fee-waiver bridge.
+              </p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Optional Quick-Add Individual Skill Drawer */}
+      {showManualAdd && (
+        <form
+          onSubmit={handleManualSubmit}
+          className="bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] rounded-2xl p-6 space-y-4"
+        >
+          <div className="flex items-center justify-between">
+            <h3 className="font-serif text-base font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+              {t.addCapabilityHeading}
+            </h3>
+            <button
+              type="button"
+              onClick={() => setShowManualAdd(false)}
+              className="text-xs text-[#5A6068] hover:underline"
+            >
+              Close
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                {t.capabilityTitleLabel} *
+              </label>
+              <input
+                type="text"
+                required
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={t.capabilityTitlePlaceholder}
+                className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3.5 py-2 text-sm text-[#17191C] dark:text-[#F4F2EE]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                {t.capabilityDomainLabel}
+              </label>
+              <select
+                value={domain}
+                onChange={(e) => setDomain(e.target.value)}
+                className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3.5 py-2 text-sm text-[#17191C] dark:text-[#F4F2EE]"
+              >
+                {PRACTICE_DOMAINS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
                 ))}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                {t.capabilityProofLabel} *
+              </label>
+              <input
+                type="text"
+                required
+                value={proofSummary}
+                onChange={(e) => setProofSummary(e.target.value)}
+                placeholder={t.capabilityProofPlaceholder}
+                className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3.5 py-2 text-sm text-[#17191C] dark:text-[#F4F2EE]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-1">
+                Supporting Reference (Optional)
+              </label>
+              <input
+                type="text"
+                value={portfolioRef}
+                onChange={(e) => setPortfolioRef(e.target.value)}
+                placeholder="Optional project log or reference..."
+                className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3.5 py-2 text-sm text-[#17191C] dark:text-[#F4F2EE]"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            className="px-5 py-2.5 rounded-xl bg-[#146C53] hover:bg-[#0F5440] text-white text-xs font-semibold cursor-pointer"
+          >
+            {t.addCapabilityCta}
+          </button>
+        </form>
+      )}
+
+      {/* Confirmed Evidence Ledger + Peer Endorsements */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Evidence Ledger (7 cols) */}
+        <div className="lg:col-span-7 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-serif text-lg font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+              Confirmed Evidence Ledger ({capabilities.length})
+            </h2>
+            <span className="text-xs text-[#5A6068] dark:text-[#A3A9B3]">
+              Feeds Tab 2 [Unlock] & Tab 3 [Solve] matching
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            {capabilities.map((cap) => {
+              const isMaster = cap.verificationStatus === 'master-endorsed';
+              const isVerified = cap.verificationStatus === 'field-verified';
+
+              return (
+                <div
+                  key={cap.id}
+                  className="bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] rounded-2xl p-4 flex flex-col justify-between gap-3"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-md bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#5A6068] dark:text-[#A3A9B3]">
+                        {cap.domain}
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${
+                          isMaster
+                            ? 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4]'
+                            : isVerified
+                              ? 'bg-[#F9E9DF] dark:bg-[#2E1D15] text-[#C4622D] dark:text-[#F59E6C]'
+                              : 'bg-[#FAF8F5] dark:bg-[#121315] text-[#5A6068] dark:text-[#A3A9B3]'
+                        }`}
+                      >
+                        {isMaster ? (
+                          <Award className="w-3 h-3" />
+                        ) : (
+                          <CheckCircle2 className="w-3 h-3" />
+                        )}
+                        {isMaster
+                          ? t.statusMasterEndorsed
+                          : isVerified
+                            ? t.statusFieldVerified
+                            : t.statusPending}
+                      </span>
+                    </div>
+
+                    <h3 className="font-serif text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                      {cap.title}
+                    </h3>
+                    <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] mt-1 line-clamp-2">
+                      {cap.proofSummary}
+                    </p>
+                  </div>
+
+                  <div className="pt-2.5 border-t border-[#E8E3DB] dark:border-[#2C3037] flex items-center justify-between gap-2">
+                    <span className="font-mono text-[11px] text-[#5A6068] dark:text-[#A3A9B3]">
+                      {cap.confidenceScore}% Confidence
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {!isMaster && (
+                        <button
+                          type="button"
+                          onClick={() => onPromoteCapability(cap.id)}
+                          className="px-2.5 py-1 rounded-lg bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4] text-[11px] font-semibold hover:opacity-90 cursor-pointer"
+                        >
+                          {cap.verificationStatus === 'pending'
+                            ? t.verifyStepCta
+                            : t.endorseStepCta}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onDeleteCapability(cap.id)}
+                        aria-label={`Delete ${cap.title}`}
+                        className="p-1 rounded-lg text-[#5A6068] hover:text-[#B42318] transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Peer Endorsements Card (5 cols) */}
+        <div className="lg:col-span-5 bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] rounded-2xl p-5 space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[#146C53] dark:text-[#2EB88B]">
+                Social Proof · {verifiedEndorsementsCount} Confirmed
+              </span>
+              <h2 className="font-serif text-lg font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                Peer & Master Endorsements
+              </h2>
+              <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] mt-0.5">
+                Co-sign practical skills with past collaborators, clients, or 46+ Master Practitioners.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowEndorseForm((prev) => !prev)}
+              className="px-3 py-1.5 rounded-xl bg-[#146C53] hover:bg-[#0F5440] text-white text-xs font-semibold shrink-0 cursor-pointer"
+            >
+              {showEndorseForm ? 'Close' : '+ Request'}
+            </button>
+          </div>
+
+          {showEndorseForm && (
+            <form
+              onSubmit={handleCreateEndorsement}
+              className="rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-3.5 space-y-3"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <input
+                  type="text"
+                  required
+                  value={endorseName}
+                  onChange={(e) => setEndorseName(e.target.value)}
+                  placeholder="Collaborator Name *"
+                  className="w-full rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] px-3 py-1.5 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                />
+                <input
+                  type="text"
+                  value={endorseRole}
+                  onChange={(e) => setEndorseRole(e.target.value)}
+                  placeholder="Role (e.g., Lead Engineer)"
+                  className="w-full rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] px-3 py-1.5 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <input
+                  type="text"
+                  value={endorseOrg}
+                  onChange={(e) => setEndorseOrg(e.target.value)}
+                  placeholder="Organization / Workshop"
+                  className="w-full rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] px-3 py-1.5 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                />
+                <input
+                  type="text"
+                  required
+                  value={endorseSkill}
+                  onChange={(e) => setEndorseSkill(e.target.value)}
+                  placeholder="Skill to Endorse *"
+                  className="w-full rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] px-3 py-1.5 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                />
+              </div>
+              <textarea
+                rows={2}
+                value={endorseDirectQuote}
+                onChange={(e) => setEndorseDirectQuote(e.target.value)}
+                placeholder="Optional: Paste their endorsement quote directly (or leave blank to generate a shareable link)"
+                className="w-full rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] px-3 py-1.5 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+              />
+              <button
+                type="submit"
+                className="w-full py-2 rounded-lg bg-[#146C53] text-white text-xs font-semibold cursor-pointer"
+              >
+                {endorseDirectQuote.trim().length >= 10
+                  ? 'Save Verified Endorsement'
+                  : 'Create Shareable Endorsement Request'}
+              </button>
+            </form>
+          )}
+
+          <div className="space-y-2.5">
+            {endorsements.map((item) => {
+              const isVerified = item.status === 'verified';
+              return (
+                <div
+                  key={item.id}
+                  className="rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-3.5 space-y-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <UserCheck className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                        <span className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                          {item.collaboratorName}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#5A6068] dark:text-[#A3A9B3]">
+                        {item.collaboratorRole} · {item.organization}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                          isVerified
+                            ? 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4]'
+                            : 'bg-[#F9E9DF] dark:bg-[#2E1D15] text-[#C4622D] dark:text-[#F59E6C]'
+                        }`}
+                      >
+                        {isVerified ? 'Verified' : 'Awaiting Sign-Off'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteEndorsement(item.id)}
+                        aria-label="Delete endorsement"
+                        className="p-1 text-[#5A6068] hover:text-[#B42318] cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] font-medium text-[#146C53] dark:text-[#5EEAD4]">
+                    Skill: {item.capabilityTitle}
+                  </p>
+
+                  {isVerified ? (
+                    <p className="text-xs italic text-[#17191C] dark:text-[#F4F2EE] bg-white dark:bg-[#1A1C20] rounded-lg p-2.5 border border-[#E8E3DB] dark:border-[#2C3037]">
+                      “{item.endorsementText}”
+                    </p>
+                  ) : (
+                    <div className="space-y-2 pt-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyShareLink(item)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[11px] font-medium text-[#17191C] dark:text-[#F4F2EE] cursor-pointer"
+                        >
+                          {copiedEndorseId === item.id ? (
+                            <>
+                              <Check className="w-3 h-3 text-[#146C53]" />
+                              Link Copied
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              Copy Endorsement Link
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveReplyId(activeReplyId === item.id ? null : item.id);
+                            setReplyText(
+                              `Confirmed: ${profile.displayName} demonstrated reliable field execution and rigorous safety standards on ${item.capabilityTitle}.`
+                            );
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4] text-[11px] font-semibold cursor-pointer"
+                        >
+                          Complete Inline
+                        </button>
+                      </div>
+
+                      {activeReplyId === item.id && (
+                        <div className="space-y-2 pt-1">
+                          <textarea
+                            rows={2}
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            className="w-full rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] px-2.5 py-1.5 text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (replyText.trim().length >= 6) {
+                                onCompleteEndorsement(item.id, replyText);
+                                setActiveReplyId(null);
+                              }
+                            }}
+                            className="px-3 py-1 rounded-lg bg-[#146C53] text-white text-xs font-semibold cursor-pointer"
+                          >
+                            Confirm & Sign Endorsement
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* Compact Verified Milestone Strip */}
+      <section className="bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] rounded-2xl p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <span className="text-xs font-semibold uppercase tracking-wider text-[#5A6068] dark:text-[#A3A9B3]">
+            Verified Achievement Milestones
+          </span>
+          <span className="text-xs font-mono text-[#146C53] dark:text-[#5EEAD4]">
+            {milestoneBadges.filter((b) => b.unlocked).length}/{milestoneBadges.length} Unlocked
+          </span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+          {milestoneBadges.map((badge) => (
+            <div
+              key={badge.id}
+              className={`rounded-xl px-3 py-2.5 border text-xs flex items-center gap-2 ${
+                badge.unlocked
+                  ? 'border-[#146C53]/30 bg-[#E7F3EE]/50 dark:bg-[#142B24]/50 text-[#17191C] dark:text-[#F4F2EE]'
+                  : 'border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#5A6068] dark:text-[#A3A9B3] opacity-75'
+              }`}
+            >
+              <CheckCircle2
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  badge.unlocked
+                    ? 'text-[#146C53] dark:text-[#5EEAD4]'
+                    : 'text-[#5A6068]'
+                }`}
+              />
+              <span className="font-medium truncate">{badge.title}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Export / Share Verified Passport Modal */}
+      {showExportModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Share or Export Verified Living Competency Passport"
+          data-testid="share-passport-modal"
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div className="bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-[#146C53] dark:text-[#2EB88B]">
+                  <QrCode className="w-3.5 h-3.5" />
+                  Portable Read-Only Credential
+                </span>
+                <h3 className="font-serif text-xl font-semibold text-[#17191C] dark:text-[#F4F2EE] mt-0.5">
+                  Share / Export Verified Passport
+                </h3>
+                <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] mt-1">
+                  Anyone with this link can view a tamper-evident, read-only snapshot of your verified skills and peer endorsements—no sign-in required.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                className="p-1.5 rounded-lg text-[#5A6068] hover:text-[#17191C] dark:hover:text-white cursor-pointer"
+                aria-label="Close modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Credential Summary Preview Box */}
+            <div className="rounded-xl border border-[#146C53]/30 bg-[#E7F3EE]/50 dark:bg-[#142B24]/50 p-4 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-serif text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                  {sharedPassportPayload.practitionerName}
+                </span>
+                <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded-md bg-white dark:bg-[#1A1C20] text-[#146C53] dark:text-[#5EEAD4] border border-[#146C53]/25">
+                  {passport?.verifiableId ?? sharedPassportPayload.readOnlySignature}
+                </span>
+              </div>
+              <p className="text-xs font-medium text-[#C4622D] dark:text-[#F59E6C]">
+                {sharedPassportPayload.ageStageTrack} · {sharedPassportPayload.fieldMatch}
+              </p>
+              <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] line-clamp-2">
+                {sharedPassportPayload.executiveSummary}
+              </p>
+              <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-[#146C53] dark:text-[#5EEAD4] font-medium">
+                <span>✓ {sharedPassportPayload.verifiedSkills.length} Core Skills</span>
+                <span>·</span>
+                <span>✓ {sharedPassportPayload.verifiedEndorsements.length} Peer Quotes</span>
+                <span>·</span>
+                <span>✓ {sharedPassportPayload.studioDomain}</span>
               </div>
             </div>
 
-            {/* EXACTLY ONE Targeted Micro-Bridging Step + Partner Fee-Waiver/Stipend Toggle */}
-            <div className="rounded-xl bg-[#E7F3EE]/75 dark:bg-[#142B24]/85 border border-[#146C53]/25 dark:border-[#2EB88B]/30 p-5 space-y-4">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
-                  Targeted Micro-Bridging Action · {passport.microBridge.estimatedDuration}
-                </p>
-                <h4 className="text-base font-semibold text-[#17191C] dark:text-[#F4F2EE]">
-                  {passport.microBridge.title}
-                </h4>
-                <p className="text-sm text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
-                  {passport.microBridge.action}
-                </p>
-                <p className="text-xs text-[#575B62] dark:text-[#A3A7AE] pt-0.5">
-                  Recognition Partner: <span className="font-medium text-[#17191C] dark:text-[#F4F2EE]">{passport.microBridge.partnerProgram}</span>
-                </p>
-              </div>
-
-              <div className="pt-3 border-t border-[#146C53]/20 dark:border-[#2EB88B]/25 flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
-                    Partner Fee-Waiver &amp; Bridging Stipend Eligibility
-                  </p>
-                  <p className="text-xs text-[#575B62] dark:text-[#A3A7AE] mt-0.5">
-                    {passport.stipendEligible
-                      ? 'Flagged for partner fee-waiver and completion stipend review upon export.'
-                      : 'Toggle on to include partner fee-waiver / stipend eligibility in your exported passport.'}
-                  </p>
-                </div>
-
+            {/* Shareable URL Input + Copy Button */}
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3]">
+                Public Read-Only Verification Link
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={sharedPassportUrl}
+                  data-testid="shared-passport-url-input"
+                  className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs font-mono text-[#17191C] dark:text-[#F4F2EE]"
+                />
                 <button
                   type="button"
-                  role="switch"
-                  aria-checked={passport.stipendEligible}
-                  aria-label="Toggle partner fee-waiver and stipend eligibility"
-                  onClick={() => onTogglePassportStipend(!passport.stipendEligible)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] ${
-                    passport.stipendEligible
-                      ? 'bg-[#146C53] dark:bg-[#2EB88B]'
-                      : 'bg-[#C8C2B8] dark:bg-[#3D3933]'
-                  }`}
+                  onClick={handleCopySharedPassportLink}
+                  data-testid="copy-shared-passport-link-btn"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5440] text-white text-xs font-semibold shrink-0 cursor-pointer"
                 >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white dark:bg-[#121315] transition-transform ${
-                      passport.stipendEligible ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
+                  {copiedPassportLink ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      Copy Link
+                    </>
+                  )}
                 </button>
               </div>
             </div>
 
-            {importBanner && (
-              <p role="status" className="text-xs font-medium text-[#146C53] dark:text-[#2EB88B]">
-                {importBanner}
-              </p>
-            )}
-
-            {/* Maximum 3 Crisp Primary Actions */}
-            <div className="flex flex-wrap items-center gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => setShowExportModal(true)}
-                className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap"
-              >
-                <FileCheck2 className="w-4 h-4" />
-                <span>Export Verified Passport</span>
-              </button>
-
-              <button
-                type="button"
-                data-testid="passport-card-share-btn"
-                onClick={() => void handleGenerateSharePassportLink()}
-                className="min-h-[44px] px-4 py-2.5 rounded-xl bg-[#E7F3EE] dark:bg-[#142B24] hover:bg-[#D5E7DD] dark:hover:bg-[#1E392D] text-[#146C53] dark:text-[#2EB88B] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-              >
-                <Share2 className="w-4 h-4" />
-                <span>Share Passport</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCommitPassportSkills}
-                className="min-h-[44px] px-4 py-2.5 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-              >
-                <Check className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B]" />
-                <span>Save Skills to Ledger</span>
-              </button>
-
+            {/* Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#E8E3DB] dark:border-[#2C3037]">
               <button
                 type="button"
                 onClick={() => {
-                  setVerifyError(null);
-                  setImportBanner(null);
-                  setStudioStep(1);
+                  setShowExportModal(false);
+                  onPreviewSharedPassport(sharedPassportPayload);
                 }}
-                className="ms-auto text-xs font-medium text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] inline-flex items-center gap-1.5 whitespace-nowrap"
+                data-testid="open-readonly-passport-preview-btn"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-[#146C53] text-[#146C53] dark:text-[#5EEAD4] text-xs font-semibold hover:bg-[#E7F3EE]/50 cursor-pointer"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>New Verification</span>
+                <Eye className="w-3.5 h-3.5" />
+                Preview Read-Only Employer Card
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                className="px-4 py-2 rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] cursor-pointer"
+              >
+                Done
               </button>
             </div>
           </div>
-        )}
-      </div>
-
-      {/* PEER ENDORSEMENT WORKFLOW — Collaborator attestations strengthening the Living Competency Passport */}
-      <PeerEndorsementPanel
-        variant="verify"
-        endorsements={endorsements}
-        capabilities={capabilities}
-        passport={passport}
-        speechLang={speechLang}
-        t={t}
-        onRequestEndorsement={onRequestEndorsement}
-        onCompleteEndorsement={onCompleteEndorsement}
-        onDeleteEndorsement={onDeleteEndorsement}
-      />
-
-      {/* CAPABILITY & EVIDENCE LEDGER (Works 100% Offline) */}
-      <div className="pt-4 border-t border-[#E8E3DB] dark:border-[#2C3037] space-y-6">
-        <div>
-          <h2 className="font-display text-xl sm:text-2xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
-            Verified Capabilities &amp; Supporting Evidence
-          </h2>
-          <p className="mt-1 text-sm text-[#575B62] dark:text-[#A3A7AE]">
-            Showcase individual capabilities alongside portfolio references, certifications, or peer endorsements. Saved offline automatically.
-          </p>
         </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          <div className="lg:col-span-7 space-y-4">
-            {capabilities.map((cap) => (
-              <article
-                key={cap.id}
-                className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-[#575B62] dark:text-[#A3A7AE]">
-                      <span>{cap.domain}</span>
-                      <span aria-hidden="true">·</span>
-                      <span
-                        className={
-                          cap.verificationStatus === 'pending'
-                            ? 'text-[#9A5B13] dark:text-[#E5A95E] font-medium'
-                            : 'text-[#146C53] dark:text-[#2EB88B] font-medium'
-                        }
-                      >
-                        {renderStatusText(cap.verificationStatus)}
-                      </span>
-                      <span aria-hidden="true">·</span>
-                      <span className="tabular-nums font-mono-tabular">
-                        {cap.confidenceScore}%
-                      </span>
-                    </div>
-
-                    <h3 className="text-lg font-semibold text-[#17191C] dark:text-[#F4F2EE]">
-                      {cap.title}
-                    </h3>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => onDeleteCapability(cap.id)}
-                    aria-label={`Remove capability ${cap.title}`}
-                    className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-[#575B62] dark:text-[#A3A7AE] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] transition-colors shrink-0"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <p className="mt-3 text-sm leading-relaxed text-[#575B62] dark:text-[#A3A7AE]">
-                  {cap.proofSummary}
-                </p>
-
-                {(cap.portfolioRef || cap.certificationRef || cap.peerEndorsement) && (
-                  <dl className="mt-4 pt-3.5 border-t border-[#E8E3DB] dark:border-[#2C3037] space-y-2 text-xs">
-                    {cap.portfolioRef && (
-                      <div className="flex items-start gap-2 text-[#575B62] dark:text-[#A3A7AE]">
-                        <ExternalLink className="w-3.5 h-3.5 mt-0.5 text-[#146C53] dark:text-[#2EB88B] shrink-0" />
-                        <span>
-                          <strong className="font-medium text-[#17191C] dark:text-[#F4F2EE]">
-                            Portfolio:
-                          </strong>{' '}
-                          {cap.portfolioRef}
-                        </span>
-                      </div>
-                    )}
-                    {cap.certificationRef && (
-                      <div className="flex items-start gap-2 text-[#575B62] dark:text-[#A3A7AE]">
-                        <Award className="w-3.5 h-3.5 mt-0.5 text-[#146C53] dark:text-[#2EB88B] shrink-0" />
-                        <span>
-                          <strong className="font-medium text-[#17191C] dark:text-[#F4F2EE]">
-                            Certification:
-                          </strong>{' '}
-                          {cap.certificationRef}
-                        </span>
-                      </div>
-                    )}
-                    {cap.peerEndorsement && (
-                      <div className="flex items-start gap-2 text-[#575B62] dark:text-[#A3A7AE]">
-                        <Users className="w-3.5 h-3.5 mt-0.5 text-[#146C53] dark:text-[#2EB88B] shrink-0" />
-                        <span>
-                          <strong className="font-medium text-[#17191C] dark:text-[#F4F2EE]">
-                            Endorsement:
-                          </strong>{' '}
-                          {cap.peerEndorsement}
-                        </span>
-                      </div>
-                    )}
-                  </dl>
-                )}
-
-                {cap.verificationStatus !== 'master-endorsed' && (
-                  <div className="mt-5 pt-4 border-t border-[#E8E3DB] dark:border-[#2C3037] flex items-center justify-between gap-4">
-                    <button
-                      type="button"
-                      onClick={() => onPromoteCapability(cap.id)}
-                      className="min-h-[40px] px-4 py-2 rounded-lg bg-[#E7F3EE] dark:bg-[#142B24] hover:bg-[#D5E7DD] dark:hover:bg-[#1E392D] text-[#146C53] dark:text-[#2EB88B] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                    >
-                      {cap.verificationStatus === 'pending' ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>{t.verifyStepCta}</span>
-                        </>
-                      ) : (
-                        <>
-                          <ShieldCheck className="w-3.5 h-3.5" />
-                          <span>{t.endorseStepCta}</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                )}
-              </article>
-            ))}
-          </div>
-
-          {/* Add New Capability Form with Portfolio, Certification & Peer Endorsement */}
-          <div className="lg:col-span-5">
-            <form
-              onSubmit={handleCreateCapability}
-              className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 space-y-5"
-            >
-              <h3 className="font-display text-xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
-                {t.addCapabilityHeading}
-              </h3>
-
-              <VoiceInput
-                id="cap-title-input"
-                label={t.capabilityTitleLabel}
-                value={capTitle}
-                onChange={(v) => {
-                  setCapTitle(v);
-                  if (formError) setFormError(null);
-                }}
-                placeholder={t.capabilityTitlePlaceholder}
-                speechLang={speechLang}
-                t={t}
-                maxLength={120}
-              />
-
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="cap-domain-select"
-                  className="block text-sm font-medium text-[#17191C] dark:text-[#F4F2EE]"
-                >
-                  {t.capabilityDomainLabel}
-                </label>
-                <select
-                  id="cap-domain-select"
-                  value={capDomain}
-                  onChange={(e) => setCapDomain(e.target.value)}
-                  className="w-full min-h-[44px] rounded-xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] px-4 py-2.5 text-sm text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B]"
-                >
-                  {PRACTICE_DOMAINS.map((domain) => (
-                    <option key={domain} value={domain}>
-                      {domain}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <VoiceTextarea
-                id="cap-proof-input"
-                label={t.capabilityProofLabel}
-                value={capProof}
-                onChange={(v) => {
-                  setCapProof(v);
-                  if (formError) setFormError(null);
-                }}
-                placeholder={t.capabilityProofPlaceholder}
-                speechLang={speechLang}
-                t={t}
-                maxLength={600}
-                rows={3}
-              />
-
-              <div className="pt-3 border-t border-[#E8E3DB] dark:border-[#2C3037] space-y-4">
-                <p className="text-xs font-medium text-[#575B62] dark:text-[#A3A7AE]">
-                  Optional Trust Signals
-                </p>
-                <VoiceInput
-                  id="cap-portfolio-input"
-                  label="Portfolio Link or Work Reference"
-                  value={capPortfolio}
-                  onChange={setCapPortfolio}
-                  placeholder="Schematic, GitHub, photo log, or project site"
-                  speechLang={speechLang}
-                  t={t}
-                  maxLength={300}
-                />
-                <VoiceInput
-                  id="cap-cert-input"
-                  label="Certification or Trade License"
-                  value={capCert}
-                  onChange={setCapCert}
-                  placeholder="e.g., Electrical Guild Certificate"
-                  speechLang={speechLang}
-                  t={t}
-                  maxLength={200}
-                />
-                <VoiceInput
-                  id="cap-endorsement-input"
-                  label="Peer Endorsement"
-                  value={capEndorsement}
-                  onChange={setCapEndorsement}
-                  placeholder="Name, role & brief voucher note"
-                  speechLang={speechLang}
-                  t={t}
-                  maxLength={400}
-                />
-              </div>
-
-              {formError && (
-                <p role="alert" className="text-xs font-medium text-[#B42318] dark:text-[#F97066]">
-                  {formError}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                className="w-full min-h-[46px] px-5 py-2.5 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-sm font-semibold transition-colors"
-              >
-                {t.addCapabilityCta}
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-
-      {showExportModal && passport && (
-        <PassportPreviewModal
-          passport={passport}
-          profile={profile}
-          capabilities={capabilities}
-          endorsements={endorsements}
-          onClose={() => setShowExportModal(false)}
-        />
       )}
-    </section>
+    </div>
   );
 };
