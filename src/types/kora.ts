@@ -108,6 +108,17 @@ export interface BriefSubmission {
   payoutUsd: number;
   createdAtIso: string;
   updatedAtIso: string;
+  deadlineIso?: string;
+}
+
+export interface SprintDueAlert {
+  contributionId: string;
+  briefId: string;
+  briefTitle: string;
+  deadlineIso: string;
+  hoursRemaining: number;
+  formattedRemaining: string;
+  isOverdue: boolean;
 }
 
 export type UnlockViewMode = 'talent' | 'partner';
@@ -127,6 +138,30 @@ export type PayoutRailOption =
   | 'local-bank'
   | 'global-wallet';
 
+export type FinancialPayoutRail =
+  | 'mobile-money'
+  | 'global-wallet'
+  | 'fiscal-host'
+  | 'local-bank';
+
+export type FatfKycTierId = 'tier-1' | 'tier-2' | 'tier-3';
+
+export type ContractingStructureOption =
+  | 'direct-local'
+  | 'scoped-remote'
+  | 'eor-fiscal-host';
+
+export interface OnboardingPackResult {
+  agreementTitle: string;
+  contractingSummary: string;
+  scopeAndDeliverables: string;
+  fairPaySchedule: string;
+  complianceAttestation: string;
+  fullAgreementText: string;
+  source: 'ai' | 'template';
+  generatedAtIso: string;
+}
+
 export interface WorkReadyVault {
   id: string;
   ownerUid: string;
@@ -136,6 +171,15 @@ export interface WorkReadyVault {
   contractTemplate: ContractTemplateOption;
   payoutCompleted: boolean;
   payoutRail: PayoutRailOption;
+  financialIdentityCleared?: boolean;
+  financialRailTested?: boolean;
+  financialTaxCleared?: boolean;
+  financialRail?: FinancialPayoutRail;
+  onboardingPackGenerated?: boolean;
+  onboardingContractStructure?: ContractingStructureOption;
+  onboardingPartnerOrg?: string;
+  onboardingHostCountry?: string;
+  onboardingPackGeneratedAtIso?: string;
   updatedAtIso: string;
 }
 
@@ -251,6 +295,18 @@ export type OfflineMutation =
       id: string;
       kind: 'upsert_payout';
       payload: ContractPayout;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_sprint_feedback';
+      payload: SprintFeedback;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_mentor_message';
+      payload: MentorMessage;
       queuedAtIso: string;
     };
 
@@ -388,3 +444,104 @@ export interface AnalyticsSummary {
     completedCount: number;
   }[];
 }
+
+export type SprintRatingScore = 1 | 2 | 3 | 4 | 5;
+
+export interface SprintFeedback {
+  id: string;
+  ownerUid: string;
+  contributionId: string;
+  briefId: string;
+  briefTitle: string;
+  partnerOrg: string;
+  reviewerName: string;
+  reviewerRole: string;
+  rating: SprintRatingScore;
+  reviewText: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+}
+
+export interface SprintFeedbackSummary {
+  totalReviews: number;
+  averageRating: number;
+  fiveStarCount: number;
+}
+
+export type MentorAvailabilityStatus = 'available' | 'in-review' | 'away';
+
+export interface PodMentorProfile {
+  id: string;
+  name: string;
+  roleTitle: string;
+  ageStage: '30-45' | '46+';
+  ageStageBadge: string;
+  domain: StudioDomain;
+  hubLocation: string;
+  specialty: string;
+  availability: MentorAvailabilityStatus;
+  availabilityLabel: string;
+  responseWindow: string;
+  greetingPrompt: string;
+}
+
+export interface MentorMessage {
+  id: string;
+  ownerUid: string;
+  sprintId: string;
+  sprintTitle: string;
+  mentorId: string;
+  mentorName: string;
+  sender: 'practitioner' | 'mentor';
+  body: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+}
+
+export type IdentityDocumentTier =
+  | 'refugee-id'
+  | 'unhcr-proof'
+  | 'convention-travel'
+  | 'pending-paperwork';
+
+export type TargetWorkMode =
+  | 'local-formal'
+  | 'cross-border-remote'
+  | 'paid-fellowship';
+
+export type RegulatoryAccessTier =
+  | 'Enabling'
+  | 'Mixed — Friction Guided'
+  | 'Restricted — Remote/EOR Route Active';
+
+export interface ComplianceCrossingRoute {
+  country: string;
+  docTier: IdentityDocumentTier;
+  workMode: TargetWorkMode;
+  accessTier: RegulatoryAccessTier;
+  pathwayHeadline: string;
+  talentSteps: string[];
+  partnerSteps: string[];
+  iloRightsGuarantee: string;
+  source: 'preset' | 'ai';
+  updatedAtIso: string;
+}
+
+export interface FinancialPayoutRailOption {
+  id: FinancialPayoutRail;
+  label: string;
+  shortLabel: string;
+  plainDescription: string;
+  supportedTiers: FatfKycTierId[];
+}
+
+export interface FatfKycTierGuidance {
+  id: FatfKycTierId;
+  tierLabel: string;
+  frictionLabel: string;
+  summary: string;
+  recommendedRailsLabel: string;
+  recommendedRailId: FinancialPayoutRail;
+  kycMechanismNote: string;
+}
+

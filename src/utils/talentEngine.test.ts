@@ -2,30 +2,46 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AGE_STAGE_PATHWAYS,
+  COMPLIANCE_COUNTRY_PRESETS,
+  CONTRACTING_STRUCTURES,
+  FATF_TIERED_KYC_BRIDGE,
+  FINANCIAL_PAYOUT_RAILS,
+  FINANCIAL_READINESS_CHECKLIST_ITEMS,
+  IDENTITY_DOCUMENT_TIERS,
   PRACTICAL_SCENARIOS,
   SEED_BRIEFS,
   SOLUTION_SPRINTS,
   STUDIO_DOMAINS,
+  TARGET_WORK_MODES,
   advancePayoutStatus,
   buildCohortBlueprint,
   buildEndorsementShareLink,
   buildLedgerCsv,
+  buildMentorQuickReply,
+  buildOnboardingPackTemplate,
   buildSharedPassportLink,
   buildSharedPassportPayload,
   buildSprintAgreementText,
   compactOfflineQueue,
   computeAnalyticsSummary,
   computeBriefMatchScore,
+  computeFeedbackSummary,
+  computeFinancialCrossingProgress,
   computeKnowledgeToWorkFlow,
   computeMilestoneBadges,
   computePeerFlywheelMetrics,
   computeSdgPulseMetrics,
+  computeSprintDueAlerts,
   computeSprintPerformanceSeries,
   computeVaultReadiness,
   createInitialProfile,
   createInitialVault,
+  enforceUnderFifteenWords,
   filterAndRankBriefs,
   filterSolutionSprints,
+  getAssignedMentorForSprint,
+  getMatchedFatfKycTier,
+  getPreseededComplianceRoute,
   getSprintComplexityLevel,
   getUserPodSeat,
   isValidFirebaseId,
@@ -39,10 +55,17 @@ import type {
   BriefSubmission,
   CompetencyPassport,
   ContractPayout,
+  MentorMessage,
   OfflineMutation,
   PeerEndorsement,
   SkillCapability,
+  SprintFeedback,
 } from '../types/kora';
+import {
+  buildComplianceReceiptPdfBytes,
+  buildPlainTextPdfBytes,
+  formatPayoutReceiptId,
+} from './pdfReceipt';
 
 const sampleCap: SkillCapability = {
   id: 'cap-1',
@@ -626,4 +649,357 @@ test('Share Passport generates a valid read-only link and safely parses or rejec
   assert.equal(parseSharedPassportToken('invalid!!!token'), null);
   assert.equal(parseSharedPassportToken(''), null);
 });
+
+test('computeFeedbackSummary aggregates star ratings and handles empty lists', () => {
+  assert.deepEqual(computeFeedbackSummary([]), {
+    totalReviews: 0,
+    averageRating: 0,
+    fiveStarCount: 0,
+  });
+
+  const sampleReviews: SprintFeedback[] = [
+    {
+      id: 'fb-1',
+      ownerUid: 'u1',
+      contributionId: 'c1',
+      briefId: 'b1',
+      briefTitle: 'Solar Sprint',
+      partnerOrg: 'HarvestKeep Network',
+      reviewerName: 'Nadia Odhiambo',
+      reviewerRole: 'Operations Director',
+      rating: 5,
+      reviewText: 'Clear handover SOP and zero thermal drift after deployment.',
+      createdAtIso: '2026-11-24T10:00:00.000Z',
+      updatedAtIso: '2026-11-24T10:00:00.000Z',
+    },
+    {
+      id: 'fb-2',
+      ownerUid: 'u1',
+      contributionId: 'c2',
+      briefId: 'b2',
+      briefTitle: 'Sync Sprint',
+      partnerOrg: 'OpenField Ledger',
+      reviewerName: 'Marek Nowak',
+      reviewerRole: 'Engineering Lead',
+      rating: 4,
+      reviewText: 'Solid conflict-resolution tests under simulated 2G packet loss.',
+      createdAtIso: '2026-11-24T11:00:00.000Z',
+      updatedAtIso: '2026-11-24T11:00:00.000Z',
+    },
+  ];
+
+  const summary = computeFeedbackSummary(sampleReviews);
+  assert.equal(summary.totalReviews, 2);
+  assert.equal(summary.averageRating, 4.5);
+  assert.equal(summary.fiveStarCount, 1);
+});
+
+test('getAssignedMentorForSprint maps active sprints to domain Senior Specialists and compacts feedback/message queue', () => {
+  const solarMentor = getAssignedMentorForSprint('sprint-solar-coldchain-01', 'Green Energy');
+  assert.equal(solarMentor.domain, 'Green Energy');
+  assert.equal(solarMentor.availability, 'available');
+
+  const techMentor = getAssignedMentorForSprint('sprint-remote-sync-03', 'Tech');
+  assert.equal(techMentor.domain, 'Tech');
+  assert.equal(techMentor.availability, 'in-review');
+
+  const reply = buildMentorQuickReply(solarMentor, '48V Diagnostics', 'Hit a blocker on cell #4');
+  assert.ok(reply.includes('unblock'));
+
+  const fb: SprintFeedback = {
+    id: 'fb-same',
+    ownerUid: 'u1',
+    contributionId: 'c1',
+    briefId: 'b1',
+    briefTitle: 'Solar Sprint',
+    partnerOrg: 'HarvestKeep',
+    reviewerName: 'Nadia',
+    reviewerRole: 'Director',
+    rating: 5,
+    reviewText: 'Great field diagnostics and clear handover documentation.',
+    createdAtIso: '2026-11-24T10:00:00.000Z',
+    updatedAtIso: '2026-11-24T10:00:00.000Z',
+  };
+  const msg: MentorMessage = {
+    id: 'msg-same',
+    ownerUid: 'u1',
+    sprintId: 'sprint-solar-coldchain-01',
+    sprintTitle: '48V Diagnostics',
+    mentorId: solarMentor.id,
+    mentorName: solarMentor.name,
+    sender: 'practitioner',
+    body: 'Checking inverter busbar torque specs',
+    createdAtIso: '2026-11-24T10:00:00.000Z',
+    updatedAtIso: '2026-11-24T10:00:00.000Z',
+  };
+
+  const queue: OfflineMutation[] = [
+    { id: 'm1', kind: 'upsert_sprint_feedback', payload: fb, queuedAtIso: '2026-11-24T10:00:00.000Z' },
+    { id: 'm2', kind: 'upsert_sprint_feedback', payload: { ...fb, rating: 4 }, queuedAtIso: '2026-11-24T10:01:00.000Z' },
+    { id: 'm3', kind: 'upsert_mentor_message', payload: msg, queuedAtIso: '2026-11-24T10:00:00.000Z' },
+    { id: 'm4', kind: 'upsert_mentor_message', payload: { ...msg, body: 'Updated question' }, queuedAtIso: '2026-11-24T10:01:00.000Z' },
+  ];
+  const compacted = compactOfflineQueue(queue);
+  assert.equal(compacted.length, 2);
+  assert.equal(compacted[0].kind === 'upsert_sprint_feedback' && compacted[0].payload.rating, 4);
+  assert.equal(compacted[1].kind === 'upsert_mentor_message' && compacted[1].payload.body, 'Updated question');
+});
+
+test('Compliance Readiness presets cover global countries, all 3 Regulatory Access Tiers, and strictly under 15 words per step', () => {
+  assert.equal(COMPLIANCE_COUNTRY_PRESETS.length, 7);
+  assert.equal(IDENTITY_DOCUMENT_TIERS.length, 4);
+  assert.equal(TARGET_WORK_MODES.length, 3);
+
+  const clamped = enforceUnderFifteenWords(
+    'One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen'
+  );
+  assert.ok(clamped.split(/\s+/).length < 15);
+
+  const enabling = getPreseededComplianceRoute('Kenya', 'refugee-id', 'local-formal');
+  assert.equal(enabling.accessTier, 'Enabling');
+
+  const mixed = getPreseededComplianceRoute('Jordan', 'refugee-id', 'local-formal');
+  assert.equal(mixed.accessTier, 'Mixed — Friction Guided');
+
+  const restricted = getPreseededComplianceRoute('Jordan', 'unhcr-proof', 'cross-border-remote');
+  assert.equal(restricted.accessTier, 'Restricted — Remote/EOR Route Active');
+
+  for (const preset of COMPLIANCE_COUNTRY_PRESETS) {
+    for (const tier of IDENTITY_DOCUMENT_TIERS) {
+      for (const mode of TARGET_WORK_MODES) {
+        const route = getPreseededComplianceRoute(preset.id, tier.id, mode.id);
+        assert.ok(route.pathwayHeadline.includes(preset.id));
+        assert.ok(route.iloRightsGuarantee.includes('ILO'));
+        assert.equal(route.talentSteps.length, 3);
+        assert.equal(route.partnerSteps.length, 3);
+        for (const step of [...route.talentSteps, ...route.partnerSteps]) {
+          const wordCount = step.trim().split(/\s+/).length;
+          assert.ok(wordCount < 15, `Step exceeded 14 words (${wordCount}): ${step}`);
+        }
+      }
+    }
+  }
+});
+
+test('computeSprintDueAlerts triggers within 48 hours of an active sprint deadline and ignores completed or distant sprints', () => {
+  const fixedNowMs = Date.parse('2026-11-24T12:00:00.000Z');
+  const dueIn36HoursCreatedAt = new Date(fixedNowMs - 5.5 * 86_400_000).toISOString();
+  const distantCreatedAt = new Date(fixedNowMs - 1 * 86_400_000).toISOString();
+
+  const contribs: BriefSubmission[] = [
+    {
+      id: 'c-due-soon',
+      ownerUid: 'u1',
+      briefId: 'sprint-solar-coldchain-01', // 7-day sprint
+      briefTitle: '48V Cold-Storage Sprint',
+      domain: 'Green Energy',
+      status: 'in-progress',
+      solutionNotes: 'Working',
+      hoursLogged: 2,
+      payoutUsd: 480,
+      createdAtIso: dueIn36HoursCreatedAt,
+      updatedAtIso: dueIn36HoursCreatedAt,
+    },
+    {
+      id: 'c-distant',
+      ownerUid: 'u1',
+      briefId: 'sprint-ngo-maternal-02', // 7-day sprint, 6 days remaining (>48h)
+      briefTitle: 'Multilingual Triage Sprint',
+      domain: 'Healthcare Ops',
+      status: 'in-progress',
+      solutionNotes: 'Starting',
+      hoursLogged: 1,
+      payoutUsd: 390,
+      createdAtIso: distantCreatedAt,
+      updatedAtIso: distantCreatedAt,
+    },
+    {
+      id: 'c-done',
+      ownerUid: 'u1',
+      briefId: 'brief-coldchain-03',
+      briefTitle: 'Completed Sprint',
+      domain: 'Cold-Chain Logistics',
+      status: 'completed',
+      solutionNotes: 'Done',
+      hoursLogged: 5,
+      payoutUsd: 350,
+      createdAtIso: dueIn36HoursCreatedAt,
+      updatedAtIso: dueIn36HoursCreatedAt,
+    },
+  ];
+
+  const alerts = computeSprintDueAlerts(contribs, fixedNowMs);
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].contributionId, 'c-due-soon');
+  assert.equal(alerts[0].hoursRemaining, 36);
+  assert.equal(alerts[0].formattedRemaining, '36h left');
+  assert.equal(alerts[0].isOverdue, false);
+});
+
+test('Financial & Payout Rail Readiness auto-matches FATF KYC Tiers, keeps checklist copy under 15 words, and increments SDG 16', () => {
+  assert.equal(FATF_TIERED_KYC_BRIDGE.length, 3);
+  assert.equal(FINANCIAL_PAYOUT_RAILS.length, 4);
+  assert.equal(FINANCIAL_READINESS_CHECKLIST_ITEMS.length, 3);
+
+  for (const item of FINANCIAL_READINESS_CHECKLIST_ITEMS) {
+    const wc = item.reassuringCopy.trim().split(/\s+/).length;
+    assert.ok(wc < 15, `Checklist copy too long (${wc} words): ${item.reassuringCopy}`);
+  }
+
+  assert.equal(getMatchedFatfKycTier('unhcr-proof', 'cross-border-remote', 'Jordan').id, 'tier-1');
+  assert.equal(getMatchedFatfKycTier('pending-paperwork', 'paid-fellowship', 'Kenya').id, 'tier-1');
+  assert.equal(getMatchedFatfKycTier('refugee-id', 'cross-border-remote', 'Kenya').id, 'tier-2');
+  assert.equal(getMatchedFatfKycTier('convention-travel', 'local-formal', 'Germany').id, 'tier-3');
+
+  const profile = createInitialProfile({ ageStage: '30-45', onboarded: true });
+  const initialVault = createInitialVault('u1');
+  const clearedVault = {
+    ...initialVault,
+    financialIdentityCleared: true,
+    financialRailTested: true,
+    financialTaxCleared: true,
+    financialRail: 'fiscal-host' as const,
+  };
+
+  const progressBefore = computeFinancialCrossingProgress(initialVault);
+  const progressAfter = computeFinancialCrossingProgress(clearedVault);
+  assert.equal(progressBefore.completedCount, 0);
+  assert.equal(progressBefore.isCrossingCleared, false);
+  assert.equal(progressAfter.completedCount, 3);
+  assert.equal(progressAfter.isCrossingCleared, true);
+
+  const sdgBefore = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: null,
+    endorsements: [],
+    vault: initialVault,
+    payouts: [],
+    contributions: [],
+  });
+  const sdgAfter = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: null,
+    endorsements: [],
+    vault: clearedVault,
+    payouts: [],
+    contributions: [],
+  });
+
+  const sdg16Before = sdgBefore.find((m) => m.sdgNumber === 16)!;
+  const sdg16After = sdgAfter.find((m) => m.sdgNumber === 16)!;
+  assert.equal(sdg16After.numericValue - sdg16Before.numericValue, 4);
+  assert.ok(sdg16After.microStory.includes('Crossing Cleared'));
+});
+
+test('Payout PDF receipt generator emits valid %PDF-1.4 bytes and deterministic receipt references', () => {
+  const samplePayout: ContractPayout = {
+    id: 'pay-seed-2',
+    ownerUid: 'u1',
+    sprintId: 'brief-coldchain-03',
+    sprintTitle: 'Solar-Direct Cold-Chain Compressor Retrofit Plan',
+    partnerOrg: 'HarvestKeep Network',
+    amountUsd: 350,
+    payoutRail: 'mobile-money',
+    status: 'released',
+    createdAtIso: '2026-11-24T08:00:00.000Z',
+    updatedAtIso: '2026-11-24T10:00:00.000Z',
+  };
+
+  const receiptId = formatPayoutReceiptId(samplePayout);
+  assert.ok(receiptId.startsWith('VNA-RCP-'));
+
+  const pdfBytes = buildComplianceReceiptPdfBytes({
+    payout: samplePayout,
+    practitionerName: 'Tariq Al-Mansoor',
+    hostCountry: 'Kenya',
+    contractingStructure: 'scoped-remote',
+  });
+  const pdfText = new TextDecoder().decode(pdfBytes);
+
+  assert.ok(pdfText.startsWith('%PDF-1.4\n'));
+  assert.ok(pdfText.includes('xref'));
+  assert.ok(pdfText.includes('%%EOF'));
+  assert.ok(pdfText.includes('HarvestKeep Network'));
+  assert.ok(pdfText.includes('$350 USD'));
+  assert.ok(pdfText.includes(receiptId));
+});
+
+test('Hiring Partner Onboarding Dossier structures, 1-page agreement generator, and SDG 8 + SDG 16 sync', () => {
+  assert.equal(CONTRACTING_STRUCTURES.length, 3);
+
+  const pack = buildOnboardingPackTemplate({
+    practitionerName: 'Tariq Al-Mansoor',
+    ageStage: '30-45',
+    hostCountry: 'Kenya',
+    docTier: 'refugee-id',
+    workMode: 'cross-border-remote',
+    contractingStructure: 'eor-fiscal-host',
+    partnerOrg: 'Rift Valley Cold-Chain Co-op',
+    sprintTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+    payoutUsd: 480,
+    selectedPayoutRail: 'fiscal-host',
+    verifiedSkills: ['48V Solar Inverter Diagnostics', 'Thermal Telemetry'],
+    passportFieldMatch: 'Off-Grid Microgrid Diagnostics',
+    passportId: 'pass-1',
+  });
+
+  assert.ok(pack.agreementTitle.includes('EOR / Fiscal Host Bridge'));
+  assert.ok(pack.fullAgreementText.includes('Rift Valley Cold-Chain Co-op'));
+  assert.ok(pack.fullAgreementText.includes('$480 USD'));
+  assert.ok(pack.fullAgreementText.includes('ILO'));
+
+  const packPdf = new TextDecoder().decode(
+    buildPlainTextPdfBytes({
+      title: pack.agreementTitle,
+      subtitle: 'Rift Valley Cold-Chain Co-op · Kenya',
+      bodyText: pack.fullAgreementText,
+    })
+  );
+  assert.ok(packPdf.startsWith('%PDF-1.4\n'));
+  assert.ok(packPdf.includes('%%EOF'));
+
+  const profile = createInitialProfile({ ageStage: '30-45', onboarded: true });
+  const baseVault = createInitialVault('u1');
+  const clearedPackVault = {
+    ...baseVault,
+    onboardingPackGenerated: true,
+    onboardingContractStructure: 'eor-fiscal-host' as const,
+    onboardingPartnerOrg: 'Rift Valley Cold-Chain Co-op',
+    onboardingHostCountry: 'Kenya',
+  };
+
+  const sdgBefore = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: samplePassport,
+    endorsements: [],
+    vault: baseVault,
+    payouts: [],
+    contributions: [],
+  });
+  const sdgAfter = computeSdgPulseMetrics({
+    profile,
+    capabilities: [sampleCap],
+    passport: samplePassport,
+    endorsements: [],
+    vault: clearedPackVault,
+    payouts: [],
+    contributions: [],
+  });
+
+  const sdg8Before = sdgBefore.find((m) => m.sdgNumber === 8)!;
+  const sdg8After = sdgAfter.find((m) => m.sdgNumber === 8)!;
+  const sdg16Before = sdgBefore.find((m) => m.sdgNumber === 16)!;
+  const sdg16After = sdgAfter.find((m) => m.sdgNumber === 16)!;
+
+  assert.ok(sdg8After.numericValue > sdg8Before.numericValue);
+  assert.ok(sdg8After.microStory.includes('1-Click Onboarding Pack'));
+  assert.ok(sdg16After.numericValue > sdg16Before.numericValue);
+  assert.ok(sdg16After.microStory.includes('1-Click Onboarding Pack'));
+});
+
+
+
 

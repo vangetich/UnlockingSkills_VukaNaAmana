@@ -306,6 +306,36 @@
           "enum": ["mobile-money", "local-bank", "global-wallet"],
           "maxLength": 32
         },
+        "financialIdentityCleared": {
+          "type": "boolean"
+        },
+        "financialRailTested": {
+          "type": "boolean"
+        },
+        "financialTaxCleared": {
+          "type": "boolean"
+        },
+        "financialRail": {
+          "type": "string",
+          "enum": ["mobile-money", "global-wallet", "fiscal-host", "local-bank"],
+          "maxLength": 32
+        },
+        "onboardingPackGenerated": {
+          "type": "boolean"
+        },
+        "onboardingContractStructure": {
+          "type": "string",
+          "enum": ["direct-local", "scoped-remote", "eor-fiscal-host"],
+          "maxLength": 32
+        },
+        "onboardingPartnerOrg": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "onboardingHostCountry": {
+          "type": "string",
+          "maxLength": 80
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"
@@ -457,6 +487,140 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "SprintFeedback": {
+      "title": "SprintFeedback",
+      "description": "Qualitative Hiring Partner star rating and written review on a completed sprint contribution.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "contributionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "briefId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "briefTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "partnerOrg": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "reviewerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "reviewerRole": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "rating": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "reviewText": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "contributionId",
+        "briefId",
+        "briefTitle",
+        "partnerOrg",
+        "reviewerName",
+        "reviewerRole",
+        "rating",
+        "reviewText",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MentorMessage": {
+      "title": "MentorMessage",
+      "description": "Pod mentorship message thread entry exchanged between a practitioner and an assigned Senior Specialist.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "mentorId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "mentorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "sender": {
+          "type": "string",
+          "enum": ["practitioner", "mentor"],
+          "maxLength": 24
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "sprintId",
+        "sprintTitle",
+        "mentorId",
+        "mentorName",
+        "sender",
+        "body",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -487,6 +651,14 @@
     "/users/{userId}/payouts/{payoutId}": {
       "schema": { "$ref": "#/entities/ContractPayout" },
       "description": "Contract payout lifecycle records tracking Escrow Held, Processing, and Released statuses."
+    },
+    "/users/{userId}/sprintFeedback/{feedbackId}": {
+      "schema": { "$ref": "#/entities/SprintFeedback" },
+      "description": "Hiring Partner qualitative star ratings and reviews for completed sprint contributions."
+    },
+    "/users/{userId}/mentorMessages/{messageId}": {
+      "schema": { "$ref": "#/entities/MentorMessage" },
+      "description": "Pod mentorship messaging thread records between a practitioner and assigned Senior Specialist."
     }
   }
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Globe, Mic, Moon, Square, Sun, WifiOff } from 'lucide-react';
+import { ArrowDown, ArrowRight, Globe, Mic, Moon, Square, Sun, WifiOff } from 'lucide-react';
 import type { AgeStage, LocaleCode, ThemeMode } from '../types/kora';
 import {
   LOCALE_OPTIONS,
@@ -13,6 +13,73 @@ import {
   TopographicAscentMotif,
   WovenBridgeArcsMotif,
 } from './ResilienceMotifs';
+
+interface FunnelSectionArrowProps {
+  position: 'top' | 'middle' | 'bottom';
+  targetId: string;
+  label: string;
+  stepTag: string;
+}
+
+const FunnelSectionArrow: React.FC<FunnelSectionArrowProps> = ({
+  position,
+  targetId,
+  label,
+  stepTag,
+}) => {
+  const isMiddle = position === 'middle';
+  const handleScroll = () => {
+    document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  return (
+    <div
+      data-testid={`landing-arrow-${position}`}
+      className="relative z-10 mt-10 sm:mt-14 flex flex-col items-center"
+    >
+      <span
+        aria-hidden="true"
+        className={`w-px h-7 sm:h-9 ${
+          isMiddle
+            ? 'bg-gradient-to-b from-transparent to-[#C4622D]/60 dark:to-[#E07B46]/60'
+            : 'bg-gradient-to-b from-transparent to-[#146C53]/60 dark:to-[#2EB88B]/60'
+        }`}
+      />
+      <button
+        type="button"
+        onClick={handleScroll}
+        aria-label={label}
+        className={`group min-h-[42px] px-4 py-2 rounded-full border bg-white/90 dark:bg-[#1A1C20]/90 backdrop-blur-xs text-xs font-medium inline-flex items-center gap-2.5 transition-all hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 ${
+          isMiddle
+            ? 'border-[#C4622D]/30 dark:border-[#E07B46]/35 text-[#17191C] dark:text-[#F4F2EE] hover:border-[#C4622D] dark:hover:border-[#E07B46] focus-visible:ring-[#C4622D]'
+            : 'border-[#146C53]/30 dark:border-[#2EB88B]/35 text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] dark:hover:border-[#2EB88B] focus-visible:ring-[#146C53]'
+        }`}
+      >
+        <span
+          className={`font-mono-tabular text-[11px] font-semibold ${
+            isMiddle
+              ? 'text-[#C4622D] dark:text-[#E07B46]'
+              : 'text-[#146C53] dark:text-[#2EB88B]'
+          }`}
+        >
+          {stepTag}
+        </span>
+        <span className="text-[#575B62] dark:text-[#A3A7AE] group-hover:text-[#17191C] dark:group-hover:text-[#F4F2EE] transition-colors">
+          {label}
+        </span>
+        <span
+          className={`w-6 h-6 rounded-full flex items-center justify-center transition-transform group-hover:translate-y-0.5 ${
+            isMiddle
+              ? 'bg-[#F9ECE5] dark:bg-[#2D1E17] text-[#C4622D] dark:text-[#E07B46]'
+              : 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+          }`}
+        >
+          <ArrowDown className="w-3.5 h-3.5" />
+        </span>
+      </button>
+    </div>
+  );
+};
 
 interface LandingFunnelProps {
   initialProblem: string;
@@ -92,7 +159,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
   ];
 
   return (
-    <div className="min-h-screen bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] flex flex-col">
+    <div className="min-h-screen overflow-x-clip bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] flex flex-col">
       {/* BEAT 1: Minimal Top Bar */}
       <header className="sticky top-0 z-30 bg-[#FAF8F5]/92 dark:bg-[#121315]/92 backdrop-blur-md border-b border-[#E8E3DB] dark:border-[#2C3037]">
         <div className="max-w-6xl mx-auto h-16 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-6">
@@ -102,7 +169,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             aria-label="Vuka na Amana — Crossing Over"
             data-testid="landing-brand-home-btn"
-            className="flex items-center gap-2.5 sm:gap-3 min-w-0 shrink-0 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] rounded-md py-1"
+            className="flex items-center gap-2 sm:gap-3 min-w-0 shrink text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] rounded-md py-1"
           >
             <img
               src="/bridge.jpeg"
@@ -110,7 +177,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               className="h-8 max-w-[96px] sm:h-10 sm:max-w-[140px] w-auto object-contain rounded-md shrink-0"
             />
             <div className="leading-tight min-w-0">
-              <span className="block font-display text-sm sm:text-lg font-semibold tracking-tight text-[#17191C] dark:text-[#F4F2EE] whitespace-nowrap">
+              <span className="block font-display text-[13px] sm:text-lg font-semibold tracking-tight text-[#17191C] dark:text-[#F4F2EE] truncate">
                 {t.brandName}
               </span>
               <span className="hidden sm:block text-[10px] font-medium uppercase tracking-[0.14em] text-[#575B62] dark:text-[#A3A7AE] whitespace-nowrap">
@@ -120,13 +187,13 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
           </button>
 
           {/* Language Toggle (EN / SW / FR / AR) + Quiet Partner & Studio Links */}
-          <div className="flex items-center gap-1.5 sm:gap-4 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-4 shrink-0">
             {/* Compact native select on <640px phones to prevent any horizontal clipping */}
             <select
               aria-label="Language"
               value={locale}
               onChange={(e) => onChangeLocale(e.target.value as LocaleCode)}
-              className="sm:hidden min-h-[34px] px-2 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53]"
+              className="sm:hidden min-h-[34px] px-1.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53]"
             >
               {LOCALE_OPTIONS.map((opt) => (
                 <option key={opt.code} value={opt.code}>
@@ -173,7 +240,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
             <button
               type="button"
               onClick={() => onEnterStudio(currentPayload)}
-              className="min-h-[34px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] transition-colors whitespace-nowrap shrink-0"
+              className="min-h-[34px] px-2 sm:px-3 py-1.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] transition-colors whitespace-nowrap shrink-0"
             >
               <span className="sm:hidden">Studio</span>
               <span className="hidden sm:inline">{t.navEnterStudio}</span>
@@ -228,8 +295,9 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
       <main className="flex-1">
         {/* BEAT 2: Hero Threshold with Topographic Ascent Motif */}
         <section
+          id="landing-hero-section"
           aria-labelledby="landing-hero-headline"
-          className="relative overflow-hidden pt-12 pb-16 sm:pt-20 sm:pb-24"
+          className="relative overflow-hidden pt-12 pb-12 sm:pt-20 sm:pb-16"
         >
           <TopographicAscentMotif variant="landing" />
 
@@ -342,13 +410,22 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
                 </button>
               </div>
             </form>
+
+            {/* Top Arrow Unit -> 3-Pillar Crossing Strip */}
+            <FunnelSectionArrow
+              position="top"
+              targetId="landing-pillars-section"
+              stepTag="01"
+              label="Explore the 3-pillar crossing"
+            />
           </div>
         </section>
 
         {/* BEAT 3: The 3-Pillar Crossing Strip with Woven-Bridge Arcs Motif */}
         <section
+          id="landing-pillars-section"
           aria-labelledby="pillars-heading"
-          className="relative overflow-hidden border-t border-[#E8E3DB] dark:border-[#2C3037] py-16 sm:py-24"
+          className="relative overflow-hidden border-t border-[#E8E3DB] dark:border-[#2C3037] py-16 sm:py-20"
         >
           <WovenBridgeArcsMotif variant="landing" />
 
@@ -402,13 +479,22 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
                 </article>
               ))}
             </div>
+
+            {/* Middle Arrow Unit -> Age-Versatility Preview */}
+            <FunnelSectionArrow
+              position="middle"
+              targetId="landing-age-section"
+              stepTag="02"
+              label="Preview your age-stage pathway"
+            />
           </div>
         </section>
 
         {/* BEAT 4: Interactive Age-Versatility Preview & Final Handoff Band with Ripple Constellation Motif */}
         <section
+          id="landing-age-section"
           aria-labelledby="age-versatility-heading"
-          className="relative overflow-hidden border-t border-[#E8E3DB] dark:border-[#2C3037] py-16 sm:py-24"
+          className="relative overflow-hidden border-t border-[#E8E3DB] dark:border-[#2C3037] py-16 sm:py-20"
         >
           <RippleConstellationMotif variant="landing" />
 
@@ -554,9 +640,33 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Bottom Arrow Unit -> Tagline Footer Anchor */}
+            <FunnelSectionArrow
+              position="bottom"
+              targetId="landing-footer-anchor"
+              stepTag="03"
+              label="Our guiding promise"
+            />
           </div>
         </section>
       </main>
+
+      {/* Editorial Tagline Footer Anchor at the very bottom of the landing page */}
+      <footer
+        id="landing-footer-anchor"
+        data-testid="landing-footer-anchor"
+        className="border-t border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] py-10 sm:py-14 px-4 sm:px-6 text-center"
+      >
+        <div className="max-w-3xl mx-auto space-y-2.5">
+          <p className="font-display text-lg sm:text-xl md:text-2xl font-medium tracking-tight text-[#17191C] dark:text-[#F4F2EE]">
+            Encourage the dream. Acknowledge the skill. Attain the work.
+          </p>
+          <p className="text-sm sm:text-base font-medium text-[#146C53] dark:text-[#2EB88B]">
+            Turning sidelined talent into active impact.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 };

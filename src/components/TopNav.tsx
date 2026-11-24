@@ -1,5 +1,5 @@
 import React from 'react';
-import { BarChart3, CheckCircle2, Compass, Globe, WifiOff, Wrench } from 'lucide-react';
+import { BarChart3, CheckCircle2, Compass, Globe, Search, WifiOff, Wrench } from 'lucide-react';
 import type { WorkspaceTab } from '../types/kora';
 import type { TranslationDictionary } from '../utils/i18n';
 
@@ -14,6 +14,7 @@ interface TopNavProps {
   onSignOut: () => void;
   onBackToHome: () => void;
   onOpenScaleDrawer: () => void;
+  onOpenCommandPalette?: () => void;
   t: TranslationDictionary;
 }
 
@@ -28,6 +29,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   onSignOut,
   onBackToHome,
   onOpenScaleDrawer,
+  onOpenCommandPalette,
   t,
 }) => {
   const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ReactNode }> = [
@@ -96,8 +98,24 @@ export const TopNav: React.FC<TopNavProps> = ({
             })}
           </nav>
 
-          {/* Zone 3: Subtle Partner & Scale Mode icon + Primary account action */}
+          {/* Zone 3: Quick Search (Cmd+K), Partner & Scale Mode icon + Primary account action */}
           <div className="flex items-center gap-2 shrink-0">
+            {onOpenCommandPalette && (
+              <button
+                type="button"
+                onClick={onOpenCommandPalette}
+                aria-label="Open quick search command palette (Cmd+K or Ctrl+K)"
+                title="Quick Search (Cmd+K / Ctrl+K)"
+                data-testid="open-command-palette-btn"
+                className="min-h-[38px] min-w-[38px] px-2.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#146C53] dark:hover:text-[#2EB88B] inline-flex items-center justify-center gap-1.5 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B]"
+              >
+                <Search className="w-3.5 h-3.5" />
+                <kbd className="hidden lg:inline text-[10px] font-mono-tabular text-[#575B62] dark:text-[#A3A7AE]">
+                  ⌘K
+                </kbd>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onOpenScaleDrawer}

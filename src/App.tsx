@@ -15,8 +15,10 @@ import {
   upsertCloudCapability,
   upsertCloudContribution,
   upsertCloudEndorsement,
+  upsertCloudMentorMessage,
   upsertCloudPassport,
   upsertCloudPayout,
+  upsertCloudSprintFeedback,
   upsertCloudVault,
 } from './lib/firebase';
 import type {
@@ -27,13 +29,17 @@ import type {
   CompetencyPassport,
   ContractPayout,
   LocaleCode,
+  MentorMessage,
   OfflineMutation,
   PeerEndorsement,
+  PodMentorProfile,
   PractitionerProfile,
   ProblemBrief,
   RankedSolutionSprint,
   SharedPassportPayload,
   SkillCapability,
+  SprintFeedback,
+  SprintRatingScore,
   UnlockViewMode,
   WorkReadyVault,
   WorkspaceTab,
@@ -45,14 +51,17 @@ import {
   saveLocalCapabilities,
   saveLocalContributions,
   saveLocalEndorsements,
+  saveLocalMentorMessages,
   saveLocalPassport,
   saveLocalPayouts,
   saveLocalProfile,
+  saveLocalSprintFeedback,
   saveLocalVault,
   saveOfflineQueue,
 } from './utils/offlineStore';
 import {
   advancePayoutStatus,
+  buildMentorQuickReply,
   makeSafeId,
   normalizeAgeStage,
   normalizeLocale,
@@ -60,6 +69,7 @@ import {
   promoteVerificationStatus,
 } from './utils/talentEngine';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
+import { MessagingProvider } from './contexts/MessagingContext';
 import { LandingFunnel } from './components/LandingFunnel';
 import { TopNav } from './components/TopNav';
 import { WorkspaceUtilities } from './components/WorkspaceUtilities';
@@ -69,6 +79,8 @@ import { SolveView } from './components/SolveView';
 import { PulseView } from './components/PulseView';
 import { PartnerScaleDrawer } from './components/PartnerScaleDrawer';
 import { SharedPassportView } from './components/SharedPassportView';
+import { MentorMessagingDrawer } from './components/MentorMessagingDrawer';
+import { CommandPalette } from './components/CommandPalette';
 
 export default function App() {
   const searchParams =
@@ -90,6 +102,12 @@ export default function App() {
   const [vault, setVault] = useState<WorkReadyVault>(initialState.vault);
   const [endorsements, setEndorsements] = useState<PeerEndorsement[]>(initialState.endorsements);
   const [payouts, setPayouts] = useState<ContractPayout[]>(initialState.payouts);
+  const [sprintFeedback, setSprintFeedback] = useState<SprintFeedback[]>(
+    initialState.sprintFeedback
+  );
+  const [mentorMessages, setMentorMessages] = useState<MentorMessage[]>(
+    initialState.mentorMessages
+  );
   const [offlineQueue, setOfflineQueue] = useState<OfflineMutation[]>(initialState.queue);
   const [lastSyncedIso, setLastSyncedIso] = useState<string | null>(initialState.lastSyncedIso);
 
@@ -115,6 +133,9 @@ export default function App() {
     return 'landing';
   });
   const [isScaleDrawerOpen, setIsScaleDrawerOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [sharePassportSignal, setSharePassportSignal] = useState(0);
+  const [voiceTriggerSignal, setVoiceTriggerSignal] = useState(0);
   const [endorseBannerDismissed, setEndorseBannerDismissed] = useState(false);
 
   const [authUser, setAuthUser] = useState<User | null>(null);
@@ -191,6 +212,18 @@ export default function App() {
   const localeMeta = getLocaleMeta(profile.preferredLocale);
   const t = TRANSLATIONS[profile.preferredLocale] ?? TRANSLATIONS.en;
 
+  // Global Cmd+K / Ctrl+K Command Palette shortcut
+  useEffect(() => {
+    const handleGlobalKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setIsCommandPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
   // Persist active view/tab in sessionStorage and reset scroll on navigation
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -250,6 +283,10 @@ export default function App() {
             await deleteCloudEndorsement(user.uid, item.endorsementId);
           } else if (item.kind === 'upsert_payout') {
             await upsertCloudPayout(user.uid, item.payload);
+          } else if (item.kind === 'upsert_sprint_feedback') {
+            await upsertCloudSprintFeedback(user.uid, item.payload);
+          } else if (item.kind === 'upsert_mentor_message') {
+            await upsertCloudMentorMessage(user.uid, item.payload);
           }
         }
 
@@ -341,6 +378,16 @@ export default function App() {
         if (cloud.payouts.length > 0) {
           setPayouts(cloud.payouts);
           saveLocalPayouts(cloud.payouts);
+        }
+
+        if (cloud.sprintFeedback.length > 0) {
+          setSprintFeedback(cloud.sprintFeedback);
+          saveLocalSprintFeedback(cloud.sprintFeedback);
+        }
+
+        if (cloud.mentorMessages.length > 0) {
+          setMentorMessages(cloud.mentorMessages);
+          saveLocalMentorMessages(cloud.mentorMessages);
         }
 
         unsubCaps = subscribeToCapabilities(authUser.uid, (cloudCaps) => {
@@ -957,6 +1004,124 @@ export default function App() {
     }
   };
 
+  const handleAddSprintFeedback = (input: {
+    contributionId: string;
+    briefId: string;
+    briefTitle: string;
+    partnerOrg: string;
+    reviewerName: string;
+    reviewerRole: string;
+    rating: SprintRatingScore;
+    reviewText: string;
+  }) => {
+    const now = new Date().toISOString();
+    const created: SprintFeedback = {
+      id: makeSafeId('fb'),
+      ownerUid: authUser?.uid ?? profile.uid,
+      contributionId: input.contributionId,
+      briefId: input.briefId,
+      briefTitle: input.briefTitle,
+      partnerOrg: input.partnerOrg,
+      reviewerName: input.reviewerName,
+      reviewerRole: input.reviewerRole,
+      rating: input.rating,
+      reviewText: input.reviewText,
+      createdAtIso: now,
+      updatedAtIso: now,
+    };
+
+    const nextList = [created, ...sprintFeedback];
+    setSprintFeedback(nextList);
+    saveLocalSprintFeedback(nextList);
+
+    if (authUser && isOnline) {
+      void upsertCloudSprintFeedback(authUser.uid, created);
+    } else {
+      enqueueMutation({
+        id: makeSafeId('mut'),
+        kind: 'upsert_sprint_feedback',
+        payload: created,
+        queuedAtIso: now,
+      });
+    }
+  };
+
+  const handleSendMentorMessage = useCallback(
+    (input: {
+      sprintId: string;
+      sprintTitle: string;
+      mentor: PodMentorProfile;
+      body: string;
+    }) => {
+      const now = new Date().toISOString();
+      const ownerId = authUser?.uid ?? profile.uid;
+      const outbound: MentorMessage = {
+        id: makeSafeId('msg'),
+        ownerUid: ownerId,
+        sprintId: input.sprintId,
+        sprintTitle: input.sprintTitle,
+        mentorId: input.mentor.id,
+        mentorName: input.mentor.name,
+        sender: 'practitioner',
+        body: input.body,
+        createdAtIso: now,
+        updatedAtIso: now,
+      };
+
+      setMentorMessages((prev) => {
+        const next = [...prev, outbound];
+        saveLocalMentorMessages(next);
+        return next;
+      });
+
+      if (authUser && isOnline) {
+        void upsertCloudMentorMessage(authUser.uid, outbound);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_mentor_message',
+          payload: outbound,
+          queuedAtIso: now,
+        });
+      }
+
+      // Contextual Senior Specialist pod acknowledgment
+      window.setTimeout(() => {
+        const replyIso = new Date().toISOString();
+        const replyMsg: MentorMessage = {
+          id: makeSafeId('msg'),
+          ownerUid: ownerId,
+          sprintId: input.sprintId,
+          sprintTitle: input.sprintTitle,
+          mentorId: input.mentor.id,
+          mentorName: input.mentor.name,
+          sender: 'mentor',
+          body: buildMentorQuickReply(input.mentor, input.sprintTitle, input.body),
+          createdAtIso: replyIso,
+          updatedAtIso: replyIso,
+        };
+
+        setMentorMessages((prev) => {
+          const next = [...prev, replyMsg];
+          saveLocalMentorMessages(next);
+          return next;
+        });
+
+        if (authUser && isOnline) {
+          void upsertCloudMentorMessage(authUser.uid, replyMsg);
+        } else {
+          enqueueMutation({
+            id: makeSafeId('mut'),
+            kind: 'upsert_mentor_message',
+            payload: replyMsg,
+            queuedAtIso: replyIso,
+          });
+        }
+      }, 500);
+    },
+    [authUser, isOnline, profile.uid, enqueueMutation]
+  );
+
   const handleApplyCohortPreset = (blueprint: CohortBlueprintPreview) => {
     updateProfileState({
       ...profile,
@@ -982,6 +1147,41 @@ export default function App() {
       userAgeStage={profile.ageStage}
       verifiedCapabilitiesCount={verifiedCapabilitiesCount}
       onApplyCohortPreset={handleApplyCohortPreset}
+    />
+  );
+
+  const commandPaletteElement = (
+    <CommandPalette
+      isOpen={isCommandPaletteOpen}
+      activeTab={activeTab}
+      theme={profile.themePreference}
+      onClose={() => setIsCommandPaletteOpen(false)}
+      onNavigateTab={(tab) => {
+        setViewMode('studio');
+        setActiveTab(tab);
+      }}
+      onGoHome={() => setViewMode('landing')}
+      onTriggerVoiceToText={() => {
+        setViewMode('studio');
+        setActiveTab('verify');
+        setVoiceTriggerSignal((n) => n + 1);
+      }}
+      onTriggerSharePassport={() => {
+        setViewMode('studio');
+        setActiveTab('verify');
+        setSharePassportSignal((n) => n + 1);
+      }}
+      onOpenComplianceCrossing={() => {
+        setViewMode('studio');
+        setActiveTab('unlock');
+        window.setTimeout(() => {
+          document
+            .getElementById('compliance-crossing-section')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
+      }}
+      onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
+      onToggleTheme={handleToggleTheme}
     />
   );
 
@@ -1085,173 +1285,187 @@ export default function App() {
           t={t}
         />
         {scaleDrawerElement}
+        {commandPaletteElement}
         {globalToastElement}
       </>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] pb-24 md:pb-12 overflow-x-clip">
-      <TopNav
-        activeTab={activeTab}
-        onSelectTab={setActiveTab}
-        userEmail={authUser?.email ?? null}
-        userDisplayName={authUser?.displayName ?? null}
-        isOnline={isOnline}
-        queuedCount={offlineQueue.length}
-        onSignIn={handleSignIn}
-        onSignOut={handleSignOut}
-        onBackToHome={() => setViewMode('landing')}
-        onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
-        t={t}
-      />
+    <MessagingProvider
+      messages={mentorMessages}
+      onSendMessage={handleSendMentorMessage}
+    >
+      <div className="min-h-screen bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] pb-24 md:pb-12 overflow-x-clip">
+        <TopNav
+          activeTab={activeTab}
+          onSelectTab={setActiveTab}
+          userEmail={authUser?.email ?? null}
+          userDisplayName={authUser?.displayName ?? null}
+          isOnline={isOnline}
+          queuedCount={offlineQueue.length}
+          onSignIn={handleSignIn}
+          onSignOut={handleSignOut}
+          onBackToHome={() => setViewMode('landing')}
+          onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
+          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+          t={t}
+        />
 
-      <WorkspaceUtilities
-        locale={profile.preferredLocale}
-        onChangeLocale={handleChangeLocale}
-        theme={profile.themePreference}
-        onToggleTheme={handleToggleTheme}
-        isOnline={isOnline}
-        queuedCount={offlineQueue.length}
-        isSignedIn={Boolean(authUser)}
-        isSyncing={isSyncing}
-        onSyncNow={handleSyncNow}
-        t={t}
-      />
+        <WorkspaceUtilities
+          locale={profile.preferredLocale}
+          onChangeLocale={handleChangeLocale}
+          theme={profile.themePreference}
+          onToggleTheme={handleToggleTheme}
+          isOnline={isOnline}
+          queuedCount={offlineQueue.length}
+          isSignedIn={Boolean(authUser)}
+          isSyncing={isSyncing}
+          onSyncNow={handleSyncNow}
+          t={t}
+        />
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10">
-        {incomingEndorseToken && !endorseBannerDismissed && (
-          <div
-            role="status"
-            className="mb-6 rounded-2xl border border-[#146C53]/30 dark:border-[#2EB88B]/35 bg-[#E7F3EE]/80 dark:bg-[#142B24]/85 px-4 sm:px-5 py-3.5 text-xs sm:text-sm text-[#17191C] dark:text-[#F4F2EE] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-          >
-            <span>
-              <strong className="text-[#146C53] dark:text-[#2EB88B]">
-                Peer Endorsement Link Opened:
-              </strong>{' '}
-              Confirming <em>{incomingEndorseSkill || 'problem-solving capability'}</em> below in the Peer Endorsements section.
-            </span>
-            <button
-              type="button"
-              onClick={() => setEndorseBannerDismissed(true)}
-              className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] underline self-start sm:self-center shrink-0"
+        <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10">
+          {incomingEndorseToken && !endorseBannerDismissed && (
+            <div
+              role="status"
+              className="mb-6 rounded-2xl border border-[#146C53]/30 dark:border-[#2EB88B]/35 bg-[#E7F3EE]/80 dark:bg-[#142B24]/85 px-4 sm:px-5 py-3.5 text-xs sm:text-sm text-[#17191C] dark:text-[#F4F2EE] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
             >
-              Dismiss
-            </button>
-          </div>
-        )}
+              <span>
+                <strong className="text-[#146C53] dark:text-[#2EB88B]">
+                  Peer Endorsement Link Opened:
+                </strong>{' '}
+                Confirming <em>{incomingEndorseSkill || 'problem-solving capability'}</em> below in the Peer Endorsements section.
+              </span>
+              <button
+                type="button"
+                onClick={() => setEndorseBannerDismissed(true)}
+                className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] underline self-start sm:self-center shrink-0"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
 
-        {authError && (
-          <div
-            role="alert"
-            className="mb-6 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] px-4 py-3 text-sm text-[#B42318] dark:text-[#F97066] flex items-center justify-between gap-4"
-          >
-            <span>{authError}</span>
-            <button
-              type="button"
-              onClick={() => setAuthError(null)}
-              className="text-xs font-medium underline"
+          {authError && (
+            <div
+              role="alert"
+              className="mb-6 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] px-4 py-3 text-sm text-[#B42318] dark:text-[#F97066] flex items-center justify-between gap-4"
             >
-              Dismiss
-            </button>
-          </div>
-        )}
+              <span>{authError}</span>
+              <button
+                type="button"
+                onClick={() => setAuthError(null)}
+                className="text-xs font-medium underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
 
-        {activeTab === 'verify' && (
-          <VerifyView
-            profile={profile}
-            capabilities={capabilities}
-            passport={passport}
-            endorsements={endorsements}
-            isOnline={isOnline}
-            speechLang={localeMeta.speechLang}
-            t={t}
-            onUpdateProfileFocus={handleUpdateProfileFocus}
-            onAddCapability={handleAddCapability}
-            onPromoteCapability={handlePromoteCapability}
-            onDeleteCapability={handleDeleteCapability}
-            onSavePassport={handleSavePassport}
-            onTogglePassportStipend={handleTogglePassportStipend}
-            onImportPassportSkills={handleImportPassportSkills}
-            onRequestEndorsement={handleRequestEndorsement}
-            onCompleteEndorsement={handleCompleteEndorsement}
-            onDeleteEndorsement={handleDeleteEndorsement}
-            onPreviewSharedPassport={(payload) => setSharedPassportView(payload)}
-          />
-        )}
+          {activeTab === 'verify' && (
+            <VerifyView
+              profile={profile}
+              capabilities={capabilities}
+              passport={passport}
+              endorsements={endorsements}
+              isOnline={isOnline}
+              speechLang={localeMeta.speechLang}
+              t={t}
+              onUpdateProfileFocus={handleUpdateProfileFocus}
+              onAddCapability={handleAddCapability}
+              onPromoteCapability={handlePromoteCapability}
+              onDeleteCapability={handleDeleteCapability}
+              onSavePassport={handleSavePassport}
+              onTogglePassportStipend={handleTogglePassportStipend}
+              onImportPassportSkills={handleImportPassportSkills}
+              onRequestEndorsement={handleRequestEndorsement}
+              onCompleteEndorsement={handleCompleteEndorsement}
+              onDeleteEndorsement={handleDeleteEndorsement}
+              onPreviewSharedPassport={(payload) => setSharedPassportView(payload)}
+              sharePassportSignal={sharePassportSignal}
+              voiceTriggerSignal={voiceTriggerSignal}
+            />
+          )}
 
-        {activeTab === 'unlock' && (
-          <UnlockView
-            profile={profile}
-            capabilities={capabilities}
-            contributions={contributions}
-            passport={passport}
-            vault={vault}
-            endorsements={endorsements}
-            payouts={payouts}
-            vaultViewMode={unlockViewMode}
-            speechLang={localeMeta.speechLang}
-            t={t}
-            onChangeVaultViewMode={setUnlockViewMode}
-            onUpdateVault={handleUpdateVault}
-            onAdvancePayout={handleAdvancePayout}
-            onRequestEndorsement={handleRequestEndorsement}
-            onCompleteEndorsement={handleCompleteEndorsement}
-            onDeleteEndorsement={handleDeleteEndorsement}
-            onAcceptBrief={handleAcceptBrief}
-            onOpenSolve={(briefId) => {
-              setSelectedBriefId(briefId);
-              setActiveTab('solve');
-            }}
-          />
-        )}
+          {activeTab === 'unlock' && (
+            <UnlockView
+              profile={profile}
+              capabilities={capabilities}
+              contributions={contributions}
+              passport={passport}
+              vault={vault}
+              endorsements={endorsements}
+              payouts={payouts}
+              vaultViewMode={unlockViewMode}
+              speechLang={localeMeta.speechLang}
+              t={t}
+              onChangeVaultViewMode={setUnlockViewMode}
+              onUpdateVault={handleUpdateVault}
+              onAdvancePayout={handleAdvancePayout}
+              onRequestEndorsement={handleRequestEndorsement}
+              onCompleteEndorsement={handleCompleteEndorsement}
+              onDeleteEndorsement={handleDeleteEndorsement}
+              onAcceptBrief={handleAcceptBrief}
+              onOpenSolve={(briefId) => {
+                setSelectedBriefId(briefId);
+                setActiveTab('solve');
+              }}
+            />
+          )}
 
-        {activeTab === 'solve' && (
-          <SolveView
-            profile={profile}
-            capabilities={capabilities}
-            passport={passport}
-            contributions={contributions}
-            selectedBriefId={selectedBriefId}
-            speechLang={localeMeta.speechLang}
-            t={t}
-            onSelectBrief={(briefId) => setSelectedBriefId(briefId)}
-            onJoinSprintPod={handleJoinSprintPod}
-            onSaveDraft={handleSaveDraft}
-            onSubmitSolution={handleSubmitSolution}
-            onGoToUnlock={() => setActiveTab('unlock')}
-            onGoToVerify={() => setActiveTab('verify')}
-            onGoToPulse={() => setActiveTab('pulse')}
-          />
-        )}
+          {activeTab === 'solve' && (
+            <SolveView
+              profile={profile}
+              capabilities={capabilities}
+              passport={passport}
+              vault={vault}
+              contributions={contributions}
+              selectedBriefId={selectedBriefId}
+              speechLang={localeMeta.speechLang}
+              t={t}
+              onSelectBrief={(briefId) => setSelectedBriefId(briefId)}
+              onJoinSprintPod={handleJoinSprintPod}
+              onSaveDraft={handleSaveDraft}
+              onSubmitSolution={handleSubmitSolution}
+              onGoToUnlock={() => setActiveTab('unlock')}
+              onGoToVerify={() => setActiveTab('verify')}
+              onGoToPulse={() => setActiveTab('pulse')}
+            />
+          )}
 
-        {activeTab === 'pulse' && (
-          <PulseView
-            profile={profile}
-            capabilities={capabilities}
-            contributions={contributions}
-            passport={passport}
-            vault={vault}
-            endorsements={endorsements}
-            payouts={payouts}
-            celebratedContribution={recentCompletedContribution}
-            userEmail={authUser?.email ?? null}
-            lastSyncedIso={lastSyncedIso}
-            queuedCount={offlineQueue.length}
-            isOnline={isOnline}
-            isSyncing={isSyncing}
-            t={t}
-            onDismissCelebration={() => setRecentCompletedContribution(null)}
-            onSignIn={handleSignIn}
-            onSyncNow={handleSyncNow}
-            onGoToUnlock={() => setActiveTab('unlock')}
-            onGoToVerify={() => setActiveTab('verify')}
-            onGoToSolve={() => setActiveTab('solve')}
-          />
-        )}
-      </main>
-      {scaleDrawerElement}
-      {globalToastElement}
-    </div>
+          {activeTab === 'pulse' && (
+            <PulseView
+              profile={profile}
+              capabilities={capabilities}
+              contributions={contributions}
+              passport={passport}
+              vault={vault}
+              endorsements={endorsements}
+              payouts={payouts}
+              sprintFeedback={sprintFeedback}
+              celebratedContribution={recentCompletedContribution}
+              userEmail={authUser?.email ?? null}
+              lastSyncedIso={lastSyncedIso}
+              queuedCount={offlineQueue.length}
+              isOnline={isOnline}
+              isSyncing={isSyncing}
+              t={t}
+              onAddSprintFeedback={handleAddSprintFeedback}
+              onDismissCelebration={() => setRecentCompletedContribution(null)}
+              onSignIn={handleSignIn}
+              onSyncNow={handleSyncNow}
+              onGoToUnlock={() => setActiveTab('unlock')}
+              onGoToVerify={() => setActiveTab('verify')}
+              onGoToSolve={() => setActiveTab('solve')}
+            />
+          )}
+        </main>
+        {scaleDrawerElement}
+        {commandPaletteElement}
+        <MentorMessagingDrawer />
+        {globalToastElement}
+      </div>
+    </MessagingProvider>
   );
 }

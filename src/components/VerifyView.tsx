@@ -72,6 +72,8 @@ interface VerifyViewProps {
   onCompleteEndorsement: (endorsementId: string, endorsementText: string) => void;
   onDeleteEndorsement: (endorsementId: string) => void;
   onPreviewSharedPassport: (payload: SharedPassportPayload) => void;
+  sharePassportSignal?: number;
+  voiceTriggerSignal?: number;
 }
 
 const STAGES: AgeStage[] = ['15-17', '18-29', '30-45', '46+'];
@@ -95,6 +97,8 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
   onCompleteEndorsement,
   onDeleteEndorsement,
   onPreviewSharedPassport,
+  sharePassportSignal = 0,
+  voiceTriggerSignal = 0,
 }) => {
   // Practitioner focus editor
   const [editingFocus, setEditingFocus] = useState(false);
@@ -152,6 +156,23 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
     }
     setSharedLinkState({ url, payload, copied });
   };
+
+  useEffect(() => {
+    if (sharePassportSignal > 0) {
+      void handleGenerateSharePassportLink();
+    }
+    // Trigger Share Passport when Cmd+K invokes Share Passport
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharePassportSignal]);
+
+  useEffect(() => {
+    if (voiceTriggerSignal > 0) {
+      setStudioStep(1);
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('vuka:trigger-voice-input'));
+      }, 60);
+    }
+  }, [voiceTriggerSignal]);
 
   const handleCopySharedLink = async () => {
     if (!sharedLinkState) return;
@@ -675,6 +696,7 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
               t={t}
               maxLength={2400}
               rows={4}
+              listenToCommandTrigger
             />
 
             {/* Optional Supporting Evidence Disclosure */}
@@ -1227,6 +1249,7 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
         <PassportPreviewModal
           passport={passport}
           profile={profile}
+          capabilities={capabilities}
           endorsements={endorsements}
           onClose={() => setShowExportModal(false)}
         />

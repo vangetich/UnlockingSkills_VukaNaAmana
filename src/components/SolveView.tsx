@@ -5,6 +5,8 @@ import {
   CheckCircle2,
   Clock3,
   Compass,
+  MessageSquare,
+  ShieldCheck,
   Sparkles,
   Users,
 } from 'lucide-react';
@@ -16,6 +18,7 @@ import type {
   SkillCapability,
   SprintComplexityLevel,
   StudioDomain,
+  WorkReadyVault,
 } from '../types/kora';
 import type { TranslationDictionary } from '../utils/i18n';
 import {
@@ -30,11 +33,13 @@ import {
 import { TopographicAscentMotif } from './ResilienceMotifs';
 import { VoiceTextarea } from './VoiceField';
 import { VoiceRecorder } from './VoiceRecorder';
+import { useMessaging } from '../contexts/MessagingContext';
 
 interface SolveViewProps {
   profile: PractitionerProfile;
   capabilities: SkillCapability[];
   passport: CompetencyPassport | null;
+  vault?: WorkReadyVault;
   contributions: BriefSubmission[];
   selectedBriefId: string | null;
   speechLang: string;
@@ -52,6 +57,7 @@ export const SolveView: React.FC<SolveViewProps> = ({
   profile,
   capabilities,
   passport,
+  vault,
   contributions,
   selectedBriefId,
   speechLang,
@@ -65,6 +71,7 @@ export const SolveView: React.FC<SolveViewProps> = ({
   onGoToPulse,
 }) => {
   const workbenchRef = useRef<HTMLDivElement | null>(null);
+  const { openMentorThread, getMentorForSprint, getMessagesForSprint } = useMessaging();
 
   const rankedSprints = useMemo(
     () => rankSolutionSprints(profile, capabilities, passport),
@@ -203,6 +210,15 @@ export const SolveView: React.FC<SolveViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {vault?.onboardingPackGenerated && (
+              <span
+                data-testid="solve-pre-cleared-badge"
+                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#E7F3EE] dark:bg-[#142B24] border border-[#146C53]/35 dark:border-[#2EB88B]/40 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 whitespace-nowrap"
+              >
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <span>Pre-Cleared for Hiring Partners</span>
+              </span>
+            )}
             {!passport && (
               <button
                 type="button"
@@ -581,6 +597,60 @@ export const SolveView: React.FC<SolveViewProps> = ({
                         </p>
                       </div>
                     </div>
+
+                    {/* Pod Mentorship Live Status on Active Sprint Cards */}
+                    {sprintInProgress && (() => {
+                      const assignedMentor = getMentorForSprint(sprint.id, sprint.domain);
+                      const threadCount = getMessagesForSprint(sprint.id).length;
+                      return (
+                        <div
+                          data-testid={`card-pod-mentorship-${sprint.id}`}
+                          className="pt-2.5 mt-1 border-t border-[#E8E3DB] dark:border-[#2C3037] flex flex-wrap items-center justify-between gap-2.5"
+                        >
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="flex items-center gap-1.5 text-[11px]">
+                              <span
+                                aria-hidden="true"
+                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                  assignedMentor.availability === 'available'
+                                    ? 'bg-[#146C53] dark:bg-[#2EB88B]'
+                                    : assignedMentor.availability === 'in-review'
+                                      ? 'bg-[#C4622D] dark:bg-[#E07B46]'
+                                      : 'bg-[#8A847A]'
+                                }`}
+                              />
+                              <span className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                                {assignedMentor.name}
+                              </span>
+                              <span aria-hidden="true" className="text-[#8A847A]">·</span>
+                              <span
+                                className={`font-medium ${
+                                  assignedMentor.availability === 'available'
+                                    ? 'text-[#146C53] dark:text-[#2EB88B]'
+                                    : 'text-[#C4622D] dark:text-[#E07B46]'
+                                }`}
+                              >
+                                {assignedMentor.availabilityLabel}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                              {assignedMentor.ageStageBadge} · {assignedMentor.responseWindow}
+                              {threadCount > 0 ? ` · ${threadCount} msg${threadCount === 1 ? '' : 's'}` : ''}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            data-testid={`card-message-mentor-btn-${sprint.id}`}
+                            onClick={() => openMentorThread(sprint.id, sprint.title, sprint.domain)}
+                            className="min-h-[34px] px-3 py-1.5 rounded-lg border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-white dark:bg-[#1A1C20] hover:bg-[#E7F3EE] dark:hover:bg-[#142B24] text-[11px] font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>Message Mentor</span>
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -769,6 +839,82 @@ export const SolveView: React.FC<SolveViewProps> = ({
                   <span>{isCompleted ? t.completedBadge : t.inProgressBadge}</span>
                 </span>
               </div>
+
+              {/* Pod Mentorship Real-Time Status Indicator for Active Sprints */}
+              {!isCompleted && (() => {
+                const activeMentor = getMentorForSprint(
+                  activeSubmission.briefId,
+                  activeSubmission.domain
+                );
+                const threadCount = getMessagesForSprint(activeSubmission.briefId).length;
+                return (
+                  <div
+                    data-testid="pod-mentorship-indicator"
+                    className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#146C53] dark:text-[#2EB88B]">
+                          Pod Mentorship
+                        </span>
+                        <span aria-hidden="true" className="text-[#8A847A]">·</span>
+                        <span
+                          data-testid="mentor-availability-status"
+                          className="inline-flex items-center gap-1.5 font-medium text-[#17191C] dark:text-[#F4F2EE]"
+                        >
+                          <span className="relative flex h-2 w-2 shrink-0" aria-hidden="true">
+                            {activeMentor.availability === 'available' && (
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#146C53] dark:bg-[#2EB88B] opacity-60" />
+                            )}
+                            <span
+                              className={`relative inline-flex rounded-full h-2 w-2 ${
+                                activeMentor.availability === 'available'
+                                  ? 'bg-[#146C53] dark:bg-[#2EB88B]'
+                                  : activeMentor.availability === 'in-review'
+                                    ? 'bg-[#C4622D] dark:bg-[#E07B46]'
+                                    : 'bg-[#8A847A]'
+                              }`}
+                            />
+                          </span>
+                          <span>{activeMentor.availabilityLabel}</span>
+                        </span>
+                        <span aria-hidden="true" className="text-[#8A847A]">·</span>
+                        <span className="text-[#575B62] dark:text-[#A3A7AE]">
+                          {activeMentor.responseWindow}
+                        </span>
+                      </div>
+
+                      <p className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                        {activeMentor.name}{' '}
+                        <span className="font-normal text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                          — {activeMentor.roleTitle} ({activeMentor.ageStageBadge})
+                        </span>
+                      </p>
+
+                      <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                        {activeMentor.hubLocation} · {activeMentor.specialty}
+                        {threadCount > 0 ? ` · ${threadCount} message${threadCount === 1 ? '' : 's'} in thread` : ''}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      data-testid="message-mentor-btn"
+                      onClick={() =>
+                        openMentorThread(
+                          activeSubmission.briefId,
+                          activeSubmission.briefTitle,
+                          activeSubmission.domain
+                        )
+                      }
+                      className="min-h-[42px] px-4 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Message Mentor</span>
+                    </button>
+                  </div>
+                );
+              })()}
 
               {activeDeliverables.length > 0 && (
                 <div className="space-y-3">

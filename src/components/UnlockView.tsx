@@ -7,6 +7,7 @@ import {
   ChevronUp,
   FileCheck2,
   FileText,
+  HelpCircle,
   ShieldCheck,
   UserCheck,
   Wallet,
@@ -43,7 +44,10 @@ import {
 import { WovenBridgeArcsMotif } from './ResilienceMotifs';
 import { SprintAgreementModal } from './SprintAgreementModal';
 import { PayoutStatusCard } from './PayoutStatusCard';
+import { PayoutTransactionLedger } from './PayoutTransactionLedger';
 import { PeerEndorsementPanel } from './PeerEndorsementPanel';
+import { ComplianceCrossingSection } from './ComplianceCrossingSection';
+import { ComplianceGuidedTour } from './ComplianceGuidedTour';
 import { VoiceInput } from './VoiceField';
 
 interface UnlockViewProps {
@@ -106,6 +110,7 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
     return null;
   });
   const [agreementModalOpen, setAgreementModalOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
 
   const readiness = useMemo(() => computeVaultReadiness(vault), [vault]);
   const verifiedSkillsCount = useMemo(
@@ -246,41 +251,53 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
               </p>
             </div>
 
-            {/* Two Clean Toggles: [Talent View] and [Hiring Partner View] */}
-            <div
-              role="tablist"
-              aria-label="Work-Ready Vault view mode"
-              className="inline-flex items-center p-1 rounded-xl bg-[#F2EEE8] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] self-start md:self-auto shrink-0"
-            >
+            {/* Two Clean Toggles + Guided Tour Button */}
+            <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto shrink-0">
               <button
                 type="button"
-                role="tab"
-                aria-selected={vaultViewMode === 'talent'}
-                onClick={() => onChangeVaultViewMode('talent')}
-                className={`min-h-[40px] px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                  vaultViewMode === 'talent'
-                    ? 'bg-white dark:bg-[#1A1C20] text-[#146C53] dark:text-[#2EB88B] shadow-xs'
-                    : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
-                }`}
+                data-testid="vault-start-tour-btn"
+                onClick={() => setTourOpen(true)}
+                className="min-h-[40px] px-3.5 py-2 rounded-xl border border-[#146C53]/30 dark:border-[#2EB88B]/35 bg-[#E7F3EE]/60 dark:bg-[#142B24]/70 hover:bg-[#D5EBE2] dark:hover:bg-[#1A3930] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
               >
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>Talent View</span>
+                <HelpCircle className="w-3.5 h-3.5" />
+                <span>Compliance Tour</span>
               </button>
 
-              <button
-                type="button"
-                role="tab"
-                aria-selected={vaultViewMode === 'partner'}
-                onClick={() => onChangeVaultViewMode('partner')}
-                className={`min-h-[40px] px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                  vaultViewMode === 'partner'
-                    ? 'bg-white dark:bg-[#1A1C20] text-[#146C53] dark:text-[#2EB88B] shadow-xs'
-                    : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
-                }`}
+              <div
+                role="tablist"
+                aria-label="Work-Ready Vault view mode"
+                className="inline-flex items-center p-1 rounded-xl bg-[#F2EEE8] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037]"
               >
-                <Building2 className="w-3.5 h-3.5" />
-                <span>Hiring Partner View</span>
-              </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={vaultViewMode === 'talent'}
+                  onClick={() => onChangeVaultViewMode('talent')}
+                  className={`min-h-[40px] px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                    vaultViewMode === 'talent'
+                      ? 'bg-white dark:bg-[#1A1C20] text-[#146C53] dark:text-[#2EB88B] shadow-xs'
+                      : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
+                  }`}
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Talent View</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={vaultViewMode === 'partner'}
+                  onClick={() => onChangeVaultViewMode('partner')}
+                  className={`min-h-[40px] px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                    vaultViewMode === 'partner'
+                      ? 'bg-white dark:bg-[#1A1C20] text-[#146C53] dark:text-[#2EB88B] shadow-xs'
+                      : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
+                  }`}
+                >
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>Hiring Partner View</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -656,6 +673,13 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                 onAdvancePayout={onAdvancePayout}
               />
 
+              {/* Payout Transaction Ledger with Compliant PDF Receipt Downloads */}
+              <PayoutTransactionLedger
+                payouts={payouts}
+                practitionerName={profile.displayName || 'Skilled Practitioner'}
+                vault={vault}
+              />
+
               {/* Hiring Partner Zero-Document Peer Endorsement Link Request */}
               <PeerEndorsementPanel
                 variant="partner"
@@ -672,6 +696,21 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Dedicated Compliance Readiness: Crossing Over Access Section */}
+      <ComplianceCrossingSection
+        viewMode={vaultViewMode}
+        onChangeViewMode={onChangeVaultViewMode}
+        vault={vault}
+        onUpdateVault={onUpdateVault}
+        primaryDomain={passport?.studioDomain ?? capabilities[0]?.domain ?? 'Green Energy'}
+        profile={profile}
+        capabilities={capabilities}
+        passport={passport}
+        defaultSprintTitle={topMatchedBrief.title}
+        defaultPayoutUsd={topMatchedBrief.payoutUsd}
+        onStartTour={() => setTourOpen(true)}
+      />
 
       {/* Curated Paid Problem-Solving Briefs Section */}
       <div className="space-y-6">
@@ -905,6 +944,13 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
         vault={vault}
         defaultSprintTitle={topMatchedBrief.title}
         defaultPayoutUsd={topMatchedBrief.payoutUsd}
+      />
+
+      {/* Interactive Step-by-Step Compliance Guided Tour Overlay */}
+      <ComplianceGuidedTour
+        isOpen={tourOpen}
+        onClose={() => setTourOpen(false)}
+        onSwitchToPartnerView={() => onChangeVaultViewMode('partner')}
       />
     </section>
   );

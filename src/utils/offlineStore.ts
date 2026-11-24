@@ -2,17 +2,21 @@ import type {
   BriefSubmission,
   CompetencyPassport,
   ContractPayout,
+  MentorMessage,
   OfflineMutation,
   PeerEndorsement,
   PractitionerProfile,
   SkillCapability,
+  SprintFeedback,
   WorkReadyVault,
 } from '../types/kora';
 import {
   DEFAULT_SEED_CAPABILITIES,
   DEFAULT_SEED_CONTRIBUTIONS,
   DEFAULT_SEED_ENDORSEMENTS,
+  DEFAULT_SEED_MENTOR_MESSAGES,
   DEFAULT_SEED_PAYOUTS,
+  DEFAULT_SEED_SPRINT_FEEDBACK,
   compactOfflineQueue,
   createInitialProfile,
   createInitialVault,
@@ -28,6 +32,8 @@ const STORAGE_KEYS = {
   vault: 'kora.v1.vault',
   endorsements: 'kora.v1.endorsements',
   payouts: 'kora.v1.payouts',
+  sprintFeedback: 'kora.v1.sprint_feedback',
+  mentorMessages: 'kora.v1.mentor_messages',
   queue: 'kora.v1.offline_queue',
   lastSync: 'kora.v1.last_sync',
 } as const;
@@ -40,6 +46,8 @@ export interface LocalWorkspaceState {
   vault: WorkReadyVault;
   endorsements: PeerEndorsement[];
   payouts: ContractPayout[];
+  sprintFeedback: SprintFeedback[];
+  mentorMessages: MentorMessage[];
   queue: OfflineMutation[];
   lastSyncedIso: string | null;
 }
@@ -97,12 +105,17 @@ export function loadLocalWorkspace(autostartDemo = false): LocalWorkspaceState {
   );
   const contributions: BriefSubmission[] =
     storedContributions ??
-    DEFAULT_SEED_CONTRIBUTIONS.map((c) => ({
-      ...c,
-      ownerUid: profile.uid,
-      createdAtIso: now,
-      updatedAtIso: now,
-    }));
+    DEFAULT_SEED_CONTRIBUTIONS.map((c, idx) => {
+      // First seeded in-progress 7-day sprint started 5.5 days ago (~36h remaining) to surface Sprint Due Alert within 48h
+      const elapsedMs = idx === 0 ? Math.round(5.5 * 86_400_000) : 12 * 86_400_000;
+      const ts = new Date(Date.now() - elapsedMs).toISOString();
+      return {
+        ...c,
+        ownerUid: profile.uid,
+        createdAtIso: ts,
+        updatedAtIso: ts,
+      };
+    });
 
   const passport = safeParseJson<CompetencyPassport | null>(
     typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.passport) : null,
@@ -113,7 +126,21 @@ export function loadLocalWorkspace(autostartDemo = false): LocalWorkspaceState {
     typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.vault) : null,
     null
   );
-  const vault: WorkReadyVault = storedVault ?? createInitialVault(profile.uid);
+  const baseVault = createInitialVault(profile.uid);
+  const vault: WorkReadyVault = storedVault
+    ? {
+        ...baseVault,
+        ...storedVault,
+        financialIdentityCleared: Boolean(storedVault.financialIdentityCleared),
+        financialRailTested: Boolean(storedVault.financialRailTested),
+        financialTaxCleared: Boolean(storedVault.financialTaxCleared),
+        financialRail: storedVault.financialRail ?? storedVault.payoutRail ?? 'mobile-money',
+        onboardingPackGenerated: Boolean(storedVault.onboardingPackGenerated),
+        onboardingContractStructure: storedVault.onboardingContractStructure ?? 'scoped-remote',
+        onboardingPartnerOrg: storedVault.onboardingPartnerOrg ?? '',
+        onboardingHostCountry: storedVault.onboardingHostCountry ?? 'Kenya',
+      }
+    : baseVault;
 
   const storedEndorsements = safeParseJson<PeerEndorsement[] | null>(
     typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.endorsements) : null,
@@ -141,6 +168,32 @@ export function loadLocalWorkspace(autostartDemo = false): LocalWorkspaceState {
       updatedAtIso: now,
     }));
 
+  const storedFeedback = safeParseJson<SprintFeedback[] | null>(
+    typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.sprintFeedback) : null,
+    null
+  );
+  const sprintFeedback: SprintFeedback[] =
+    storedFeedback ??
+    DEFAULT_SEED_SPRINT_FEEDBACK.map((f) => ({
+      ...f,
+      ownerUid: profile.uid,
+      createdAtIso: now,
+      updatedAtIso: now,
+    }));
+
+  const storedMentorMessages = safeParseJson<MentorMessage[] | null>(
+    typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.mentorMessages) : null,
+    null
+  );
+  const mentorMessages: MentorMessage[] =
+    storedMentorMessages ??
+    DEFAULT_SEED_MENTOR_MESSAGES.map((m) => ({
+      ...m,
+      ownerUid: profile.uid,
+      createdAtIso: now,
+      updatedAtIso: now,
+    }));
+
   const queue = safeParseJson<OfflineMutation[]>(
     typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.queue) : null,
     []
@@ -157,6 +210,8 @@ export function loadLocalWorkspace(autostartDemo = false): LocalWorkspaceState {
     vault,
     endorsements,
     payouts,
+    sprintFeedback,
+    mentorMessages,
     queue,
     lastSyncedIso,
   };
@@ -199,6 +254,16 @@ export function saveLocalEndorsements(endorsements: PeerEndorsement[]): void {
 export function saveLocalPayouts(payouts: ContractPayout[]): void {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(STORAGE_KEYS.payouts, JSON.stringify(payouts));
+}
+
+export function saveLocalSprintFeedback(feedbackList: SprintFeedback[]): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(STORAGE_KEYS.sprintFeedback, JSON.stringify(feedbackList));
+}
+
+export function saveLocalMentorMessages(messages: MentorMessage[]): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(STORAGE_KEYS.mentorMessages, JSON.stringify(messages));
 }
 
 export function saveOfflineQueue(queue: OfflineMutation[]): OfflineMutation[] {

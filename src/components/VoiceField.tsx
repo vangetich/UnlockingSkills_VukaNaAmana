@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Mic, MicOff } from 'lucide-react';
 import { useSpeechInput } from '../hooks/useSpeechInput';
 import type { TranslationDictionary } from '../utils/i18n';
@@ -82,7 +82,7 @@ export const VoiceInput: React.FC<VoiceFieldBaseProps & { type?: 'text' | 'searc
 };
 
 export const VoiceTextarea: React.FC<
-  VoiceFieldBaseProps & { rows?: number }
+  VoiceFieldBaseProps & { rows?: number; listenToCommandTrigger?: boolean }
 > = ({
   id,
   label,
@@ -94,7 +94,9 @@ export const VoiceTextarea: React.FC<
   maxLength = 1000,
   required = false,
   rows = 4,
+  listenToCommandTrigger = false,
 }) => {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { isListening, unsupportedMessage, toggleListening } = useSpeechInput(
     speechLang,
     (transcript) => {
@@ -102,6 +104,26 @@ export const VoiceTextarea: React.FC<
       onChange(merged.slice(0, maxLength));
     }
   );
+
+  const toggleRef = useRef(toggleListening);
+  toggleRef.current = toggleListening;
+  const unsupportedRef = useRef(t.voiceUnsupportedNote);
+  unsupportedRef.current = t.voiceUnsupportedNote;
+  const listeningRef = useRef(isListening);
+  listeningRef.current = isListening;
+
+  useEffect(() => {
+    if (!listenToCommandTrigger) return;
+    const handleTrigger = () => {
+      textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      textareaRef.current?.focus();
+      if (!listeningRef.current) {
+        toggleRef.current(unsupportedRef.current);
+      }
+    };
+    window.addEventListener('vuka:trigger-voice-input', handleTrigger);
+    return () => window.removeEventListener('vuka:trigger-voice-input', handleTrigger);
+  }, [listenToCommandTrigger]);
 
   return (
     <div className="space-y-2">
@@ -114,6 +136,7 @@ export const VoiceTextarea: React.FC<
         </label>
         <button
           type="button"
+          data-testid={`voice-btn-${id}`}
           onClick={() => toggleListening(t.voiceUnsupportedNote)}
           aria-label={isListening ? `${t.voiceStopLabel}: ${label}` : `${t.voiceStartLabel}: ${label}`}
           aria-pressed={isListening}
@@ -128,6 +151,7 @@ export const VoiceTextarea: React.FC<
         </button>
       </div>
       <textarea
+        ref={textareaRef}
         id={id}
         rows={rows}
         value={value}
@@ -138,8 +162,11 @@ export const VoiceTextarea: React.FC<
         className="w-full rounded-xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-4 text-sm sm:text-base leading-relaxed text-[#17191C] dark:text-[#F4F2EE] placeholder:text-[#8A847A] dark:placeholder:text-[#787268] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] transition-colors resize-y"
       />
       {unsupportedMessage && (
-        <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">{unsupportedMessage}</p>
+        <p role="status" className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
+          {unsupportedMessage}
+        </p>
       )}
     </div>
   );
 };
+

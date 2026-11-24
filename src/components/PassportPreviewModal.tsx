@@ -1,14 +1,27 @@
-import React, { useState } from 'react';
-import { Check, Copy, Download, MessageSquareQuote, Printer, ShieldCheck, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
+import {
+  Check,
+  Copy,
+  Download,
+  MessageSquareQuote,
+  Printer,
+  QrCode,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 import type {
   CompetencyPassport,
   PeerEndorsement,
   PractitionerProfile,
+  SkillCapability,
 } from '../types/kora';
+import { buildSharedPassportLink, buildSharedPassportPayload } from '../utils/talentEngine';
 
 interface PassportPreviewModalProps {
   passport: CompetencyPassport;
   profile: PractitionerProfile;
+  capabilities?: SkillCapability[];
   endorsements?: PeerEndorsement[];
   onClose: () => void;
 }
@@ -16,11 +29,54 @@ interface PassportPreviewModalProps {
 export const PassportPreviewModal: React.FC<PassportPreviewModalProps> = ({
   passport,
   profile,
+  capabilities = [],
   endorsements = [],
   onClose,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [qrSvg, setQrSvg] = useState<string>('');
   const verifiedEndorsements = endorsements.filter((e) => e.status === 'verified');
+
+  const sharedPayload = useMemo(
+    () =>
+      buildSharedPassportPayload({
+        profile,
+        passport,
+        capabilities,
+        endorsements,
+      }),
+    [profile, passport, capabilities, endorsements]
+  );
+
+  const shareUrl = useMemo(() => {
+    const origin =
+      typeof window !== 'undefined' ? window.location.origin : 'https://vukanaamana.app';
+    return buildSharedPassportLink(origin, sharedPayload);
+  }, [sharedPayload]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void QRCode.toString(shareUrl, {
+      type: 'svg',
+      margin: 1,
+      width: 148,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#146C53',
+        light: '#FFFFFF',
+      },
+    })
+      .then((svgMarkup) => {
+        if (!cancelled) setQrSvg(svgMarkup);
+      })
+      .catch(() => {
+        if (!cancelled) setQrSvg('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shareUrl]);
 
   const shareableText = [
     `VUKA NA AMANA — LIVING COMPETENCY PASSPORT`,
@@ -29,6 +85,8 @@ export const PassportPreviewModal: React.FC<PassportPreviewModalProps> = ({
     `Field Match: ${passport.fieldMatch}`,
     `Domain: ${passport.studioDomain}`,
     `Issued: ${new Date(passport.generatedAtIso).toLocaleDateString()}`,
+    `Read-Only Verification Link: ${shareUrl}`,
+    `Signature: ${sharedPayload.readOnlySignature}`,
     ``,
     `Summary: ${passport.executiveSummary}`,
     ``,
@@ -62,6 +120,16 @@ export const PassportPreviewModal: React.FC<PassportPreviewModalProps> = ({
     }
   };
 
+  const handleCopyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedLink(true);
+      window.setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      setCopiedLink(true);
+    }
+  };
+
   const handleDownloadJson = () => {
     const payload = {
       schema: 'vuka-na-amana.living-competency-passport.v1',
@@ -69,6 +137,8 @@ export const PassportPreviewModal: React.FC<PassportPreviewModalProps> = ({
         displayName: profile.displayName,
         ageStage: profile.ageStage,
       },
+      shareUrl,
+      readOnlySignature: sharedPayload.readOnlySignature,
       passport,
       verifiedPeerEndorsements: verifiedEndorsements.map((e) => ({
         collaboratorName: e.collaboratorName,
@@ -96,6 +166,7 @@ export const PassportPreviewModal: React.FC<PassportPreviewModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="passport-export-title"
+      data-testid="passport-export-modal"
       className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
     >
       <div className="w-full max-w-2xl rounded-2xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] overflow-hidden my-auto">
@@ -216,6 +287,51 @@ export const PassportPreviewModal: React.FC<PassportPreviewModalProps> = ({
                 </strong>
               </p>
             </div>
+
+            {/* Scannable Offline Verification QR Code */}
+            <div
+              data-testid="passport-export-qr-section"
+              className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-4 flex flex-col sm:flex-row items-center gap-4"
+            >
+              <div
+                aria-label="Scannable QR code for read-only Living Competency Passport"
+                data-testid="passport-export-qr-svg"
+                data-qr-target={shareUrl}
+                className="w-[136px] h-[136px] rounded-xl bg-white p-2 border border-[#E8E3DB] shrink-0 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full"
+                // Safe: svgMarkup is generated purely locally by the qrcode library from shareUrl
+                dangerouslySetInnerHTML={qrSvg ? { __html: qrSvg } : undefined}
+              />
+
+              <div className="min-w-0 flex-1 space-y-2 text-center sm:text-start">
+                <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                  <QrCode className="w-3.5 h-3.5 shrink-0" />
+                  <span>Offline Verification QR · {sharedPayload.readOnlySignature}</span>
+                </div>
+                <p className="text-xs text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
+                  Employers and partners can scan this unique QR code in person or from a printed PDF to verify your shared Living Competency Passport—full payload embedded directly in the link.
+                </p>
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    data-testid="qr-copy-link-btn"
+                    onClick={() => void handleCopyShareLink()}
+                    className="min-h-[34px] px-3 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    {copiedLink ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                        <span>Passport Link Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy Passport QR Link</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-3">
@@ -251,3 +367,4 @@ export const PassportPreviewModal: React.FC<PassportPreviewModalProps> = ({
     </div>
   );
 };
+

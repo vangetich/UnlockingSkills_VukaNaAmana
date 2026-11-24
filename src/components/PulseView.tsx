@@ -3,7 +3,9 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowRight,
   CheckCircle2,
+  Clock,
   Download,
+  Loader2,
   RefreshCw,
   Sparkles,
   X,
@@ -16,6 +18,8 @@ import type {
   PeerEndorsement,
   PractitionerProfile,
   SkillCapability,
+  SprintFeedback,
+  SprintRatingScore,
   WorkReadyVault,
 } from '../types/kora';
 import type { TranslationDictionary } from '../utils/i18n';
@@ -25,12 +29,77 @@ import {
   computeAnalyticsSummary,
   computeKnowledgeToWorkFlow,
   computeSdgPulseMetrics,
+  computeSprintDueAlerts,
   computeSprintPerformanceSeries,
   filterAndRankBriefs,
 } from '../utils/talentEngine';
 import { Badges } from './Badges';
 import { RippleConstellationMotif, WovenBridgeArcsMotif } from './ResilienceMotifs';
 import { SprintPerformanceWidget } from './SprintPerformanceWidget';
+import { SprintFeedbackPanel } from './SprintFeedbackPanel';
+import solarEngineerImg from '../assets/images/community_solar_engineer_1795539856588.jpg';
+import healthCoordImg from '../assets/images/community_health_coordinator_1795539856635.jpg';
+import craftMentorsImg from '../assets/images/community_craft_mentors_1795539857588.jpg';
+
+const inFlightPulseStoryPromises = new Map<string, Promise<string>>();
+
+interface CommunityImpactStory {
+  id: string;
+  practitionerName: string;
+  roleTitle: string;
+  ageTrack: string;
+  regionLabel: string;
+  domain: string;
+  quote: string;
+  outcomeLine: string;
+  imageSrc: string;
+  imageAlt: string;
+}
+
+const COMMUNITY_IMPACT_STORIES: CommunityImpactStory[] = [
+  {
+    id: 'story-tariq-solar',
+    practitionerName: 'Tariq Al-Mansoor',
+    roleTitle: 'Off-Grid Solar Diagnostics Lead',
+    ageTrack: '30–45 Specialist',
+    regionLabel: 'Amman & Rift Valley Remote Pod',
+    domain: 'Green Energy',
+    quote:
+      'Replaced eight years of lost engineering transcripts with a two-minute 48V microgrid scenario—unlocking paid clinic audits inside one week.',
+    outcomeLine: '$1,240 milestone payouts · 3 clinic microgrids stabilized',
+    imageSrc: solarEngineerImg,
+    imageAlt:
+      'A solar technician calibrating off-grid microgrid inverter diagnostics at a community workshop',
+  },
+  {
+    id: 'story-halima-health',
+    practitionerName: 'Halima Ndiaye',
+    roleTitle: 'Maternal Triage & Cold-Chain Coordinator',
+    ageTrack: '18–29 Emerging Builder',
+    regionLabel: 'Kakuma → Nairobi Regional Clinics',
+    domain: 'Healthcare Ops',
+    quote:
+      'Paired UNHCR registration attestation with Tier 1 mobile money verification and co-authored bilingual vaccine excursion checklists.',
+    outcomeLine: '9 health posts aligned · Zero cold-chain spoilage',
+    imageSrc: healthCoordImg,
+    imageAlt:
+      'A community healthcare operations coordinator updating vaccine cold-chain logs on a clinic tablet',
+  },
+  {
+    id: 'story-beatrice-yusuf',
+    practitionerName: 'Beatrice Wanjiru & Yusuf K.',
+    roleTitle: 'Cross-Age Craft & Finance Guild Pod',
+    ageTrack: '46+ Master · 15–17 Apprentice',
+    regionLabel: 'Nakuru Cooperative Studio',
+    domain: 'SME Finance',
+    quote:
+      'Our 46+ master practitioner audited workshop margins while a 17-year-old apprentice built a 13-week mobile supplier ledger.',
+    outcomeLine: '16 artisans paid on time · Peer-verified passport',
+    imageSrc: craftMentorsImg,
+    imageAlt:
+      'A master artisan mentoring a younger apprentice inside a sunlit craft and fabrication studio',
+  },
+];
 
 interface PulseViewProps {
   profile: PractitionerProfile;
@@ -40,6 +109,7 @@ interface PulseViewProps {
   vault: WorkReadyVault;
   endorsements: PeerEndorsement[];
   payouts: ContractPayout[];
+  sprintFeedback: SprintFeedback[];
   celebratedContribution: BriefSubmission | null;
   userEmail: string | null;
   lastSyncedIso: string | null;
@@ -47,6 +117,16 @@ interface PulseViewProps {
   isOnline: boolean;
   isSyncing: boolean;
   t: TranslationDictionary;
+  onAddSprintFeedback: (input: {
+    contributionId: string;
+    briefId: string;
+    briefTitle: string;
+    partnerOrg: string;
+    reviewerName: string;
+    reviewerRole: string;
+    rating: SprintRatingScore;
+    reviewText: string;
+  }) => void;
   onDismissCelebration: () => void;
   onSignIn: () => void;
   onSyncNow: () => void;
@@ -63,6 +143,7 @@ export const PulseView: React.FC<PulseViewProps> = ({
   vault,
   endorsements,
   payouts,
+  sprintFeedback,
   celebratedContribution,
   userEmail,
   lastSyncedIso,
@@ -70,6 +151,7 @@ export const PulseView: React.FC<PulseViewProps> = ({
   isOnline,
   isSyncing,
   t,
+  onAddSprintFeedback,
   onDismissCelebration,
   onSignIn,
   onSyncNow,
@@ -133,10 +215,153 @@ export const PulseView: React.FC<PulseViewProps> = ({
     [contributions, payouts]
   );
 
+  const sprintDueAlerts = useMemo(
+    () => computeSprintDueAlerts(contributions),
+    [contributions]
+  );
+
+  const [failedImageIds, setFailedImageIds] = useState<Record<string, boolean>>({});
+
   const analytics = useMemo(
     () => computeAnalyticsSummary(capabilities, contributions),
     [capabilities, contributions]
   );
+
+  // Pulse Story (Gemini one-sentence human-centric summary)
+  const completedContributionsList = useMemo(
+    () => contributions.filter((c) => c.status === 'completed'),
+    [contributions]
+  );
+  const verifiedCapabilitiesCount = useMemo(
+    () => capabilities.filter((c) => c.verificationStatus !== 'pending').length,
+    [capabilities]
+  );
+  const verifiedEndorsementsCount = useMemo(
+    () => endorsements.filter((e) => e.status === 'verified').length,
+    [endorsements]
+  );
+  const storyFingerprint = useMemo(
+    () =>
+      [
+        profile.displayName,
+        profile.ageStage,
+        verifiedCapabilitiesCount,
+        completedContributionsList.length,
+        analytics.totalEarnedUsd,
+        verifiedEndorsementsCount,
+        passport?.id ?? 'no-passport',
+      ].join('|'),
+    [
+      profile.displayName,
+      profile.ageStage,
+      verifiedCapabilitiesCount,
+      completedContributionsList.length,
+      analytics.totalEarnedUsd,
+      verifiedEndorsementsCount,
+      passport?.id,
+    ]
+  );
+
+  const [pulseStoriesByFingerprint, setPulseStoriesByFingerprint] = useState<Record<string, string>>(
+    () => {
+      if (typeof window === 'undefined') return {};
+      try {
+        const raw = window.sessionStorage.getItem('vuka.pulseStories');
+        return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+      } catch {
+        return {};
+      }
+    }
+  );
+  const [storyLoading, setStoryLoading] = useState(false);
+  const [storyError, setStoryError] = useState<string | null>(null);
+
+  const activePulseStory = pulseStoriesByFingerprint[storyFingerprint] ?? null;
+
+  const generatePulseStory = async (forceRefresh = false) => {
+    if (!isOnline) {
+      setStoryError('Pulse Story needs an internet connection to refresh via Gemini.');
+      return;
+    }
+    setStoryError(null);
+    setStoryLoading(true);
+    try {
+      let pendingPromise = !forceRefresh
+        ? inFlightPulseStoryPromises.get(storyFingerprint)
+        : undefined;
+
+      if (!pendingPromise) {
+        const topDomains = Array.from(
+          new Set([
+            ...capabilities.map((c) => c.domain),
+            ...completedContributionsList.map((c) => c.domain),
+            ...(passport ? [passport.studioDomain] : []),
+          ])
+        ).slice(0, 3);
+
+        pendingPromise = fetch('/api/pulse/story', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            displayName: profile.displayName,
+            ageStage: profile.ageStage,
+            verifiedCount: verifiedCapabilitiesCount,
+            completedSprintsCount: completedContributionsList.length,
+            earnedUsd: analytics.totalEarnedUsd,
+            latestSprintTitle: completedContributionsList[0]?.briefTitle ?? '',
+            topDomains,
+            endorsementsCount: verifiedEndorsementsCount,
+            passportFieldMatch: passport?.fieldMatch ?? '',
+          }),
+        })
+          .then(async (res) => {
+            const data = (await res.json()) as { story?: string; error?: string };
+            if (!res.ok || !data.story) {
+              throw new Error(data.error || 'Unable to generate Pulse Story right now.');
+            }
+            return data.story;
+          })
+          .finally(() => {
+            inFlightPulseStoryPromises.delete(storyFingerprint);
+          });
+
+        inFlightPulseStoryPromises.set(storyFingerprint, pendingPromise);
+      }
+
+      const generatedStory = await pendingPromise;
+      setPulseStoriesByFingerprint((prev) => {
+        const next = {
+          ...prev,
+          [storyFingerprint]: generatedStory,
+        };
+        if (typeof window !== 'undefined') {
+          try {
+            window.sessionStorage.setItem('vuka.pulseStories', JSON.stringify(next));
+          } catch {
+            // Ignore storage quota errors
+          }
+        }
+        return next;
+      });
+    } catch (err) {
+      const rawMessage =
+        err instanceof Error ? err.message : 'Unable to generate Pulse Story summary.';
+      const cleanMessage =
+        rawMessage.includes('quota') || rawMessage.includes('429')
+          ? 'Live AI story rate limit reached temporarily — your verified SDG metrics remain active below.'
+          : rawMessage;
+      setStoryError(cleanMessage);
+    } finally {
+      setStoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOnline || activePulseStory) return;
+    void generatePulseStory(false);
+    // Auto-generate when milestone fingerprint changes while online
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storyFingerprint, isOnline]);
 
   const visibleContributions = useMemo(() => {
     if (statusFilter === 'all') return contributions;
@@ -214,6 +439,40 @@ export const PulseView: React.FC<PulseViewProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Subtle Sprint Due Alert Badge (< 48h before active sprint deadline) */}
+        {sprintDueAlerts.length > 0 && (
+          <div className="relative z-10 mt-5 pt-4 border-t border-[#E8E3DB] dark:border-[#2C3037] flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span
+                role="status"
+                data-testid="sprint-due-alert-badge"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F9ECE5] dark:bg-[#2D1E17] border border-[#C4622D]/30 dark:border-[#E07B46]/35 text-xs font-semibold text-[#C4622D] dark:text-[#E07B46]"
+              >
+                <Clock className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  Sprint Due Alert · {sprintDueAlerts[0].formattedRemaining}
+                </span>
+              </span>
+              <span className="text-xs text-[#43484E] dark:text-[#C4C9D0]">
+                {sprintDueAlerts[0].briefTitle}
+                {sprintDueAlerts.length > 1
+                  ? ` (+${sprintDueAlerts.length - 1} more due within 48h)`
+                  : ''}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={onGoToSolve}
+              data-testid="sprint-due-resume-btn"
+              className="text-xs font-semibold text-[#C4622D] dark:text-[#E07B46] hover:underline inline-flex items-center gap-1 whitespace-nowrap"
+            >
+              <span>Complete in Solve</span>
+              <ArrowRight className="w-3.5 h-3.5 rtl:rotate-180" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Subtle Framer Motion Celebratory Micro-Interaction on In-Progress -> Completed */}
@@ -307,6 +566,61 @@ export const PulseView: React.FC<PulseViewProps> = ({
         )}
       </AnimatePresence>
 
+      {/* Pulse Story Card: Dynamic One-Sentence Human-Centric Gemini Impact Summary */}
+      <div
+        data-testid="pulse-story-card"
+        className="rounded-2xl bg-[#E7F3EE]/65 dark:bg-[#142B24]/75 border border-[#146C53]/30 dark:border-[#2EB88B]/35 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+      >
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#146C53] dark:text-[#2EB88B]">
+            <Sparkles className="w-3.5 h-3.5 text-[#C4622D] dark:text-[#E07B46] shrink-0" />
+            <span>Pulse Story · Live Impact Narrative</span>
+          </div>
+
+          {storyLoading && !activePulseStory ? (
+            <p
+              data-testid="pulse-story-loading"
+              className="text-sm text-[#575B62] dark:text-[#A3A7AE] inline-flex items-center gap-2"
+            >
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#146C53] dark:text-[#2EB88B]" />
+              <span>Synthesizing your latest skill verification and sprint impact…</span>
+            </p>
+          ) : activePulseStory ? (
+            <p
+              data-testid="pulse-story-text"
+              className="font-display text-base sm:text-lg font-medium leading-relaxed text-[#17191C] dark:text-[#F4F2EE]"
+            >
+              {activePulseStory}
+            </p>
+          ) : (
+            <p
+              data-testid="pulse-story-fallback"
+              className="text-sm text-[#575B62] dark:text-[#A3A7AE] leading-relaxed"
+            >
+              {storyError ||
+                'Verify skills or complete a sprint to generate your live one-sentence Gemini impact narrative.'}
+            </p>
+          )}
+
+          {storyError && activePulseStory && (
+            <p role="status" className="text-xs text-[#C4622D] dark:text-[#E07B46]">
+              {storyError}
+            </p>
+          )}
+        </div>
+
+        <button
+          type="button"
+          disabled={storyLoading}
+          data-testid="refresh-pulse-story-btn"
+          onClick={() => void generatePulseStory(true)}
+          className="min-h-[38px] px-3.5 py-1.5 rounded-xl border border-[#146C53]/30 dark:border-[#2EB88B]/35 bg-white dark:bg-[#1A1C20] hover:bg-[#FAF8F5] dark:hover:bg-[#22252A] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 self-start sm:self-center disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${storyLoading ? 'animate-spin' : ''}`} />
+          <span>{storyLoading ? 'Refreshing…' : 'Refresh Story'}</span>
+        </button>
+      </div>
+
       {/* TOP ROW: 5 Clean SDG Pulse Cards (Minimalist Live Counters + Human Micro-Stories) */}
       <div className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-2">
@@ -389,8 +703,22 @@ export const PulseView: React.FC<PulseViewProps> = ({
         </div>
       </div>
 
-      {/* SPRINT PERFORMANCE SPARKLINE WIDGET */}
-      <SprintPerformanceWidget data={sprintPerformance} />
+      {/* SPRINT PERFORMANCE SPARKLINE & PARTNER SPRINT FEEDBACK LOOP */}
+      <div
+        data-testid="performance-and-feedback-band"
+        className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch"
+      >
+        <div className="xl:col-span-7 flex flex-col [&>section]:flex-1">
+          <SprintPerformanceWidget data={sprintPerformance} />
+        </div>
+        <div className="xl:col-span-5 flex flex-col [&>section]:flex-1">
+          <SprintFeedbackPanel
+            contributions={contributions}
+            feedbackList={sprintFeedback}
+            onAddSprintFeedback={onAddSprintFeedback}
+          />
+        </div>
+      </div>
 
       {/* BOTTOM ROW: Visual "Knowledge-to-Work Flow" Diagram */}
       <section
@@ -757,15 +1085,65 @@ export const PulseView: React.FC<PulseViewProps> = ({
                         {row.domain}
                       </td>
                       <td className="py-3.5 px-4">
-                        <span
-                          className={
-                            row.status === 'completed'
-                              ? 'text-xs font-medium text-[#146C53] dark:text-[#2EB88B]'
-                              : 'text-xs font-medium text-[#C4622D] dark:text-[#E07B46]'
-                          }
-                        >
-                          {row.status === 'completed' ? t.completedBadge : t.inProgressBadge}
-                        </span>
+                        {row.status === 'completed' ? (
+                          <motion.span
+                            key={`completed-${row.id}`}
+                            data-testid={`contribution-status-${row.id}`}
+                            data-status="completed"
+                            initial={{ scale: 0.86, opacity: 0.65 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{
+                              type: 'spring',
+                              stiffness: 340,
+                              damping: 20,
+                            }}
+                            whileHover={{ scale: 1.04 }}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#E7F3EE] dark:bg-[#142B24] border border-[#146C53]/30 dark:border-[#2EB88B]/35 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] shadow-[0_0_0_1px_rgba(20,108,83,0.06)] whitespace-nowrap"
+                          >
+                            <motion.span
+                              aria-hidden="true"
+                              animate={{
+                                scale: [1, 1.22, 1],
+                                rotate: [0, 10, -6, 0],
+                              }}
+                              transition={{
+                                duration: 2.6,
+                                repeat: Infinity,
+                                repeatDelay: 2.4,
+                                ease: 'easeInOut',
+                              }}
+                              className="inline-flex items-center justify-center"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                            </motion.span>
+                            <span>{t.completedBadge}</span>
+                          </motion.span>
+                        ) : (
+                          <div className="inline-flex flex-wrap items-center gap-1.5">
+                            <span
+                              data-testid={`contribution-status-${row.id}`}
+                              data-status="in-progress"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#F9ECE5] dark:bg-[#2D1E17] text-xs font-medium text-[#C4622D] dark:text-[#E07B46] whitespace-nowrap"
+                            >
+                              {t.inProgressBadge}
+                            </span>
+                            {(() => {
+                              const rowAlert = sprintDueAlerts.find(
+                                (a) => a.contributionId === row.id
+                              );
+                              if (!rowAlert) return null;
+                              return (
+                                <span
+                                  data-testid={`ledger-due-badge-${row.id}`}
+                                  className="inline-flex items-center gap-1 text-[11px] font-mono-tabular font-semibold text-[#C4622D] dark:text-[#E07B46] whitespace-nowrap"
+                                >
+                                  <Clock className="w-3 h-3" />
+                                  <span>{rowAlert.formattedRemaining}</span>
+                                </span>
+                              );
+                            })()}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 text-end font-mono-tabular tabular-nums text-[#575B62] dark:text-[#A3A7AE]">
                         {row.hoursLogged}h
@@ -781,6 +1159,94 @@ export const PulseView: React.FC<PulseViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Community Impact Editorial Gallery */}
+      <section
+        aria-labelledby="community-impact-heading"
+        data-testid="community-impact-gallery"
+        className="space-y-5"
+      >
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#146C53] dark:text-[#2EB88B]">
+              Community Impact · Voices Across the Bridge
+            </p>
+            <h2
+              id="community-impact-heading"
+              className="mt-1 font-display text-xl sm:text-2xl font-medium text-[#17191C] dark:text-[#F4F2EE]"
+            >
+              Real practitioners turning verified craft into livelihood
+            </h2>
+          </div>
+          <span className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
+            Field stories across Green Energy, Healthcare Ops &amp; SME Pods
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {COMMUNITY_IMPACT_STORIES.map((story) => {
+            const imgFailed = Boolean(failedImageIds[story.id]);
+            return (
+              <article
+                key={story.id}
+                data-testid={`community-impact-card-${story.id}`}
+                className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] overflow-hidden flex flex-col justify-between"
+              >
+                <div>
+                  <div className="aspect-[4/3] w-full bg-[#F2EEE8] dark:bg-[#121315] overflow-hidden relative">
+                    {!imgFailed ? (
+                      <img
+                        src={story.imageSrc}
+                        alt={story.imageAlt}
+                        referrerPolicy="no-referrer"
+                        onError={() =>
+                          setFailedImageIds((prev) => ({ ...prev, [story.id]: true }))
+                        }
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-br from-[#E7F3EE] to-[#FAF8F5] dark:from-[#142B24] dark:to-[#1A1C20]">
+                        <span className="font-display text-lg font-medium text-[#146C53] dark:text-[#2EB88B]">
+                          {story.practitionerName}
+                        </span>
+                        <span className="mt-1 text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                          {story.domain} · {story.regionLabel}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-5 sm:p-6 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                      <span className="font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                        {story.domain}
+                      </span>
+                      <span>{story.ageTrack}</span>
+                    </div>
+
+                    <div>
+                      <h3 className="font-display text-lg font-medium text-[#17191C] dark:text-[#F4F2EE]">
+                        {story.practitionerName}
+                      </h3>
+                      <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                        {story.roleTitle} · {story.regionLabel}
+                      </p>
+                    </div>
+
+                    <p className="text-sm leading-relaxed text-[#43484E] dark:text-[#C4C9D0]">
+                      “{story.quote}”
+                    </p>
+                  </div>
+                </div>
+
+                <div className="px-5 sm:px-6 py-3.5 border-t border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5]/70 dark:bg-[#121315]/70 text-xs font-medium text-[#146C53] dark:text-[#2EB88B]">
+                  {story.outcomeLine}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
     </section>
   );
 };

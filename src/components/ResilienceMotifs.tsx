@@ -379,3 +379,45 @@ export const RippleConstellationMotif: React.FC<ResilienceMotifProps> = ({
     </div>
   );
 };
+
+/**
+ * Motif 4: Unbroken Meridian & Compass Arc (Compliance Readiness Section)
+ * Conveys lawful global navigation, cross-border dignity, and unbroken rights at work.
+ * Rendered at subtle 5% opacity with pointer-events: none.
+ */
+export const UnbrokenMeridianCompassMotif: React.FC<{ className?: string }> = ({
+  className = '',
+}) => {
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="unbroken-meridian-motif"
+      className={`pointer-events-none select-none absolute inset-0 overflow-hidden opacity-[0.05] text-[#146C53] dark:text-[#2EB88B] ${className}`}
+    >
+      <svg
+        viewBox="0 0 1200 480"
+        preserveAspectRatio="xMidYMid slice"
+        className="w-full h-full"
+      >
+        <g fill="none" stroke="currentColor" strokeWidth="1.25">
+          {/* Outer meridian arcs */}
+          <path d="M-40 390 C 260 120, 620 90, 1240 280" />
+          <path d="M-20 440 C 310 190, 680 155, 1230 330" strokeDasharray="5 7" />
+          <path d="M80 495 C 400 250, 740 215, 1180 395" />
+
+          {/* Compass rose & longitudinal bearings centered right */}
+          <circle cx="960" cy="210" r="150" />
+          <circle cx="960" cy="210" r="102" strokeDasharray="3 6" />
+          <circle cx="960" cy="210" r="54" />
+          <line x1="780" y1="210" x2="1140" y2="210" />
+          <line x1="960" y1="30" x2="960" y2="390" />
+          <path d="M960 72 L978 210 L960 348 L942 210 Z" />
+          <circle cx="960" cy="210" r="5" fill="currentColor" />
+          <circle cx="340" cy="196" r="4" fill="currentColor" />
+          <circle cx="635" cy="158" r="4" fill="currentColor" />
+        </g>
+      </svg>
+    </div>
+  );
+};
+

@@ -25,9 +25,12 @@ import type {
   BriefSubmission,
   CompetencyPassport,
   ContractPayout,
+  MentorMessage,
   PeerEndorsement,
   PractitionerProfile,
   SkillCapability,
+  SprintFeedback,
+  SprintRatingScore,
   WorkReadyVault,
 } from '../types/kora';
 import { isValidFirebaseId, sanitizeText } from '../utils/talentEngine';
@@ -377,6 +380,14 @@ export async function upsertCloudVault(uid: string, vault: WorkReadyVault): Prom
     contractTemplate: vault.contractTemplate,
     payoutCompleted: Boolean(vault.payoutCompleted),
     payoutRail: vault.payoutRail,
+    financialIdentityCleared: Boolean(vault.financialIdentityCleared),
+    financialRailTested: Boolean(vault.financialRailTested),
+    financialTaxCleared: Boolean(vault.financialTaxCleared),
+    financialRail: vault.financialRail ?? vault.payoutRail,
+    onboardingPackGenerated: Boolean(vault.onboardingPackGenerated),
+    onboardingContractStructure: vault.onboardingContractStructure ?? 'scoped-remote',
+    onboardingPartnerOrg: sanitizeText(vault.onboardingPartnerOrg ?? '', 120),
+    onboardingHostCountry: sanitizeText(vault.onboardingHostCountry ?? 'Kenya', 80) || 'Kenya',
   };
 
   try {
@@ -395,6 +406,14 @@ export async function upsertCloudVault(uid: string, vault: WorkReadyVault): Prom
         contractTemplate: payload.contractTemplate,
         payoutCompleted: payload.payoutCompleted,
         payoutRail: payload.payoutRail,
+        financialIdentityCleared: payload.financialIdentityCleared,
+        financialRailTested: payload.financialRailTested,
+        financialTaxCleared: payload.financialTaxCleared,
+        financialRail: payload.financialRail,
+        onboardingPackGenerated: payload.onboardingPackGenerated,
+        onboardingContractStructure: payload.onboardingContractStructure,
+        onboardingPartnerOrg: payload.onboardingPartnerOrg,
+        onboardingHostCountry: payload.onboardingHostCountry,
         updatedAt: serverTimestamp(),
       });
     }
@@ -555,6 +574,98 @@ export async function upsertCloudPayout(uid: string, payout: ContractPayout): Pr
   }
 }
 
+export async function upsertCloudSprintFeedback(
+  uid: string,
+  feedback: SprintFeedback
+): Promise<void> {
+  if (
+    !isValidFirebaseId(uid) ||
+    !isValidFirebaseId(feedback.id) ||
+    !isValidFirebaseId(feedback.contributionId) ||
+    !isValidFirebaseId(feedback.briefId)
+  ) {
+    throw new Error('Invalid identifier for sprint feedback sync');
+  }
+  const path = `users/${uid}/sprintFeedback/${feedback.id}`;
+  const ref = doc(db, 'users', uid, 'sprintFeedback', feedback.id);
+
+  const safeTitle = sanitizeText(feedback.briefTitle, 160) || 'Completed Sprint';
+  const safeOrg = sanitizeText(feedback.partnerOrg, 120) || 'Hiring Partner';
+  const safeName = sanitizeText(feedback.reviewerName, 80) || 'Hiring Partner Reviewer';
+  const safeRole = sanitizeText(feedback.reviewerRole, 100) || 'Hiring Partner';
+  const safeReview = sanitizeText(feedback.reviewText, 500);
+  const safeRating = Math.max(1, Math.min(5, Math.round(Number(feedback.rating) || 5)));
+
+  if (safeReview.length < 10) {
+    throw new Error('Review text must be at least 10 characters');
+  }
+
+  try {
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        ownerUid: uid,
+        contributionId: feedback.contributionId,
+        briefId: feedback.briefId,
+        briefTitle: safeTitle,
+        partnerOrg: safeOrg,
+        reviewerName: safeName,
+        reviewerRole: safeRole,
+        rating: safeRating,
+        reviewText: safeReview,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function upsertCloudMentorMessage(
+  uid: string,
+  message: MentorMessage
+): Promise<void> {
+  if (
+    !isValidFirebaseId(uid) ||
+    !isValidFirebaseId(message.id) ||
+    !isValidFirebaseId(message.sprintId) ||
+    !isValidFirebaseId(message.mentorId)
+  ) {
+    throw new Error('Invalid identifier for mentor message sync');
+  }
+  const path = `users/${uid}/mentorMessages/${message.id}`;
+  const ref = doc(db, 'users', uid, 'mentorMessages', message.id);
+
+  const safeTitle = sanitizeText(message.sprintTitle, 160) || 'Active Sprint Pod';
+  const safeMentorName = sanitizeText(message.mentorName, 80) || 'Senior Specialist';
+  const safeBody = sanitizeText(message.body, 1000);
+  const safeSender = message.sender === 'mentor' ? 'mentor' : 'practitioner';
+
+  if (safeBody.length < 1) {
+    throw new Error('Mentor message body cannot be empty');
+  }
+
+  try {
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        ownerUid: uid,
+        sprintId: message.sprintId,
+        sprintTitle: safeTitle,
+        mentorId: message.mentorId,
+        mentorName: safeMentorName,
+        sender: safeSender,
+        body: safeBody,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
 export async function fetchCloudWorkspace(uid: string): Promise<{
   profile: Partial<PractitionerProfile> | null;
   capabilities: SkillCapability[];
@@ -562,6 +673,8 @@ export async function fetchCloudWorkspace(uid: string): Promise<{
   vault: WorkReadyVault | null;
   endorsements: PeerEndorsement[];
   payouts: ContractPayout[];
+  sprintFeedback: SprintFeedback[];
+  mentorMessages: MentorMessage[];
 }> {
   const userPath = `users/${uid}`;
   try {
@@ -578,6 +691,8 @@ export async function fetchCloudWorkspace(uid: string): Promise<{
         vault: null,
         endorsements: [],
         payouts: [],
+        sprintFeedback: [],
+        mentorMessages: [],
       };
     }
 
@@ -632,6 +747,16 @@ export async function fetchCloudWorkspace(uid: string): Promise<{
           contractTemplate: data.contractTemplate ?? 'milestone-sprint',
           payoutCompleted: Boolean(data.payoutCompleted),
           payoutRail: data.payoutRail ?? 'mobile-money',
+          financialIdentityCleared: Boolean(data.financialIdentityCleared),
+          financialRailTested: Boolean(data.financialRailTested),
+          financialTaxCleared: Boolean(data.financialTaxCleared),
+          financialRail: data.financialRail ?? data.payoutRail ?? 'mobile-money',
+          onboardingPackGenerated: Boolean(data.onboardingPackGenerated),
+          onboardingContractStructure: data.onboardingContractStructure ?? 'scoped-remote',
+          onboardingPartnerOrg: data.onboardingPartnerOrg ? String(data.onboardingPartnerOrg) : '',
+          onboardingHostCountry: data.onboardingHostCountry
+            ? String(data.onboardingHostCountry)
+            : 'Kenya',
           updatedAtIso: new Date().toISOString(),
         };
       }
@@ -688,7 +813,63 @@ export async function fetchCloudWorkspace(uid: string): Promise<{
       payouts = [];
     }
 
-    return { profile, capabilities, contributions, vault, endorsements, payouts };
+    let sprintFeedback: SprintFeedback[] = [];
+    try {
+      const fbSnap = await getDocs(collection(db, 'users', uid, 'sprintFeedback'));
+      sprintFeedback = fbSnap.docs.map((d) => {
+        const data = d.data();
+        const rawRating = Math.max(1, Math.min(5, Math.round(Number(data.rating) || 5))) as SprintRatingScore;
+        return {
+          id: d.id,
+          ownerUid: String(data.ownerUid ?? uid),
+          contributionId: String(data.contributionId ?? d.id),
+          briefId: String(data.briefId ?? d.id),
+          briefTitle: String(data.briefTitle ?? ''),
+          partnerOrg: String(data.partnerOrg ?? ''),
+          reviewerName: String(data.reviewerName ?? ''),
+          reviewerRole: String(data.reviewerRole ?? ''),
+          rating: rawRating,
+          reviewText: String(data.reviewText ?? ''),
+          createdAtIso: new Date().toISOString(),
+          updatedAtIso: new Date().toISOString(),
+        };
+      });
+    } catch {
+      sprintFeedback = [];
+    }
+
+    let mentorMessages: MentorMessage[] = [];
+    try {
+      const msgSnap = await getDocs(collection(db, 'users', uid, 'mentorMessages'));
+      mentorMessages = msgSnap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          ownerUid: String(data.ownerUid ?? uid),
+          sprintId: String(data.sprintId ?? d.id),
+          sprintTitle: String(data.sprintTitle ?? ''),
+          mentorId: String(data.mentorId ?? ''),
+          mentorName: String(data.mentorName ?? ''),
+          sender: data.sender === 'mentor' ? 'mentor' : 'practitioner',
+          body: String(data.body ?? ''),
+          createdAtIso: new Date().toISOString(),
+          updatedAtIso: new Date().toISOString(),
+        };
+      });
+    } catch {
+      mentorMessages = [];
+    }
+
+    return {
+      profile,
+      capabilities,
+      contributions,
+      vault,
+      endorsements,
+      payouts,
+      sprintFeedback,
+      mentorMessages,
+    };
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, userPath);
   }

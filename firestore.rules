@@ -209,6 +209,14 @@ service cloud.firestore {
           'contractTemplate',
           'payoutCompleted',
           'payoutRail',
+          'financialIdentityCleared',
+          'financialRailTested',
+          'financialTaxCleared',
+          'financialRail',
+          'onboardingPackGenerated',
+          'onboardingContractStructure',
+          'onboardingPartnerOrg',
+          'onboardingHostCountry',
           'createdAt',
           'updatedAt'
         ]) &&
@@ -219,6 +227,14 @@ service cloud.firestore {
         data.contractTemplate is string && data.contractTemplate.size() <= 32 && data.contractTemplate in ['milestone-sprint', 'local-services', 'cross-border-advisory'] &&
         data.payoutCompleted is bool &&
         data.payoutRail is string && data.payoutRail.size() <= 32 && data.payoutRail in ['mobile-money', 'local-bank', 'global-wallet'] &&
+        (!('financialIdentityCleared' in data) || data.financialIdentityCleared is bool) &&
+        (!('financialRailTested' in data) || data.financialRailTested is bool) &&
+        (!('financialTaxCleared' in data) || data.financialTaxCleared is bool) &&
+        (!('financialRail' in data) || (data.financialRail is string && data.financialRail.size() <= 32 && data.financialRail in ['mobile-money', 'global-wallet', 'fiscal-host', 'local-bank'])) &&
+        (!('onboardingPackGenerated' in data) || data.onboardingPackGenerated is bool) &&
+        (!('onboardingContractStructure' in data) || (data.onboardingContractStructure is string && data.onboardingContractStructure.size() <= 32 && data.onboardingContractStructure in ['direct-local', 'scoped-remote', 'eor-fiscal-host'])) &&
+        (!('onboardingPartnerOrg' in data) || (data.onboardingPartnerOrg is string && data.onboardingPartnerOrg.size() <= 120)) &&
+        (!('onboardingHostCountry' in data) || (data.onboardingHostCountry is string && data.onboardingHostCountry.size() <= 80)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -293,6 +309,80 @@ service cloud.firestore {
         data.amountUsd is number && data.amountUsd >= 0 && data.amountUsd <= 50000 &&
         data.payoutRail is string && data.payoutRail.size() <= 32 && data.payoutRail in ['mobile-money', 'local-bank', 'global-wallet'] &&
         data.status is string && data.status.size() <= 24 && data.status in ['escrow-held', 'processing', 'released'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSprintFeedback(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'contributionId',
+          'briefId',
+          'briefTitle',
+          'partnerOrg',
+          'reviewerName',
+          'reviewerRole',
+          'rating',
+          'reviewText',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'contributionId',
+          'briefId',
+          'briefTitle',
+          'partnerOrg',
+          'reviewerName',
+          'reviewerRole',
+          'rating',
+          'reviewText',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.contributionId is string && isValidId(data.contributionId) &&
+        data.briefId is string && isValidId(data.briefId) &&
+        data.briefTitle is string && data.briefTitle.size() >= 2 && data.briefTitle.size() <= 160 &&
+        data.partnerOrg is string && data.partnerOrg.size() >= 2 && data.partnerOrg.size() <= 120 &&
+        data.reviewerName is string && data.reviewerName.size() >= 2 && data.reviewerName.size() <= 80 &&
+        data.reviewerRole is string && data.reviewerRole.size() >= 2 && data.reviewerRole.size() <= 100 &&
+        data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+        data.reviewText is string && data.reviewText.size() >= 10 && data.reviewText.size() <= 500 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMentorMessage(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'mentorId',
+          'mentorName',
+          'sender',
+          'body',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'mentorId',
+          'mentorName',
+          'sender',
+          'body',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.sprintId is string && isValidId(data.sprintId) &&
+        data.sprintTitle is string && data.sprintTitle.size() >= 2 && data.sprintTitle.size() <= 160 &&
+        data.mentorId is string && isValidId(data.mentorId) &&
+        data.mentorName is string && data.mentorName.size() >= 2 && data.mentorName.size() <= 80 &&
+        data.sender is string && data.sender.size() <= 24 && data.sender in ['practitioner', 'mentor'] &&
+        data.body is string && data.body.size() >= 1 && data.body.size() <= 1000 &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -441,6 +531,14 @@ service cloud.firestore {
             'contractTemplate',
             'payoutCompleted',
             'payoutRail',
+            'financialIdentityCleared',
+            'financialRailTested',
+            'financialTaxCleared',
+            'financialRail',
+            'onboardingPackGenerated',
+            'onboardingContractStructure',
+            'onboardingPartnerOrg',
+            'onboardingHostCountry',
             'updatedAt'
           ]);
         allow delete: if false;
@@ -514,6 +612,36 @@ service cloud.firestore {
             (existing().status == 'escrow-held' && incoming().status == 'processing') ||
             (existing().status == 'processing' && incoming().status == 'released')
           );
+        allow delete: if false;
+      }
+
+      match /sprintFeedback/{feedbackId} {
+        allow get: if isValidId(userId) && isValidId(feedbackId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(feedbackId) &&
+          isOwner(userId) &&
+          isValidSprintFeedback(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if false;
+        allow delete: if false;
+      }
+
+      match /mentorMessages/{messageId} {
+        allow get: if isValidId(userId) && isValidId(messageId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(messageId) &&
+          isOwner(userId) &&
+          isValidMentorMessage(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if false;
         allow delete: if false;
       }
     }

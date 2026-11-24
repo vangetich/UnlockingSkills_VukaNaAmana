@@ -6,20 +6,31 @@ import type {
   BriefSubmission,
   CohortBlueprintPreview,
   CompetencyPassport,
+  ComplianceCrossingRoute,
   ContractPayout,
   ContractTemplateOption,
+  ContractingStructureOption,
+  FatfKycTierGuidance,
+  FatfKycTierId,
+  FinancialPayoutRail,
+  FinancialPayoutRailOption,
+  IdentityDocumentTier,
   KnowledgeFlowStage,
   LocaleCode,
+  MentorMessage,
   MilestoneBadge,
   OfflineMutation,
+  OnboardingPackResult,
   PayoutLifecycleStatus,
   PayoutRailOption,
   PeerEndorsement,
   PeerFlywheelMetrics,
+  PodMentorProfile,
   PracticalScenario,
   PractitionerProfile,
   ProblemBrief,
   RankedSolutionSprint,
+  RegulatoryAccessTier,
   ScaleRegionId,
   ScaleSectorId,
   SdgPulseMetric,
@@ -27,10 +38,14 @@ import type {
   SkillCapability,
   SolutionSprint,
   SprintComplexityLevel,
+  SprintDueAlert,
+  SprintFeedback,
+  SprintFeedbackSummary,
   SprintPartnerType,
   SprintPerformanceData,
   SprintPerformancePoint,
   StudioDomain,
+  TargetWorkMode,
   VerificationStatus,
   WorkReadyVault,
 } from '../types/kora';
@@ -299,6 +314,17 @@ export const DEFAULT_SEED_CONTRIBUTIONS: Omit<
   BriefSubmission,
   'ownerUid' | 'createdAtIso' | 'updatedAtIso'
 >[] = [
+  {
+    id: 'contrib-seed-2',
+    briefId: 'sprint-solar-coldchain-01',
+    briefTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+    domain: 'Green Energy',
+    status: 'in-progress',
+    solutionNotes:
+      'Reviewed night-time inverter CSV logs from Cold-Room #2; isolating cell-pack voltage sag around 02:30.',
+    hoursLogged: 2,
+    payoutUsd: 480,
+  },
   {
     id: 'contrib-seed-1',
     briefId: 'brief-coldchain-03',
@@ -616,6 +642,8 @@ export function compactOfflineQueue(queue: OfflineMutation[]): OfflineMutation[]
   const latestVaultIdx = new Map<string, number>();
   const latestEndorsementIdx = new Map<string, number>();
   const latestPayoutIdx = new Map<string, number>();
+  const latestFeedbackIdx = new Map<string, number>();
+  const latestMentorMessageIdx = new Map<string, number>();
 
   queue.forEach((item, index) => {
     if (item.kind === 'upsert_profile') {
@@ -636,6 +664,10 @@ export function compactOfflineQueue(queue: OfflineMutation[]): OfflineMutation[]
       latestEndorsementIdx.set(item.endorsementId, index);
     } else if (item.kind === 'upsert_payout') {
       latestPayoutIdx.set(item.payload.id, index);
+    } else if (item.kind === 'upsert_sprint_feedback') {
+      latestFeedbackIdx.set(item.payload.id, index);
+    } else if (item.kind === 'upsert_mentor_message') {
+      latestMentorMessageIdx.set(item.payload.id, index);
     }
   });
 
@@ -649,6 +681,8 @@ export function compactOfflineQueue(queue: OfflineMutation[]): OfflineMutation[]
     if (item.kind === 'upsert_endorsement') return latestEndorsementIdx.get(item.payload.id) === index;
     if (item.kind === 'delete_endorsement') return latestEndorsementIdx.get(item.endorsementId) === index;
     if (item.kind === 'upsert_payout') return latestPayoutIdx.get(item.payload.id) === index;
+    if (item.kind === 'upsert_sprint_feedback') return latestFeedbackIdx.get(item.payload.id) === index;
+    if (item.kind === 'upsert_mentor_message') return latestMentorMessageIdx.get(item.payload.id) === index;
     return true;
   });
 }
@@ -814,6 +848,14 @@ export function createInitialVault(ownerUid = 'local-practitioner'): WorkReadyVa
     contractTemplate: 'milestone-sprint',
     payoutCompleted: false,
     payoutRail: 'mobile-money',
+    financialIdentityCleared: false,
+    financialRailTested: false,
+    financialTaxCleared: false,
+    financialRail: 'mobile-money',
+    onboardingPackGenerated: false,
+    onboardingContractStructure: 'scoped-remote',
+    onboardingPartnerOrg: '',
+    onboardingHostCountry: 'Kenya',
     updatedAtIso: new Date().toISOString(),
   };
 }
@@ -834,6 +876,27 @@ export function computeVaultReadiness(vault: WorkReadyVault): {
     totalCount,
     isFullyReady: completedCount === totalCount,
     percentage: Math.round((completedCount / totalCount) * 100),
+  };
+}
+
+export function computeFinancialCrossingProgress(vault: WorkReadyVault): {
+  completedCount: number;
+  totalCount: number;
+  percentage: number;
+  isCrossingCleared: boolean;
+  selectedRail: FinancialPayoutRail;
+} {
+  const completedCount =
+    (vault.financialIdentityCleared ? 1 : 0) +
+    (vault.financialRailTested ? 1 : 0) +
+    (vault.financialTaxCleared ? 1 : 0);
+  const totalCount = 3;
+  return {
+    completedCount,
+    totalCount,
+    percentage: Math.round((completedCount / totalCount) * 100),
+    isCrossingCleared: completedCount === totalCount,
+    selectedRail: vault.financialRail ?? vault.payoutRail ?? 'mobile-money',
   };
 }
 
@@ -1234,12 +1297,19 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
     : `${verifiedCaps.length} field-verified capability record(s) & ${verifiedEndorsements.length} peer quote(s) converted craft into portable proof.`;
 
   // SDG 8: Paid Sprints Delivered & Earnings Unlocked
-  const sdg8EarningsTotal = 18400 + liveUnlockedUsd;
-  const sdg8SprintsTotal = 42 + completedContribs.length;
+  const onboardingPackCleared = Boolean(vault.onboardingPackGenerated);
+  const onboardingSdg8BonusUsd = onboardingPackCleared ? 250 : 0;
+  const sdg8EarningsTotal = 18400 + liveUnlockedUsd + onboardingSdg8BonusUsd;
+  const sdg8SprintsTotal = 42 + completedContribs.length + (onboardingPackCleared ? 1 : 0);
   const latestCompleted = completedContribs[0] ?? null;
-  const sdg8Story = latestCompleted
-    ? `"${latestCompleted.briefTitle}" delivered $${latestCompleted.payoutUsd} in scoped milestone earnings.`
-    : 'Scoped 1–2 week employer pain-point sprints turn idle skill directly into verified household income.';
+  const contractingLabel = getContractingStructureLabel(
+    vault.onboardingContractStructure ?? 'scoped-remote'
+  );
+  const sdg8Story = onboardingPackCleared
+    ? `1-Click Onboarding Pack cleared (${contractingLabel}) + ${completedContribs.length} sprint(s) ready for rapid partner contracting.`
+    : latestCompleted
+      ? `"${latestCompleted.briefTitle}" delivered $${latestCompleted.payoutUsd} in scoped milestone earnings.`
+      : 'Scoped 1–2 week employer pain-point sprints turn idle skill directly into verified household income.';
 
   // SDG 10: Underemployment Gaps Closed Across Age Brackets
   const uniqueDomains = new Set<string>([
@@ -1259,14 +1329,26 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
       ? `${profile.ageStage} Specialist track mentoring 15–29 Delivery Partners inside active cross-age pods.`
       : `${profile.ageStage} Builder co-delivering paid sprints alongside 30–46+ Senior Specialist mentors.`;
 
-  // SDG 16: Legal & Payment Bottlenecks Cleared
+  // SDG 16: Legal & Payment Bottlenecks Cleared ("Barriers Cleared")
+  const financialCrossing = computeFinancialCrossingProgress(vault);
+  const financialBarrierDelta =
+    financialCrossing.completedCount + (financialCrossing.isCrossingCleared ? 1 : 0);
+  const onboardingBarrierDelta = onboardingPackCleared ? 2 : 0;
   const liveSdg16 =
-    vaultReadiness.completedCount + clearedPayouts.length + verifiedEndorsements.length;
+    vaultReadiness.completedCount +
+    financialBarrierDelta +
+    onboardingBarrierDelta +
+    clearedPayouts.length +
+    verifiedEndorsements.length;
   const sdg16Total = 88 + liveSdg16;
-  const railLabel = getPayoutRailLabel(vault.payoutRail);
-  const sdg16Story = vaultReadiness.isFullyReady
-    ? `Pre-cleared Work-Ready Vault & ${railLabel} payout rail removed contracting friction completely.`
-    : `${vaultReadiness.completedCount}/3 Work-Ready Vault checks & zero-document endorsements clearing path to ${railLabel}.`;
+  const railLabel = getFinancialPayoutRailLabel(financialCrossing.selectedRail);
+  const sdg16Story = onboardingPackCleared
+    ? `1-Click Onboarding Pack (${contractingLabel}) + ${railLabel} cleared legal & payout barriers for Hiring Partners.`
+    : financialCrossing.isCrossingCleared
+      ? `Crossing Cleared across all 3 KYC & payout gates (${railLabel}) — ready to contract and get paid.`
+      : vaultReadiness.isFullyReady
+        ? `Pre-cleared Work-Ready Vault & ${railLabel} payout rail removed contracting friction completely.`
+        : `${vaultReadiness.completedCount}/3 vault · ${financialCrossing.completedCount}/3 payout gates clearing path to ${railLabel}.`;
 
   // SDG 17: Active Hiring Partners, Mentors & Cross-Age Pods
   const partnerOrgs = new Set<string>();
@@ -1303,8 +1385,10 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
       title: 'Paid Sprints & Earnings Unlocked',
       primaryValue: `$${sdg8EarningsTotal.toLocaleString()}`,
       numericValue: sdg8EarningsTotal,
-      metricCaption: `${sdg8SprintsTotal} paid sprints delivered`,
-      liveDeltaLabel: `+$${liveUnlockedUsd.toLocaleString()} live`,
+      metricCaption: onboardingPackCleared
+        ? `${sdg8SprintsTotal} paid sprints & onboarding packs`
+        : `${sdg8SprintsTotal} paid sprints delivered`,
+      liveDeltaLabel: `+$${(liveUnlockedUsd + onboardingSdg8BonusUsd).toLocaleString()} live`,
       microStory: sdg8Story,
       accent: 'terracotta',
     },
@@ -1322,10 +1406,12 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
     {
       sdgNumber: 16,
       sdgLabel: 'SDG 16',
-      title: 'Legal & Payment Bottlenecks Cleared',
+      title: 'Barriers Cleared · Legal & Payout',
       primaryValue: sdg16Total.toLocaleString(),
       numericValue: sdg16Total,
-      metricCaption: `${vaultReadiness.completedCount}/3 vault · ${releasedPayouts.length} released`,
+      metricCaption: financialCrossing.isCrossingCleared
+        ? `Crossing Cleared · ${releasedPayouts.length} released`
+        : `${financialCrossing.completedCount}/3 payout gates · ${vaultReadiness.completedCount}/3 vault`,
       liveDeltaLabel: `+${liveSdg16} live`,
       microStory: sdg16Story,
       accent: 'terracotta',
@@ -1353,6 +1439,7 @@ export function computeKnowledgeToWorkFlow(inputs: ReactivePulseInputs): Knowled
   ).length;
   const verifiedEndorsements = endorsements.filter((e) => e.status === 'verified').length;
   const vaultReadiness = computeVaultReadiness(vault);
+  const financialCrossing = computeFinancialCrossingProgress(vault);
   const clearedPayouts = payouts.filter((p) => p.status !== 'escrow-held').length;
   const releasedPayouts = payouts.filter((p) => p.status === 'released').length;
   const completedContribs = contributions.filter((c) => c.status === 'completed').length;
@@ -1362,7 +1449,13 @@ export function computeKnowledgeToWorkFlow(inputs: ReactivePulseInputs): Knowled
     220 + (profile.problemStatement.trim().length > 0 ? 1 : 0) + capabilities.length;
   const passportCount =
     168 + verifiedCaps + masterEndorsedCaps + (passport ? 1 : 0) + verifiedEndorsements;
-  const payoutCount = 134 + vaultReadiness.completedCount + clearedPayouts;
+  const payoutCount =
+    134 +
+    vaultReadiness.completedCount +
+    financialCrossing.completedCount +
+    (financialCrossing.isCrossingCleared ? 1 : 0) +
+    (vault.onboardingPackGenerated ? 1 : 0) +
+    clearedPayouts;
   const placementCount =
     98 + completedContribs + releasedPayouts + (completedContribs >= 2 ? 1 : 0);
 
@@ -1400,8 +1493,13 @@ export function computeKnowledgeToWorkFlow(inputs: ReactivePulseInputs): Knowled
       label: 'Compliant Payout',
       count: payoutCount,
       conversionPct: payoutConv,
-      status: vaultReadiness.isFullyReady || releasedPayouts > 0 ? 'verified' : 'active',
-      microCaption: `${vaultReadiness.completedCount}/3 Vault checks · ${getPayoutRailLabel(vault.payoutRail)}`,
+      status:
+        vaultReadiness.isFullyReady || financialCrossing.isCrossingCleared || releasedPayouts > 0
+          ? 'verified'
+          : 'active',
+      microCaption: financialCrossing.isCrossingCleared
+        ? `Crossing Cleared · ${getFinancialPayoutRailLabel(financialCrossing.selectedRail)}`
+        : `${vaultReadiness.completedCount}/3 Vault · ${financialCrossing.completedCount}/3 KYC gates`,
     },
     {
       id: 'placement',
@@ -2043,4 +2141,895 @@ export function parseSharedPassportToken(token: string | null | undefined): Shar
     return null;
   }
 }
+
+export const DEFAULT_SEED_SPRINT_FEEDBACK: Omit<
+  SprintFeedback,
+  'ownerUid' | 'createdAtIso' | 'updatedAtIso'
+>[] = [
+  {
+    id: 'fb-seed-1',
+    contributionId: 'contrib-seed-1',
+    briefId: 'brief-coldchain-03',
+    briefTitle: 'Solar-Direct Cold-Chain Compressor Retrofit Plan',
+    partnerOrg: 'HarvestKeep Network',
+    reviewerName: 'Nadia Odhiambo',
+    reviewerRole: 'Operations Director · Hiring Partner',
+    rating: 5,
+    reviewText:
+      'Delivered an immediately actionable 48V defrost staging schedule with zero ambiguity. Our Nakuru site technicians cut overnight thermal drift within 48 hours of handover.',
+  },
+];
+
+export function computeFeedbackSummary(feedbackList: SprintFeedback[]): SprintFeedbackSummary {
+  const totalReviews = feedbackList.length;
+  if (totalReviews === 0) {
+    return { totalReviews: 0, averageRating: 0, fiveStarCount: 0 };
+  }
+  const sum = feedbackList.reduce((acc, item) => acc + item.rating, 0);
+  const averageRating = Math.round((sum / totalReviews) * 10) / 10;
+  const fiveStarCount = feedbackList.filter((item) => item.rating === 5).length;
+  return { totalReviews, averageRating, fiveStarCount };
+}
+
+export const POD_MENTORS: PodMentorProfile[] = [
+  {
+    id: 'mentor-green-01',
+    name: 'Eng. Samuel Kariuki',
+    roleTitle: 'Senior Microgrid & BMS Specialist',
+    ageStage: '46+',
+    ageStageBadge: '46+ Master Practitioner',
+    domain: 'Green Energy',
+    hubLocation: 'Nairobi · Hybrid Field Hub',
+    specialty: '48V inverter diagnostics, battery balancing & cold-room thermal QA',
+    availability: 'available',
+    availabilityLabel: 'Available now',
+    responseWindow: 'Replies under 10m',
+    greetingPrompt:
+      'Share your inverter CSV readings or wiring schematic whenever ready — I am online for live pod QA.',
+  },
+  {
+    id: 'mentor-health-02',
+    name: 'Dr. Amina Haddad',
+    roleTitle: 'Clinical Ops & Cold-Chain Lead',
+    ageStage: '30-45',
+    ageStageBadge: '30–45 Senior Specialist',
+    domain: 'Healthcare Ops',
+    hubLocation: 'Amman · Regional Clinic Desk',
+    specialty: '2°C–8°C vaccine excursions, maternal triage protocols & multilingual SOPs',
+    availability: 'available',
+    availabilityLabel: 'Available now',
+    responseWindow: 'Replies under 15m',
+    greetingPrompt:
+      'Ready to review your triage checklists and shift-handover phrasing before partner sign-off.',
+  },
+  {
+    id: 'mentor-tech-03',
+    name: 'Eng. Tomasz Kowalski',
+    roleTitle: 'Principal Offline-First Architect',
+    ageStage: '46+',
+    ageStageBadge: '46+ Master Practitioner',
+    domain: 'Tech',
+    hubLocation: 'Kraków · Async Engineering Pod',
+    specialty: 'Idempotent sync queues, 2G conflict resolution & TypeScript test suites',
+    availability: 'in-review',
+    availabilityLabel: 'In pod review',
+    responseWindow: 'Replies ~20m',
+    greetingPrompt:
+      'Currently reviewing a pod PR — drop your sync conflict edge cases here and I will walk through them next.',
+  },
+  {
+    id: 'mentor-finance-04',
+    name: 'Grace Mukasa',
+    roleTitle: 'SME Working-Capital Director',
+    ageStage: '30-45',
+    ageStageBadge: '30–45 Senior Specialist',
+    domain: 'SME Finance',
+    hubLocation: 'Kampala · Guild Advisory Desk',
+    specialty: '13-week rolling cash-flow ledgers, supplier staging & unit-margin audits',
+    availability: 'available',
+    availabilityLabel: 'Available now',
+    responseWindow: 'Replies under 12m',
+    greetingPrompt:
+      'Send over your supplier payment cadence or aging sheet — happy to stress-test the Friday liquidity buffer.',
+  },
+];
+
+export function getAssignedMentorForSprint(
+  sprintId: string,
+  domain?: string
+): PodMentorProfile {
+  const lowerId = sprintId.toLowerCase();
+  if (lowerId.includes('solar') || lowerId.includes('coldchain')) {
+    return POD_MENTORS[0];
+  }
+  if (lowerId.includes('maternal') || lowerId.includes('ngo') || lowerId.includes('health')) {
+    return POD_MENTORS[1];
+  }
+  if (lowerId.includes('sync') || lowerId.includes('remote') || lowerId.includes('tech')) {
+    return POD_MENTORS[2];
+  }
+  if (lowerId.includes('cashflow') || lowerId.includes('sme') || lowerId.includes('finance')) {
+    return POD_MENTORS[3];
+  }
+  const byDomain = POD_MENTORS.find(
+    (m) => m.domain.toLowerCase() === (domain ?? '').trim().toLowerCase()
+  );
+  return byDomain ?? POD_MENTORS[0];
+}
+
+export function buildMentorQuickReply(
+  mentor: PodMentorProfile,
+  sprintTitle: string,
+  practitionerMessage: string
+): string {
+  const lower = practitionerMessage.toLowerCase();
+  if (lower.includes('blocker') || lower.includes('stuck') || lower.includes('issue')) {
+    return `Got it — let's unblock "${sprintTitle}" together. Isolate the exact failure input first and log a 2-line test case in your deliverables; I'll review it right after.`;
+  }
+  if (lower.includes('qa') || lower.includes('check') || lower.includes('safety') || lower.includes('review')) {
+    return `Happy to run a pod QA pass on "${sprintTitle}". Double-check that your acceptance criteria and handover notes are crisp, then save your draft so I can co-sign.`;
+  }
+  if (lower.includes('handover') || lower.includes('ready') || lower.includes('submit')) {
+    return `Strong momentum. Once your final checklist items are ticked, submit the milestone — that automatically advances your escrow payout and opens the Partner Feedback loop.`;
+  }
+  return `Thanks for the update on "${sprintTitle}". I've noted this in our pod thread (${mentor.responseWindow}) — keep logging verified deliverables in the workbench and ping me anytime.`;
+}
+
+export const DEFAULT_SEED_MENTOR_MESSAGES: Omit<
+  MentorMessage,
+  'ownerUid' | 'createdAtIso' | 'updatedAtIso'
+>[] = [];
+
+export const COMPLIANCE_COUNTRY_PRESETS = [
+  { id: 'Kenya', label: 'Kenya', region: 'East Africa' },
+  { id: 'Uganda', label: 'Uganda', region: 'East Africa' },
+  { id: 'Jordan', label: 'Jordan', region: 'Middle East' },
+  { id: 'Germany', label: 'Germany', region: 'Western Europe' },
+  { id: 'Colombia', label: 'Colombia', region: 'Latin America' },
+  { id: 'Canada', label: 'Canada', region: 'North America' },
+  { id: 'Poland', label: 'Poland', region: 'Central Europe' },
+] as const;
+
+export const CUSTOM_COUNTRY_SENTINEL = 'Any Other Country — Live AI Lookup';
+
+export const IDENTITY_DOCUMENT_TIERS: Array<{
+  id: IdentityDocumentTier;
+  label: string;
+  shortHint: string;
+}> = [
+  {
+    id: 'refugee-id',
+    label: 'Refugee ID / National Alien Card',
+    shortHint: 'Host-issued identity or temporary protection credential',
+  },
+  {
+    id: 'unhcr-proof',
+    label: 'UNHCR Proof of Registration / Asylum Certificate',
+    shortHint: 'Asylum-seeker attestation or registration slip',
+  },
+  {
+    id: 'convention-travel',
+    label: 'Convention Travel Document',
+    shortHint: '1951 Convention travel & status verification booklet',
+  },
+  {
+    id: 'pending-paperwork',
+    label: 'Pending / Missing Paperwork',
+    shortHint: 'Awaiting registration renewal or displaced credentials',
+  },
+];
+
+export const TARGET_WORK_MODES: Array<{
+  id: TargetWorkMode;
+  label: string;
+}> = [
+  { id: 'local-formal', label: 'Local Formal Employment' },
+  { id: 'cross-border-remote', label: 'Cross-Border Remote Contracting' },
+  { id: 'paid-fellowship', label: 'Paid Fellowship / Sprint' },
+];
+
+export function enforceUnderFifteenWords(raw: string): string {
+  const words = raw
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+  if (words.length <= 14) return words.join(' ');
+  return `${words.slice(0, 14).join(' ').replace(/[.,;:]+$/, '')}.`;
+}
+
+interface CountryComplianceRule {
+  localTier: RegulatoryAccessTier;
+  remoteTier: RegulatoryAccessTier;
+  fellowshipTier: RegulatoryAccessTier;
+  frameworkName: string;
+  localTalent: string[];
+  localPartner: string[];
+  remoteTalent: string[];
+  remotePartner: string[];
+  fellowshipTalent: string[];
+  fellowshipPartner: string[];
+  iloNote: string;
+}
+
+const COUNTRY_COMPLIANCE_RULES: Record<string, CountryComplianceRule> = {
+  Kenya: {
+    localTier: 'Enabling',
+    remoteTier: 'Enabling',
+    fellowshipTier: 'Enabling',
+    frameworkName: 'Kenya Refugees Act 2021 & Class M Permit',
+    localTalent: [
+      'Present Refugee ID or Alien Card to verify identity cleanly.',
+      'Apply for fee-waived Class M work permit with employer letter.',
+      'Register KRA PIN and NSSF to receive formal local salary.',
+    ],
+    localPartner: [
+      'Issue formal offer letter supporting fee-exempt Class M work permit.',
+      'Accept Alien Card or Refugee ID under Refugees Act 2021.',
+      'Run standard Kenya PAYE, NSSF, and SHA payroll onboarding.',
+    ],
+    remoteTalent: [
+      'Verify Refugee ID or UNHCR slip for independent remote contracting.',
+      'Sign fixed-milestone sprint contract with clear IP and fee terms.',
+      'Receive verified payouts via M-Pesa, Equity Bank, or Wise.',
+    ],
+    remotePartner: [
+      'Use compliant cross-border independent contractor template with milestone escrow.',
+      'Verify Living Competency Passport alongside host-issued Refugee ID.',
+      'Settle invoices directly via M-Pesa Business or SWIFT/Wise rails.',
+    ],
+    fellowshipTalent: [
+      'Join paid project sprint using Living Competency Passport and ID.',
+      'Complete 1-page fellowship milestone charter before kickoff day.',
+      'Receive stipend via mobile money upon mentor QA sign-off.',
+    ],
+    fellowshipPartner: [
+      'Onboard talent under structured capacity-building sprint fellowship terms.',
+      'Pair Emerging Builders with Senior Specialists for compliant mentorship.',
+      'Release milestone stipends directly through audited mobile money rails.',
+    ],
+    iloNote:
+      'Under ILO Guiding Principles, Kenya’s Refugees Act 2021 affirms equal wages, safe conditions, and non-discrimination for credentialed refugee workers.',
+  },
+  Uganda: {
+    localTier: 'Enabling',
+    remoteTier: 'Enabling',
+    fellowshipTier: 'Enabling',
+    frameworkName: 'Uganda Refugees Act 2006 Open Work Right',
+    localTalent: [
+      'Use OPM Refugee ID to exercise statutory right to work.',
+      'Register TIN with Uganda Revenue Authority without permit fees.',
+      'Sign host-country employment contract with equal statutory protections.',
+    ],
+    localPartner: [
+      'Verify OPM Refugee ID; no special work permit fee required.',
+      'Enroll employee into NSSF and PAYE on equal local terms.',
+      'Provide written contract specifying hours, wages, and safety standards.',
+    ],
+    remoteTalent: [
+      'Pair OPM Refugee ID with Vuka Living Competency Passport.',
+      'Execute plain-language independent remote services sprint agreement.',
+      'Settle USD or UGX earnings via MTN MoMo or bank.',
+    ],
+    remotePartner: [
+      'Contract directly with Ugandan-hosted talent under B2B services terms.',
+      'Verify digital identity using OPM Refugee ID and peer quotes.',
+      'Pay milestones via MTN MoMo, Airtel Money, or local IBAN.',
+    ],
+    fellowshipTalent: [
+      'Enter paid sprint pod immediately using OPM registration credential.',
+      'Sign clear 1–2 week deliverable charter with mentor pairing.',
+      'Collect verified stipend upon partner acceptance on mobile money.',
+    ],
+    fellowshipPartner: [
+      'Activate zero-fee fellowship onboarding for OPM-registered practitioners.',
+      'Define measurable deliverables and weekly pod check-in milestones.',
+      'Disburse stipends transparently without multi-month HR delays.',
+    ],
+    iloNote:
+      'ILO Guiding Principles highlight Uganda’s self-reliance model granting equal right to work, freedom of movement, and social security access.',
+  },
+  Jordan: {
+    localTier: 'Mixed — Friction Guided',
+    remoteTier: 'Restricted — Remote/EOR Route Active',
+    fellowshipTier: 'Enabling',
+    frameworkName: 'Jordan Compact Flexible Permit & Digital EOR Bridge',
+    localTalent: [
+      'Confirm valid Ministry of Interior card and UNHCR certificate.',
+      'Obtain sector-specific or flexible Jordan Compact work permit.',
+      'Verify employer registration under Social Security Corporation coverage.',
+    ],
+    localPartner: [
+      'Check sector eligibility under current Ministry of Labour permit list.',
+      'Sponsor flexible permit renewal or partner with accredited EOR.',
+      'Register worker in Social Security Corporation from day one.',
+    ],
+    remoteTalent: [
+      'Route remote contracts through Vuka-accredited EOR or cooperative bridge.',
+      'Pair UNHCR proof with verified peer endorsements for trust.',
+      'Receive compliant disbursements via JoMoPay, Zain Cash, or IBAN.',
+    ],
+    remotePartner: [
+      'Engage remote talent legally via accredited Employer-of-Record compliance bridge.',
+      'Scope deliverables as fixed-milestone technical or advisory sprints.',
+      'Settle milestone escrow cleanly via JoMoPay or regional IBAN.',
+    ],
+    fellowshipTalent: [
+      'Complete paid training-to-solution sprint under NGO/partner fellowship umbrella.',
+      'Use UNHCR registration and competency passport for rapid clearance.',
+      'Receive learning and delivery stipend on JoMoPay wallet.',
+    ],
+    fellowshipPartner: [
+      'Structure short sprints as accredited skills-fellowship stipends with partners.',
+      'Maintain transparent attendance, deliverable QA, and safety logs.',
+      'Disburse compliant stipends through regulated local payment wallets.',
+    ],
+    iloNote:
+      'ILO Guiding Principles in Jordan emphasize decent work permits, written wage transparency, and safe cross-border pathways where sector quotas apply.',
+  },
+  Germany: {
+    localTier: 'Mixed — Friction Guided',
+    remoteTier: 'Enabling',
+    fellowshipTier: 'Enabling',
+    frameworkName: 'AufenthG Residence & §24 Temporary Protection Track',
+    localTalent: [
+      'Check work-authorization stamp (Erwerbstätigkeit erlaubt) on residence permit.',
+      'Submit Employer Declaration (Erklärung zum Beschäftigungsverhältnis) if required.',
+      'Use Living Competency Passport to accelerate IHK/HWK skills recognition.',
+    ],
+    localPartner: [
+      'Inspect residence card wording for immediate employment permission.',
+      'File concise Federal Employment Agency form when sponsorship applies.',
+      'Accept competency-based practical verification alongside formal Anerkennung.',
+    ],
+    remoteTalent: [
+      'Confirm freelance/self-employment eligibility (Freiberufler or Gewerbe) locally.',
+      'Register Steuernummer before invoicing European or global remote clients.',
+      'Settle SEPA EUR invoices with automated tax-ready receipts.',
+    ],
+    remotePartner: [
+      'Verify contractor tax ID or route via German EOR partner.',
+      'Use GDPR-aligned remote services contract with clear IP handover.',
+      'Pay milestone fees via SEPA Instant with clear remittance.',
+    ],
+    fellowshipTalent: [
+      'Join paid project fellowship compatible with residence training provisions.',
+      'Document mentor QA hours inside Vuka Proof Ledger.',
+      'Receive SEPA stipend linked to milestone deliverable sign-off.',
+    ],
+    fellowshipPartner: [
+      'Offer structured Einarbeitung or paid project fellowship with mentor QA.',
+      'Issue clear milestone certificate supporting formal German credential recognition.',
+      'Pay compliant SEPA stipend aligned with statutory minimum protections.',
+    ],
+    iloNote:
+      'ILO Guiding Principles align with German labor law ensuring equal pay, statutory social insurance, and transparent skills recognition.',
+  },
+  Colombia: {
+    localTier: 'Enabling',
+    remoteTier: 'Enabling',
+    fellowshipTier: 'Enabling',
+    frameworkName: 'PPT (Permiso por Protección Temporal) Work Track',
+    localTalent: [
+      'Present active PPT credential valid for formal Colombian employment.',
+      'Obtain RUT tax number and enroll in EPS healthcare.',
+      'Sign standard Colombian labor or prestación de servicios contract.',
+    ],
+    localPartner: [
+      'Accept PPT ID on par with Cédula for payroll onboarding.',
+      'Register employee in PILA social security, ARL, and pension.',
+      'Use Ministerio del Trabajo compliant bilingual onboarding templates.',
+    ],
+    remoteTalent: [
+      'Use PPT + RUT to contract legally with global clients.',
+      'Execute fixed-milestone digital services contract protecting payment rights.',
+      'Withdraw USD or COP cleanly via Nequi or Bancolombia.',
+    ],
+    remotePartner: [
+      'Onboard contractor using verified PPT number and Living Passport.',
+      'Specify clear sprint scope and milestone acceptance criteria upfront.',
+      'Pay directly via USD digital wallet or local ACH.',
+    ],
+    fellowshipTalent: [
+      'Enter paid sprint fellowship immediately with active PPT document.',
+      'Collaborate inside cross-age pod with Senior Specialist mentor.',
+      'Receive milestone stipend cleanly through Nequi or local bank.',
+    ],
+    fellowshipPartner: [
+      'Accept PPT credential for rapid zero-paperwork fellowship cohort intake.',
+      'Provide written fellowship scope, accident coverage, and mentor guidance.',
+      'Settle milestone stipends promptly in COP or USD.',
+    ],
+    iloNote:
+      'ILO Guiding Principles recognize Colombia’s PPT status for full labor-market equality, social protection enrollment, and formal contracting rights.',
+  },
+  Canada: {
+    localTier: 'Enabling',
+    remoteTier: 'Enabling',
+    fellowshipTier: 'Enabling',
+    frameworkName: 'IRCC Open Work Permit & EMPP Skilled Track',
+    localTalent: [
+      'Present IRCC Open Work Permit and Social Insurance Number.',
+      'Pair Living Competency Passport with Canadian skills reference checks.',
+      'Begin formal employment or paid apprenticeship under provincial standards.',
+    ],
+    localPartner: [
+      'Verify open work permit expiry and Social Insurance Number.',
+      'Evaluate verified practical deliverables alongside Canadian credential equivalents.',
+      'Onboard via standard provincial payroll with full benefits.',
+    ],
+    remoteTalent: [
+      'Invoice remote clients legally under active Canadian SIN registration.',
+      'Sign clear independent contractor agreement defining deliverables and IP.',
+      'Receive CAD or USD settlement via EFT or Wise.',
+    ],
+    remotePartner: [
+      'Engage practitioner as independent contractor or via Canadian payroll.',
+      'Verify open work eligibility and Living Competency Passport signature.',
+      'Release fixed-milestone funds on EFT or digital wallet rails.',
+    ],
+    fellowshipTalent: [
+      'Join paid cross-age sprint fellowship using Open Work Permit.',
+      'Build Canadian workplace references alongside Senior Specialist mentors.',
+      'Receive milestone stipend via direct EFT deposit.',
+    ],
+    fellowshipPartner: [
+      'Offer paid 2-week work-integrated sprint to bridge Canadian experience.',
+      'Provide structured mentor feedback convertible into verifiable employer references.',
+      'Compensate fellows fairly at or above provincial standards.',
+    ],
+    iloNote:
+      'ILO Guiding Principles align with Canadian provincial labor codes guaranteeing equal pay, workplace safety, and non-discrimination.',
+  },
+  Poland: {
+    localTier: 'Enabling',
+    remoteTier: 'Enabling',
+    fellowshipTier: 'Enabling',
+    frameworkName: 'EU Temporary Protection & PESEL UKR Access',
+    localTalent: [
+      'Present PESEL UKR or Temporary Protection card for immediate work.',
+      'Sign Polish employment (Umowa o pracę) or civil contract.',
+      'Ensure employer submits ZUS and 14-day Powiatowy Urząd Pracy notice.',
+    ],
+    localPartner: [
+      'Verify PESEL UKR status; no separate work permit needed.',
+      'Submit simple electronic notification to labor office within 14 days.',
+      'Enroll worker in ZUS health and social insurance immediately.',
+    ],
+    remoteTalent: [
+      'Contract cross-border via JDG registration or Polish EOR partner.',
+      'Attach Living Competency Passport QR code to contractor dossier.',
+      'Receive EUR or PLN payouts via SEPA Instant or BLIK.',
+    ],
+    remotePartner: [
+      'Verify EU Temporary Protection ID and Competency Passport signature.',
+      'Contract cleanly via Umowa zlecenie, B2B, or EOR rail.',
+      'Settle milestone invoices promptly via SEPA Instant EUR.',
+    ],
+    fellowshipTalent: [
+      'Start paid skill-bridging sprint immediately using PESEL UKR status.',
+      'Work asynchronously inside cross-age pod with principal mentor.',
+      'Collect verified PLN or EUR stipend via BLIK/SEPA.',
+    ],
+    fellowshipPartner: [
+      'Onboard PESEL UKR holders rapidly without waiting for permits.',
+      'Pair fellows with 30–46+ mentors for deliverable QA sign-off.',
+      'Disburse stipends via compliant EU SEPA or BLIK rails.',
+    ],
+    iloNote:
+      'ILO Guiding Principles and EU Temporary Protection guarantee equal remuneration, ZUS social security, and freedom from exploitation.',
+  },
+};
+
+export function getPreseededComplianceRoute(
+  country: string,
+  docTier: IdentityDocumentTier,
+  workMode: TargetWorkMode
+): ComplianceCrossingRoute {
+  const cleanCountry = country.trim() || 'Kenya';
+  const rule = COUNTRY_COMPLIANCE_RULES[cleanCountry];
+  const now = new Date().toISOString();
+
+  if (!rule) {
+    // Generic ILO-grounded fallback for arbitrary non-preset countries prior to/alongside Live AI Lookup
+    const accessTier: RegulatoryAccessTier =
+      docTier === 'pending-paperwork'
+        ? 'Restricted — Remote/EOR Route Active'
+        : workMode === 'cross-border-remote'
+          ? 'Mixed — Friction Guided'
+          : 'Mixed — Friction Guided';
+
+    return {
+      country: cleanCountry,
+      docTier,
+      workMode,
+      accessTier,
+      pathwayHeadline: `${cleanCountry} · Guided ILO-Aligned ${
+        workMode === 'cross-border-remote'
+          ? 'Remote Contracting'
+          : workMode === 'paid-fellowship'
+            ? 'Paid Fellowship'
+            : 'Formal Work'
+      } Bridge`,
+      talentSteps: [
+        'Keep digital copies of any registration ID and Competency Passport ready.',
+        workMode === 'local-formal'
+          ? 'Confirm host labor office permit rules or use EOR bridge.'
+          : 'Route paid sprints through compliant cross-border escrow or EOR host.',
+        'Settle verified milestone earnings via local bank or digital wallet.',
+      ].map(enforceUnderFifteenWords),
+      partnerSteps: [
+        'Accept Living Competency Passport and peer quotes as primary skill proof.',
+        docTier === 'pending-paperwork'
+          ? 'Use accredited EOR or fellowship escrow until host ID clears.'
+          : 'Verify host registration document against standard non-discrimination checklist.',
+        'Lock fixed milestone scope and pay fairly on time.',
+      ].map(enforceUnderFifteenWords),
+      iloRightsGuarantee:
+        'ILO Guiding Principles affirm equal treatment, written wage clarity, safe working conditions, and fair dispute recourse regardless of migration history.',
+      source: 'preset',
+      updatedAtIso: now,
+    };
+  }
+
+  let accessTier: RegulatoryAccessTier =
+    workMode === 'local-formal'
+      ? rule.localTier
+      : workMode === 'cross-border-remote'
+        ? rule.remoteTier
+        : rule.fellowshipTier;
+
+  // Adjust tier honestly when paperwork is pending or asylum slip restricts direct local payroll
+  if (docTier === 'pending-paperwork') {
+    accessTier = 'Restricted — Remote/EOR Route Active';
+  } else if (docTier === 'unhcr-proof' && workMode === 'local-formal' && accessTier === 'Enabling') {
+    accessTier = 'Mixed — Friction Guided';
+  }
+
+  const baseTalent =
+    workMode === 'local-formal'
+      ? rule.localTalent
+      : workMode === 'cross-border-remote'
+        ? rule.remoteTalent
+        : rule.fellowshipTalent;
+
+  const basePartner =
+    workMode === 'local-formal'
+      ? rule.localPartner
+      : workMode === 'cross-border-remote'
+        ? rule.remotePartner
+        : rule.fellowshipPartner;
+
+  const talentSteps = [...baseTalent];
+  const partnerSteps = [...basePartner];
+
+  if (docTier === 'pending-paperwork') {
+    talentSteps[0] = 'Use EOR compliance bridge while awaiting host ID renewal.';
+    partnerSteps[0] = 'Route contract through accredited EOR until physical ID arrives.';
+  } else if (docTier === 'unhcr-proof' && workMode === 'local-formal') {
+    talentSteps[0] = 'Pair UNHCR asylum certificate with Competency Passport for employer review.';
+  } else if (docTier === 'convention-travel') {
+    talentSteps[0] = 'Present 1951 Convention Travel Document to verify legal residency.';
+  }
+
+  return {
+    country: cleanCountry,
+    docTier,
+    workMode,
+    accessTier,
+    pathwayHeadline: `${cleanCountry} · ${rule.frameworkName}`,
+    talentSteps: talentSteps.map(enforceUnderFifteenWords),
+    partnerSteps: partnerSteps.map(enforceUnderFifteenWords),
+    iloRightsGuarantee: rule.iloNote,
+    source: 'preset',
+    updatedAtIso: now,
+  };
+}
+
+export function getSprintDurationDays(briefId: string): number {
+  const matchedSprint = SOLUTION_SPRINTS.find((s) => s.id === briefId);
+  if (matchedSprint) {
+    if (matchedSprint.durationLabel.includes('2 Week')) return 14;
+    if (matchedSprint.durationLabel.includes('10 Day')) return 10;
+    return 7;
+  }
+  const matchedBrief = SEED_BRIEFS.find((b) => b.id === briefId);
+  if (matchedBrief && matchedBrief.estimatedHours >= 10) return 14;
+  return 7;
+}
+
+export function computeSprintDueAlerts(
+  contributions: BriefSubmission[],
+  nowMs: number = Date.now()
+): SprintDueAlert[] {
+  const alerts: SprintDueAlert[] = [];
+
+  for (const item of contributions) {
+    if (item.status !== 'in-progress') continue;
+
+    let deadlineMs: number;
+    if (item.deadlineIso && !Number.isNaN(Date.parse(item.deadlineIso))) {
+      deadlineMs = Date.parse(item.deadlineIso);
+    } else {
+      const startMs = Date.parse(item.createdAtIso);
+      if (Number.isNaN(startMs)) continue;
+      deadlineMs = startMs + getSprintDurationDays(item.briefId) * 86_400_000;
+    }
+
+    const diffMs = deadlineMs - nowMs;
+    const hoursRemaining = Math.ceil(diffMs / 3_600_000);
+    if (hoursRemaining > 48) continue;
+
+    const isOverdue = hoursRemaining <= 0;
+    const formattedRemaining = isOverdue
+      ? 'Due today'
+      : hoursRemaining === 1
+        ? '1h left'
+        : `${hoursRemaining}h left`;
+
+    alerts.push({
+      contributionId: item.id,
+      briefId: item.briefId,
+      briefTitle: item.briefTitle,
+      deadlineIso: new Date(deadlineMs).toISOString(),
+      hoursRemaining,
+      formattedRemaining,
+      isOverdue,
+    });
+  }
+
+  return alerts.sort((a, b) => a.hoursRemaining - b.hoursRemaining);
+}
+
+export const FINANCIAL_PAYOUT_RAILS: FinancialPayoutRailOption[] = [
+  {
+    id: 'mobile-money',
+    label: 'Mobile Money',
+    shortLabel: 'Mobile Money',
+    plainDescription: 'Instant mobile wallet disbursement via UNHCR-linked or local telco KYC.',
+    supportedTiers: ['tier-1', 'tier-2', 'tier-3'],
+  },
+  {
+    id: 'global-wallet',
+    label: 'Global Digital Wallet',
+    shortLabel: 'Global Digital Wallet',
+    plainDescription: 'USD/EUR freelance settlement across regional e-KYC wallets and Wise.',
+    supportedTiers: ['tier-1', 'tier-2', 'tier-3'],
+  },
+  {
+    id: 'fiscal-host',
+    label: 'Fiscal-Host Disbursement',
+    shortLabel: 'Fiscal-Host Disbursement',
+    plainDescription: 'Escrow-backed NGO or EOR payout bridge when local banking is blocked.',
+    supportedTiers: ['tier-1', 'tier-2'],
+  },
+  {
+    id: 'local-bank',
+    label: 'Local Bank',
+    shortLabel: 'Local Bank',
+    plainDescription: 'Direct commercial IBAN or EFT settlement with statutory bank onboarding.',
+    supportedTiers: ['tier-2', 'tier-3'],
+  },
+];
+
+export function getFinancialPayoutRailLabel(rail: FinancialPayoutRail): string {
+  return FINANCIAL_PAYOUT_RAILS.find((r) => r.id === rail)?.label ?? 'Mobile Money';
+}
+
+export const FATF_TIERED_KYC_BRIDGE: FatfKycTierGuidance[] = [
+  {
+    id: 'tier-1',
+    tierLabel: 'Tier 1 · Proportional / Low-Friction',
+    frictionLabel: 'FATF Simplified Due Diligence',
+    summary:
+      'Mobile Money & Humanitarian-Verified Digital Wallets with capped monthly thresholds and instant UNHCR attestation or Refugee ID activation.',
+    recommendedRailsLabel: 'Mobile Money · Humanitarian Wallet · Fiscal-Host',
+    recommendedRailId: 'mobile-money',
+    kycMechanismNote:
+      'Grounded in UNHCR Financial Inclusion & FATF Risk-Based Tiered KYC: capped sprint payouts clear immediately using UNHCR registration slips without branch-level proof-of-address hurdles.',
+  },
+  {
+    id: 'tier-2',
+    tierLabel: 'Tier 2 · Standard e-KYC',
+    frictionLabel: 'Cross-Border Remote Settlement',
+    summary:
+      'Regional Digital Banks & Cross-Border Freelance Payout Rails sized for recurring remote sprint and contract milestone earnings.',
+    recommendedRailsLabel: 'Global Digital Wallet · Regional e-Bank',
+    recommendedRailId: 'global-wallet',
+    kycMechanismNote:
+      'Government Refugee ID pairs cleanly with biometric e-KYC wallets, enabling compliant USD/EUR freelance invoicing without physical commercial bank queues.',
+  },
+  {
+    id: 'tier-3',
+    tierLabel: 'Tier 3 · Full Formal Banking',
+    frictionLabel: 'Commercial Account & Tax Onboarding',
+    summary:
+      'Local Commercial Bank Account + Tax ID onboarding checklist—explicitly flagging statutory acceptance vs. branch-level KYC workarounds.',
+    recommendedRailsLabel: 'Local Bank Account · Direct EFT / IBAN',
+    recommendedRailId: 'local-bank',
+    kycMechanismNote:
+      'Even where national central banks authorize Convention Travel or statutory IDs, individual branches may ask for extra utility proofs—keep our EOR/Fiscal-Host fallback toggle ready.',
+  },
+];
+
+export function getMatchedFatfKycTier(
+  docTier: IdentityDocumentTier,
+  workMode: TargetWorkMode,
+  country: string
+): FatfKycTierGuidance {
+  if (docTier === 'unhcr-proof' || docTier === 'pending-paperwork') {
+    return FATF_TIERED_KYC_BRIDGE[0];
+  }
+  if (docTier === 'convention-travel') {
+    return FATF_TIERED_KYC_BRIDGE[2];
+  }
+  // Refugee ID defaults to Tier 2 Standard e-KYC; in Enabling formal-work jurisdictions, still surfaces Tier 2 unless upgrading
+  if (
+    workMode === 'local-formal' &&
+    (country === 'Uganda' || country === 'Colombia' || country === 'Canada' || country === 'Poland')
+  ) {
+    return FATF_TIERED_KYC_BRIDGE[2];
+  }
+  return FATF_TIERED_KYC_BRIDGE[1];
+}
+
+export const FINANCIAL_READINESS_CHECKLIST_ITEMS: Array<{
+  id: 'identity-auth' | 'payout-rail' | 'tax-terms';
+  stepNumber: string;
+  title: string;
+  reassuringCopy: string; // Strictly < 15 words
+}> = [
+  {
+    id: 'identity-auth',
+    stepNumber: '1',
+    title: 'Identity & Work-Auth Pathway Cleared',
+    reassuringCopy: 'Confirm your host ID, UNHCR proof, or EOR bridge is ready.',
+  },
+  {
+    id: 'payout-rail',
+    stepNumber: '2',
+    title: 'Compliant Payout Rail Selected & Tested',
+    reassuringCopy: 'Choose your trusted payout rail and verify test disbursement routing.',
+  },
+  {
+    id: 'tax-terms',
+    stepNumber: '3',
+    title: 'Tax & Contracting Terms Acknowledged',
+    reassuringCopy: 'Accept clear milestone payment receipts and fair contractor terms.',
+  },
+];
+
+export interface ContractingStructureMeta {
+  id: ContractingStructureOption;
+  label: string;
+  shortLabel: string;
+  badge: string;
+  summary: string;
+  legalNote: string;
+}
+
+export const CONTRACTING_STRUCTURES: ContractingStructureMeta[] = [
+  {
+    id: 'direct-local',
+    label: 'Direct Local Hire',
+    shortLabel: 'Direct Local Hire',
+    badge: 'Enabling Jurisdictions',
+    summary:
+      'Standard compliant local employment checklist for countries with statutory work-permit recognition.',
+    legalNote: 'Direct local payroll with equal-pay & social-protection parity.',
+  },
+  {
+    id: 'scoped-remote',
+    label: 'Scoped Remote Contractor / Sprint Agreement',
+    shortLabel: 'Scoped Remote Contractor',
+    badge: 'Cross-Border Agile',
+    summary:
+      'Cross-border deliverable-based sprint contract with clear milestone sign-off and IP transfer.',
+    legalNote: 'Zero local entity overhead; settles directly to verified payout rail.',
+  },
+  {
+    id: 'eor-fiscal-host',
+    label: 'Employer of Record (EOR) / Fiscal Host Bridge',
+    shortLabel: 'EOR / Fiscal Host Bridge',
+    badge: 'Zero Local-Entity Risk',
+    summary:
+      'Zero local-entity risk—partner pays one consolidated invoice and local disbursement clears seamlessly.',
+    legalNote: 'Accredited EOR/fiscal host absorbs statutory compliance & tax receipts.',
+  },
+];
+
+export function getContractingStructureMeta(
+  id: ContractingStructureOption = 'scoped-remote'
+): ContractingStructureMeta {
+  return CONTRACTING_STRUCTURES.find((item) => item.id === id) ?? CONTRACTING_STRUCTURES[1];
+}
+
+export function getContractingStructureLabel(
+  id: ContractingStructureOption = 'scoped-remote'
+): string {
+  return getContractingStructureMeta(id).label;
+}
+
+export function buildOnboardingPackTemplate(params: {
+  practitionerName: string;
+  ageStage: AgeStage;
+  hostCountry: string;
+  docTier: IdentityDocumentTier;
+  workMode: TargetWorkMode;
+  contractingStructure: ContractingStructureOption;
+  partnerOrg: string;
+  sprintTitle: string;
+  payoutUsd: number;
+  selectedPayoutRail: FinancialPayoutRail;
+  verifiedSkills: string[];
+  passportFieldMatch?: string;
+  passportId?: string | null;
+}): OnboardingPackResult {
+  const issuedDate = new Date().toISOString().slice(0, 10);
+  const structure = getContractingStructureMeta(params.contractingStructure);
+  const railLabel = getFinancialPayoutRailLabel(params.selectedPayoutRail);
+  const kycTier = getMatchedFatfKycTier(params.docTier, params.workMode, params.hostCountry);
+  const partnerName = params.partnerOrg.trim() || 'Partner Organization';
+  const practitioner = params.practitionerName.trim() || 'Skilled Practitioner';
+  const sprint = params.sprintTitle.trim() || 'Scoped Solution Sprint';
+  const fee = Math.max(50, Math.round(params.payoutUsd || 480));
+  const skillsLine =
+    params.verifiedSkills.length > 0
+      ? params.verifiedSkills.slice(0, 4).join(', ')
+      : 'Applied Technical & Operational Problem Solving';
+
+  const agreementTitle = `${structure.shortLabel} · 1-Page Sprint & Compliance Agreement`;
+  const contractingSummary = `${partnerName} engages ${practitioner} (${params.ageStage} Track) via ${structure.label} in ${params.hostCountry}, backed by ${kycTier.tierLabel} (${railLabel}).`;
+  const scopeAndDeliverables = `Deliver "${sprint}" grounded in verified skills (${skillsLine})${params.passportFieldMatch ? ` matched to ${params.passportFieldMatch}` : ''}.`;
+  const fairPaySchedule = `Fixed milestone fee of $${fee.toLocaleString()} USD held upfront in escrow and settled via ${railLabel} within 3 business days of milestone acceptance.`;
+  const complianceAttestation = `Aligned with ILO Guiding Principles on Access to the Labour Market, FATF Risk-Based Tiered KYC, and Vuka na Amana non-discrimination & IP retention standards.`;
+
+  const fullAgreementText = [
+    'VUKA NA AMANA — 1-PAGE SPRINT & COMPLIANCE AGREEMENT',
+    '====================================================================',
+    `Date Issued:          ${issuedDate}`,
+    `Hiring Partner:       ${partnerName}`,
+    `Skilled Practitioner: ${practitioner} (${params.ageStage} Career Track)`,
+    `Host Jurisdiction:    ${params.hostCountry} (${kycTier.tierLabel})`,
+    `Passport Reference:   ${params.passportId ? params.passportId : 'Verified Competency Record'}`,
+    '',
+    '1. CONTRACTING STRUCTURE & EMPLOYER LIABILITY SHIELD',
+    `   Selected Mode:  ${structure.label}`,
+    `   Legal Basis:    ${structure.legalNote}`,
+    `   Skill Proof:    ${skillsLine}`,
+    '',
+    '2. SCOPED SPRINT DELIVERABLES',
+    `   Sprint Title:   ${sprint}`,
+    `   Deliverables:   ${scopeAndDeliverables}`,
+    '   Quality Gate:   Joint sign-off by Hiring Partner lead & Cross-Age Pod Mentor.',
+    '',
+    '3. FAIR-PAY MILESTONE DISBURSEMENT SCHEDULE',
+    `   Escrow Fee:     $${fee.toLocaleString()} USD (100% ring-fenced prior to kickoff)`,
+    `   Payout Rail:    ${railLabel}`,
+    `   Schedule:       ${fairPaySchedule}`,
+    '',
+    '4. ILO DECENT-WORK & NON-DISCRIMINATION ATTESTATION',
+    `   ${complianceAttestation}`,
+    '   Deliverable IP transfers upon cleared payout while the Practitioner retains',
+    '   permanent, portable credit in their Living Competency Passport.',
+    '',
+    '--------------------------------------------------------------------',
+    `Partner Authorized Sign-Off (${partnerName}): ___________________  Date: ________`,
+    `Practitioner Sign-Off (${practitioner}): ______________________  Date: ________`,
+  ].join('\n');
+
+  return {
+    agreementTitle,
+    contractingSummary,
+    scopeAndDeliverables,
+    fairPaySchedule,
+    complianceAttestation,
+    fullAgreementText,
+    source: 'template',
+    generatedAtIso: new Date().toISOString(),
+  };
+}
+
+
+
 
