@@ -1,0 +1,521 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default-Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Hardened Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function hasActiveParentProfile(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId)) &&
+        get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+    }
+
+    // --- Validation Blueprints ---
+    function isValidPractitionerProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'displayName',
+          'email',
+          'problemStatement',
+          'ageStage',
+          'preferredLocale',
+          'themePreference',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'email',
+          'problemStatement',
+          'ageStage',
+          'preferredLocale',
+          'themePreference',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.uid is string && data.uid == userId && data.uid == request.auth.uid && isValidId(data.uid) &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.problemStatement is string && data.problemStatement.size() >= 3 && data.problemStatement.size() <= 500 &&
+        data.ageStage is string && data.ageStage.size() <= 16 && data.ageStage in ['15-17', '18-29', '30-45', '46+', '15-19', '20-29'] &&
+        data.preferredLocale is string && data.preferredLocale.size() <= 8 && data.preferredLocale in ['en', 'sw', 'fr', 'ar', 'uk', 'es'] &&
+        data.themePreference is string && data.themePreference.size() <= 8 && data.themePreference in ['light', 'dark'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSkillCapability(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'title',
+          'domain',
+          'proofSummary',
+          'verificationStatus',
+          'confidenceScore',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'title',
+          'domain',
+          'proofSummary',
+          'portfolioRef',
+          'certificationRef',
+          'peerEndorsement',
+          'verificationStatus',
+          'confidenceScore',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 120 &&
+        data.domain is string && data.domain.size() >= 2 && data.domain.size() <= 60 &&
+        data.proofSummary is string && data.proofSummary.size() >= 4 && data.proofSummary.size() <= 600 &&
+        (!('portfolioRef' in data) || (data.portfolioRef is string && data.portfolioRef.size() <= 300)) &&
+        (!('certificationRef' in data) || (data.certificationRef is string && data.certificationRef.size() <= 200)) &&
+        (!('peerEndorsement' in data) || (data.peerEndorsement is string && data.peerEndorsement.size() <= 400)) &&
+        data.verificationStatus is string && data.verificationStatus.size() <= 32 && data.verificationStatus in ['pending', 'field-verified', 'master-endorsed'] &&
+        data.confidenceScore is number && data.confidenceScore >= 0 && data.confidenceScore <= 100 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCompetencyPassport(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'studioDomain',
+          'inputMode',
+          'ageStageTrack',
+          'fieldMatch',
+          'executiveSummary',
+          'microBridgeTitle',
+          'microBridgeAction',
+          'stipendEligible',
+          'verifiedSkillLabels',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'studioDomain',
+          'inputMode',
+          'ageStageTrack',
+          'fieldMatch',
+          'executiveSummary',
+          'microBridgeTitle',
+          'microBridgeAction',
+          'stipendEligible',
+          'verifiedSkillLabels',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.studioDomain is string && data.studioDomain.size() <= 32 && data.studioDomain in ['Tech', 'Green Energy', 'Healthcare Ops', 'SME Finance'] &&
+        data.inputMode is string && data.inputMode.size() <= 16 && data.inputMode in ['summary', 'scenario'] &&
+        data.ageStageTrack is string && data.ageStageTrack.size() >= 2 && data.ageStageTrack.size() <= 120 &&
+        data.fieldMatch is string && data.fieldMatch.size() >= 2 && data.fieldMatch.size() <= 160 &&
+        data.executiveSummary is string && data.executiveSummary.size() >= 4 && data.executiveSummary.size() <= 600 &&
+        data.microBridgeTitle is string && data.microBridgeTitle.size() >= 2 && data.microBridgeTitle.size() <= 160 &&
+        data.microBridgeAction is string && data.microBridgeAction.size() >= 4 && data.microBridgeAction.size() <= 500 &&
+        data.stipendEligible is bool &&
+        data.verifiedSkillLabels is list && data.verifiedSkillLabels.size() >= 1 && data.verifiedSkillLabels.size() <= 6 && data.verifiedSkillLabels[0] is string && data.verifiedSkillLabels[0].size() <= 120 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidBriefSubmission(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'briefId',
+          'briefTitle',
+          'domain',
+          'status',
+          'solutionNotes',
+          'hoursLogged',
+          'payoutUsd',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'briefId',
+          'briefTitle',
+          'domain',
+          'status',
+          'solutionNotes',
+          'hoursLogged',
+          'payoutUsd',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.briefId is string && isValidId(data.briefId) &&
+        data.briefTitle is string && data.briefTitle.size() >= 2 && data.briefTitle.size() <= 140 &&
+        data.domain is string && data.domain.size() >= 2 && data.domain.size() <= 60 &&
+        data.status is string && data.status.size() <= 24 && data.status in ['in-progress', 'completed'] &&
+        data.solutionNotes is string && data.solutionNotes.size() <= 2000 &&
+        data.hoursLogged is number && data.hoursLogged >= 0 && data.hoursLogged <= 500 &&
+        data.payoutUsd is number && data.payoutUsd >= 0 && data.payoutUsd <= 50000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidWorkReadyVault(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'identityCompleted',
+          'identityPathway',
+          'contractCompleted',
+          'contractTemplate',
+          'payoutCompleted',
+          'payoutRail',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'identityCompleted',
+          'identityPathway',
+          'contractCompleted',
+          'contractTemplate',
+          'payoutCompleted',
+          'payoutRail',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.identityCompleted is bool &&
+        data.identityPathway is string && data.identityPathway.size() <= 32 && data.identityPathway in ['remote-contractor', 'host-country-permit', 'eor-bridge'] &&
+        data.contractCompleted is bool &&
+        data.contractTemplate is string && data.contractTemplate.size() <= 32 && data.contractTemplate in ['milestone-sprint', 'local-services', 'cross-border-advisory'] &&
+        data.payoutCompleted is bool &&
+        data.payoutRail is string && data.payoutRail.size() <= 32 && data.payoutRail in ['mobile-money', 'local-bank', 'global-wallet'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPeerEndorsement(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'collaboratorName',
+          'collaboratorRole',
+          'organization',
+          'capabilityTitle',
+          'endorsementText',
+          'status',
+          'shareToken',
+          'sourceTab',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'collaboratorName',
+          'collaboratorRole',
+          'organization',
+          'capabilityTitle',
+          'endorsementText',
+          'status',
+          'shareToken',
+          'sourceTab',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.collaboratorName is string && data.collaboratorName.size() >= 2 && data.collaboratorName.size() <= 80 &&
+        data.collaboratorRole is string && data.collaboratorRole.size() >= 2 && data.collaboratorRole.size() <= 80 &&
+        data.organization is string && data.organization.size() >= 2 && data.organization.size() <= 120 &&
+        data.capabilityTitle is string && data.capabilityTitle.size() >= 2 && data.capabilityTitle.size() <= 140 &&
+        data.endorsementText is string && data.endorsementText.size() <= 400 &&
+        data.status is string && data.status.size() <= 24 && data.status in ['requested', 'verified'] &&
+        data.shareToken is string && isValidId(data.shareToken) &&
+        data.sourceTab is string && data.sourceTab.size() <= 16 && data.sourceTab in ['verify', 'unlock'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidContractPayout(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'partnerOrg',
+          'amountUsd',
+          'payoutRail',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'partnerOrg',
+          'amountUsd',
+          'payoutRail',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.sprintId is string && isValidId(data.sprintId) &&
+        data.sprintTitle is string && data.sprintTitle.size() >= 2 && data.sprintTitle.size() <= 160 &&
+        data.partnerOrg is string && data.partnerOrg.size() >= 2 && data.partnerOrg.size() <= 120 &&
+        data.amountUsd is number && data.amountUsd >= 0 && data.amountUsd <= 50000 &&
+        data.payoutRail is string && data.payoutRail.size() <= 32 && data.payoutRail in ['mobile-money', 'local-bank', 'global-wallet'] &&
+        data.status is string && data.status.size() <= 24 && data.status in ['escrow-held', 'processing', 'released'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId) && existing().uid == request.auth.uid;
+      allow list: if isOwner(userId) && existing().uid == request.auth.uid;
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isOwner(userId) &&
+        isValidPractitionerProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isOwner(userId) &&
+        isValidPractitionerProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'problemStatement', 'ageStage', 'preferredLocale', 'themePreference', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['preferredLocale', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['themePreference', 'updatedAt'])
+        );
+      allow delete: if false;
+
+      match /capabilities/{capabilityId} {
+        allow get: if isValidId(userId) && isValidId(capabilityId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(capabilityId) &&
+          isOwner(userId) &&
+          isValidSkillCapability(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(capabilityId) &&
+          isOwner(userId) &&
+          isValidSkillCapability(incoming(), userId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'domain', 'proofSummary', 'portfolioRef', 'certificationRef', 'peerEndorsement', 'updatedAt']) ||
+            (
+              existing().verificationStatus != 'master-endorsed' &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['verificationStatus', 'confidenceScore', 'updatedAt'])
+            )
+          );
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(capabilityId) &&
+          isOwner(userId) &&
+          existing().ownerUid == request.auth.uid &&
+          hasActiveParentProfile(userId);
+      }
+
+      match /passports/{passportId} {
+        allow get: if isValidId(userId) && isValidId(passportId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(passportId) &&
+          isOwner(userId) &&
+          isValidCompetencyPassport(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(passportId) &&
+          isOwner(userId) &&
+          isValidCompetencyPassport(incoming(), userId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['stipendEligible', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['studioDomain', 'inputMode', 'ageStageTrack', 'fieldMatch', 'executiveSummary', 'microBridgeTitle', 'microBridgeAction', 'stipendEligible', 'verifiedSkillLabels', 'updatedAt'])
+          );
+        allow delete: if false;
+      }
+
+      match /contributions/{contributionId} {
+        allow get: if isValidId(userId) && isValidId(contributionId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(contributionId) &&
+          isOwner(userId) &&
+          isValidBriefSubmission(incoming(), userId) &&
+          incoming().status == 'in-progress' &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(contributionId) &&
+          isOwner(userId) &&
+          isValidBriefSubmission(incoming(), userId) &&
+          existing().status == 'in-progress' &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().briefId == existing().briefId &&
+          incoming().payoutUsd == existing().payoutUsd &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          (
+            (incoming().status == 'in-progress' && incoming().diff(existing()).affectedKeys().hasOnly(['solutionNotes', 'hoursLogged', 'updatedAt'])) ||
+            (incoming().status == 'completed' && incoming().solutionNotes.size() >= 10 && incoming().hoursLogged > 0 && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'solutionNotes', 'hoursLogged', 'updatedAt']))
+          );
+        allow delete: if false;
+      }
+
+      match /vaults/{vaultId} {
+        allow get: if isValidId(userId) && isValidId(vaultId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(vaultId) &&
+          isOwner(userId) &&
+          isValidWorkReadyVault(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(vaultId) &&
+          isOwner(userId) &&
+          isValidWorkReadyVault(incoming(), userId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'identityCompleted',
+            'identityPathway',
+            'contractCompleted',
+            'contractTemplate',
+            'payoutCompleted',
+            'payoutRail',
+            'updatedAt'
+          ]);
+        allow delete: if false;
+      }
+
+      match /endorsements/{endorsementId} {
+        allow get: if isValidId(userId) && isValidId(endorsementId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(endorsementId) &&
+          isOwner(userId) &&
+          isValidPeerEndorsement(incoming(), userId) &&
+          (
+            (incoming().status == 'requested' && incoming().endorsementText.size() == 0) ||
+            (incoming().status == 'verified' && incoming().endorsementText.size() >= 10)
+          ) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(endorsementId) &&
+          isOwner(userId) &&
+          isValidPeerEndorsement(incoming(), userId) &&
+          existing().status == 'requested' &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().shareToken == existing().shareToken &&
+          incoming().sourceTab == existing().sourceTab &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          (
+            (incoming().status == 'verified' && incoming().endorsementText.size() >= 10 && incoming().diff(existing()).affectedKeys().hasOnly(['endorsementText', 'status', 'updatedAt'])) ||
+            (incoming().status == 'requested' && incoming().diff(existing()).affectedKeys().hasOnly(['collaboratorName', 'collaboratorRole', 'organization', 'capabilityTitle', 'updatedAt']))
+          );
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(endorsementId) &&
+          isOwner(userId) &&
+          existing().ownerUid == request.auth.uid &&
+          hasActiveParentProfile(userId);
+      }
+
+      match /payouts/{payoutId} {
+        allow get: if isValidId(userId) && isValidId(payoutId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(payoutId) &&
+          isOwner(userId) &&
+          isValidContractPayout(incoming(), userId) &&
+          incoming().status == 'escrow-held' &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(payoutId) &&
+          isOwner(userId) &&
+          isValidContractPayout(incoming(), userId) &&
+          existing().status != 'released' &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().sprintId == existing().sprintId &&
+          incoming().amountUsd == existing().amountUsd &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'payoutRail', 'updatedAt']) &&
+          (
+            (existing().status == 'escrow-held' && incoming().status == 'processing') ||
+            (existing().status == 'processing' && incoming().status == 'released')
+          );
+        allow delete: if false;
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Vuka na Amana - Crossing over platform.",
+  "description": "Minimalist platform unlocking displaced skilled practitioners into verified, paid problem-solving work.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
