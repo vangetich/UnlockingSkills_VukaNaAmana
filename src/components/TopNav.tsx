@@ -75,7 +75,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   return (
     <>
       <header className="sticky top-0 z-30 bg-[#FAF8F5]/95 dark:bg-[#121315]/95 backdrop-blur-sm border-b border-[#E8E3DB] dark:border-[#2C3037]">
-        <div className="max-w-6xl mx-auto h-16 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-5">
+        <div className="max-w-6xl mx-auto h-16 px-3 sm:px-6 flex items-center justify-between gap-4 overflow-x-auto no-scrollbar touch-pan-x whitespace-nowrap">
           {/* Zone 1: Clickable Official Bridge Logo + Vuka na Amana lockup + Active Portal Pill */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink-0">
             <button
@@ -120,10 +120,10 @@ export const TopNav: React.FC<TopNavProps> = ({
             </span>
           </div>
 
-          {/* Zone 2: Clean role-scoped tab navigation */}
+          {/* Zone 2: Clean role-scoped tab navigation with smooth horizontal slide and zero scrollbars */}
           <nav
             aria-label="Primary workspace navigation"
-            className="hidden md:flex items-center gap-5 lg:gap-6"
+            className="flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0 touch-pan-x max-w-[38vw] sm:max-w-md lg:max-w-xl"
           >
             {visibleTabs.map((tab) => {
               const isActive = activeTab === tab.id;
@@ -133,19 +133,15 @@ export const TopNav: React.FC<TopNavProps> = ({
                   type="button"
                   onClick={() => onSelectTab(tab.id)}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`relative py-2 text-sm font-medium whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] rounded-sm ${
+                  data-testid={`topnav-tab-${tab.id}`}
+                  className={`min-h-[36px] px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
                     isActive
-                      ? 'text-[#146C53] dark:text-[#2EB88B]'
-                      : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
+                      ? 'bg-[#146C53] text-white dark:bg-[#2EB88B] dark:text-[#121315] shadow-xs'
+                      : 'bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
                   }`}
                 >
-                  {tab.label}
-                  {isActive && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#146C53] dark:bg-[#2EB88B]"
-                    />
-                  )}
+                  {tab.icon}
+                  <span>{tab.label}</span>
                 </button>
               );
             })}

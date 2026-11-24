@@ -1093,7 +1093,17 @@ export default function App() {
 
     setActiveAuthSession(null);
 
-    if (nextDoorToOpen) {
+    if (nextDoorToOpen === 'talent') {
+      setActivePortal('talent');
+      setUnlockViewMode('talent');
+      setViewMode('studio');
+      setGlobalToast({
+        id: `portal-switched-talent-${Date.now()}`,
+        variant: 'synced',
+        title: 'Switched to Skilled Builder Studio',
+        message: 'Successfully crossed over to the Skilled Builder portal.',
+      });
+    } else if (nextDoorToOpen) {
       setDualDoorModal({
         isOpen: true,
         door: nextDoorToOpen,
