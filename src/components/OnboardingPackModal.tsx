@@ -214,7 +214,7 @@ export const OnboardingPackModal: React.FC<OnboardingPackModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-[#17191C]/55 dark:bg-black/75 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 pt-16 sm:pt-20 bg-[#17191C]/55 dark:bg-black/75 backdrop-blur-xs overflow-y-auto"
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -225,7 +225,7 @@ export const OnboardingPackModal: React.FC<OnboardingPackModalProps> = ({
         aria-modal="true"
         aria-labelledby="onboarding-pack-modal-title"
         data-testid="onboarding-pack-modal"
-        className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-[#FAF8F5] dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden"
+        className="w-full max-w-2xl sm:max-w-3xl md:max-w-4xl lg:max-w-5xl max-h-[85vh] flex flex-col rounded-2xl bg-[#FAF8F5] dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-4 sm:my-auto"
       >
         {/* Header */}
         <div className="px-6 py-4 bg-white dark:bg-[#1A1C20] border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-start justify-between gap-4">

@@ -28,13 +28,13 @@ export const PrivacySharedAccessModal: React.FC<PrivacySharedAccessModalProps> =
       role="dialog"
       aria-modal="true"
       aria-labelledby="privacy-modal-title"
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-start sm:items-center justify-center p-4 sm:p-6 pt-16 sm:pt-20 overflow-y-auto"
     >
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 12 }}
-        className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 shadow-2xl space-y-6 my-8 max-h-[90vh] overflow-y-auto"
+        className="relative w-full max-w-xl sm:max-w-2xl md:max-w-3xl lg:max-w-4xl rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 shadow-2xl space-y-6 my-4 sm:my-auto max-h-[85vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between pb-4 border-b border-[#E8E3DB] dark:border-[#2C3037]">
           <div>

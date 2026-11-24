@@ -167,9 +167,9 @@ export const PassportPreviewModal: React.FC<PassportPreviewModalProps> = ({
       aria-modal="true"
       aria-labelledby="passport-export-title"
       data-testid="passport-export-modal"
-      className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-start sm:items-center justify-center p-4 sm:p-6 pt-16 sm:pt-20 overflow-y-auto"
     >
-      <div className="w-full max-w-2xl rounded-2xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] overflow-hidden my-auto">
+      <div className="w-full max-w-2xl sm:max-w-3xl md:max-w-4xl lg:max-w-5xl max-h-[85vh] flex flex-col rounded-2xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] overflow-hidden my-4 sm:my-auto shadow-2xl">
         <div className="px-6 py-4 bg-white dark:bg-[#1A1C20] border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-[#146C53] dark:text-[#2EB88B]">
             <ShieldCheck className="w-4 h-4" />

@@ -419,13 +419,13 @@ export const AccountSyncModal: React.FC<AccountSyncModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#17191C]/60 backdrop-blur-xs overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 pt-16 sm:pt-20 bg-[#17191C]/60 backdrop-blur-xs overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="account-sync-modal-title"
       data-testid="account-sync-modal"
     >
-      <div className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-8">
+      <div className="relative w-full max-w-xl sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[85vh] flex flex-col rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-4 sm:my-auto">
         {/* Top Modal Header */}
         <div className="px-6 pt-6 pb-4 border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-start justify-between gap-4">
           <div>

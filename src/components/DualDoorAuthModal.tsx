@@ -229,14 +229,14 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
           aria-modal="true"
           aria-labelledby="dual-door-auth-title"
           data-testid={`dual-door-modal-${door}`}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#17191C]/60 backdrop-blur-xs overflow-y-auto"
+          className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 pt-16 sm:pt-20 bg-[#17191C]/60 backdrop-blur-xs overflow-y-auto"
         >
           <motion.div
             initial={{ opacity: 0, y: 14, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.98 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="relative w-full max-w-lg rounded-2xl bg-[#FAF8F5] dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-6"
+            className="relative w-full max-w-xl sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[85vh] flex flex-col rounded-2xl bg-[#FAF8F5] dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-4 sm:my-auto"
           >
             {/* Top accent line */}
             <div

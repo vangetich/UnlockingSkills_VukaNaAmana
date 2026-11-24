@@ -88,6 +88,7 @@ import {
   saveOfflineQueue,
 } from './utils/offlineStore';
 import {
+  SEED_BRIEFS,
   advancePayoutStatus,
   buildMentorQuickReply,
   countWorkplaceSignals,
@@ -118,6 +119,7 @@ import { AccountSyncModal, type EmailVaultSyncStatus } from './components/Accoun
 import { DualDoorAuthModal } from './components/DualDoorAuthModal';
 import { PrivacySharedAccessModal } from './components/PrivacySharedAccessModal';
 import { SyncLedger } from './components/SyncLedger';
+import { PartnerConsoleView } from './components/PartnerConsoleView';
 
 export default function App() {
   const searchParams =
@@ -201,6 +203,7 @@ export default function App() {
   const [isAccountSyncOpen, setIsAccountSyncOpen] = useState(false);
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
   const [consentGrants, setConsentGrants] = useState<ConsentGrant[]>([]);
+  const [postedSprints, setPostedSprints] = useState<ProblemBrief[]>(() => SEED_BRIEFS);
   const [accessAuditLogs, setAccessAuditLogs] = useState<AccessAuditLogEntry[]>([]);
   const [sharePassportSignal, setSharePassportSignal] = useState(0);
   const [voiceTriggerSignal, setVoiceTriggerSignal] = useState(0);
@@ -2230,6 +2233,49 @@ export default function App() {
     );
   }
 
+  if (activePortal === 'partner') {
+    return (
+      <MessagingProvider
+        messages={mentorMessages}
+        onSendMessage={handleSendMentorMessage}
+      >
+        <PartnerConsoleView
+          activeSession={activeAuthSession}
+          sprints={postedSprints}
+          onPostSprint={(newSprint) => {
+            const brief: ProblemBrief = {
+              id: `brief_${Date.now()}`,
+              ...newSprint,
+            };
+            setPostedSprints((prev) => [brief, ...prev]);
+          }}
+          consentedGrants={consentGrants}
+          onIssueContract={(grantId) => {
+            setGlobalToast({
+              id: `contract-issued-${Date.now()}`,
+              variant: 'synced',
+              title: 'Compliant Sprint Contract & Escrow Issued',
+              message: `Sprint agreement for consent grant ${grantId} has been successfully finalized and locked into escrow. SDGs 8, 16, and 17 incremented.`,
+            });
+          }}
+          telemetry={{
+            sdg4Count: 12,
+            sdg8Count: postedSprints.length + 5,
+            sdg10Count: 24,
+            sdg16Count: 18,
+            sdg17Count: 15,
+            totalStipendDisbursedUsd: 14500,
+            activeSprintsCount: postedSprints.length,
+            clearedTalentCount: Math.max(1, consentGrants.length),
+          }}
+          onSwitchToTalentDoor={() => void handleWipePortalSession('talent')}
+          t={t}
+        />
+        {globalToastElement}
+      </MessagingProvider>
+    );
+  }
+
   return (
     <MessagingProvider
       messages={mentorMessages}
@@ -2278,41 +2324,6 @@ export default function App() {
         />
 
         <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10">
-          {activePortal === 'partner' && (
-            <div
-              data-testid="partner-console-isolation-banner"
-              className="mb-6 rounded-2xl border border-[#C4622D]/30 dark:border-[#E07B46]/35 bg-white dark:bg-[#1A1C20] px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
-            >
-              <div className="flex items-start gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-[#F9ECE5] dark:bg-[#2D1E17] text-[#C4622D] dark:text-[#F59E6C] flex items-center justify-center shrink-0">
-                  <Building2 className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
-                      {activeAuthSession?.realm === 'partner'
-                        ? activeAuthSession.claims.orgName
-                        : 'Partner Organization Workspace'}
-                    </span>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#E7F3EE] dark:bg-[#142B24] text-[10px] font-semibold text-[#146C53] dark:text-[#2EB88B]">
-                      <ShieldCheck className="w-3 h-3" />
-                      <span>Isolated Organization Workspace · Consent-First Talent Access</span>
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-[#575B62] dark:text-[#A3A7AE]">
-                    Scoped session (<code className="font-mono-tabular">vna_partner_sid</code>) active. Raw identity numbers and personal builder vaults are strictly inaccessible from this console.
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleWipePortalSession('talent')}
-                className="min-h-[36px] px-3.5 py-1.5 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                Wipe &amp; Switch to Builder Door
-              </button>
-            </div>
-          )}
           {incomingEndorseToken && !endorseBannerDismissed && (
             <div
               role="status"
