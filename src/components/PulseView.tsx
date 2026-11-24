@@ -289,6 +289,80 @@ export const PulseView: React.FC<PulseViewProps> = ({
     [capabilities, contributions]
   );
 
+  const recentActivities = useMemo(() => {
+    const items: Array<{
+      id: string;
+      title: string;
+      description: string;
+      timestamp: string;
+      category: 'verify' | 'unlock' | 'solve' | 'cleared';
+    }> = [];
+
+    if (passport) {
+      items.push({
+        id: 'act-passport',
+        title: 'Living Competency Passport Generated',
+        description: `Verifiable ID: ${passport.verifiableId ?? 'VNA-2026-8412'} (${passport.studioDomain})`,
+        timestamp: passport.generatedAtIso || new Date().toISOString(),
+        category: 'verify',
+      });
+    }
+
+    for (const cap of capabilities) {
+      items.push({
+        id: `act-cap-${cap.id}`,
+        title: cap.verificationStatus === 'field-verified' ? 'Skill Field-Verified' : 'Skill Capability Added',
+        description: `${cap.title} (${cap.domain})`,
+        timestamp: cap.updatedAtIso || cap.createdAtIso || new Date().toISOString(),
+        category: 'verify',
+      });
+    }
+
+    for (const contrib of contributions) {
+      items.push({
+        id: `act-contrib-${contrib.id}`,
+        title: contrib.status === 'completed' ? 'Sprint Milestone Completed' : 'Solution Sprint In Progress',
+        description: `${contrib.briefTitle || 'Sprint'} — $${contrib.payoutUsd} USD`,
+        timestamp: contrib.updatedAtIso || contrib.createdAtIso || new Date().toISOString(),
+        category: 'solve',
+      });
+    }
+
+    if (vault.identityCompleted || vault.contractCompleted || vault.payoutCompleted) {
+      items.push({
+        id: 'act-vault',
+        title: 'Compliance Readiness Updated',
+        description: `Work-Auth: ${vault.identityPathway || 'Configured'} · Payout Rail: ${vault.payoutRail || 'Selected'}`,
+        timestamp: vault.updatedAtIso || new Date().toISOString(),
+        category: 'unlock',
+      });
+    }
+
+    for (const payout of payouts) {
+      items.push({
+        id: `act-payout-${payout.id}`,
+        title: payout.status === 'released' ? 'Payout Released Successfully' : 'Escrow Held for Sprint',
+        description: `${payout.sprintTitle} ($${payout.amountUsd} USD)`,
+        timestamp: payout.updatedAtIso || payout.createdAtIso || new Date().toISOString(),
+        category: 'solve',
+      });
+    }
+
+    for (const end of endorsements) {
+      if (end.status === 'verified') {
+        items.push({
+          id: `act-end-${end.id}`,
+          title: 'Peer Endorsement Verified',
+          description: `${end.collaboratorName} (${end.organization}) endorsed ${end.capabilityTitle}`,
+          timestamp: end.updatedAtIso || end.createdAtIso || new Date().toISOString(),
+          category: 'verify',
+        });
+      }
+    }
+
+    return items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 10);
+  }, [capabilities, contributions, passport, vault, endorsements, payouts]);
+
   // Pulse Story (Gemini one-sentence human-centric summary)
   const completedContributionsList = useMemo(
     () => contributions.filter((c) => c.status === 'completed'),
@@ -834,6 +908,70 @@ export const PulseView: React.FC<PulseViewProps> = ({
           />
         </div>
       </div>
+
+      {/* RECENT ACTIVITY WIDGET */}
+      <section
+        aria-labelledby="recent-activity-heading"
+        data-testid="recent-activity-widget"
+        className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 space-y-4 shadow-sm"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-[#E8E3DB] dark:border-[#2C3037]">
+          <div>
+            <span className="text-xs uppercase tracking-widest font-semibold text-[#146C53] dark:text-[#2EB88B]">
+              Audit Trail &amp; Milestones
+            </span>
+            <h3
+              id="recent-activity-heading"
+              className="font-serif text-xl sm:text-2xl font-semibold text-[#17191C] dark:text-[#F4F2EE] mt-0.5"
+            >
+              Recent Activity Feed
+            </h3>
+          </div>
+          <span className="text-xs font-mono-tabular text-[#5A6068] dark:text-[#A3A9B3]">
+            {recentActivities.length} recent event(s) mapped from platform state
+          </span>
+        </div>
+
+        {recentActivities.length === 0 ? (
+          <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] py-6 text-center">
+            No activity recorded yet. Complete verifications, compliance steps, or solution sprints in Tabs 1–3 to populate your live audit trail.
+          </p>
+        ) : (
+          <div
+            data-testid="recent-activity-scroll-list"
+            className="max-h-80 overflow-y-auto space-y-3 pr-1"
+          >
+            {recentActivities.map((act) => (
+              <div
+                key={act.id}
+                className="rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-4 flex items-start gap-3.5 transition-colors"
+              >
+                <div className="w-8 h-8 rounded-lg bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4] flex items-center justify-center shrink-0 mt-0.5">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <p className="text-xs sm:text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE] truncate">
+                      {act.title}
+                    </p>
+                    <span className="text-[11px] font-mono-tabular text-[#5A6068] dark:text-[#A3A9B3] shrink-0">
+                      {new Date(act.timestamp).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] mt-1 leading-relaxed">
+                    {act.description}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* MIDDLE SECTION: Interactive "Knowledge-to-Work Flow" Conversion Funnel + Age & Cohesion Breakdown Strip */}
       <section

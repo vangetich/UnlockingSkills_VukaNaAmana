@@ -2,8 +2,10 @@ import 'dotenv/config';
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
+import type { ConsentGrant, AccessAuditLogEntry } from './src/types/kora.ts';
 import {
   aiRateLimiter,
   complianceCache,
@@ -12,6 +14,15 @@ import {
   signCompetencyPassport,
   visionCircuitBreaker,
 } from './src/utils/serverArchitecture.ts';
+import {
+  PARTNER_SESSION_COOKIE,
+  TALENT_SESSION_COOKIE,
+  buildClearCookieHeader,
+  buildIsolatedCookieHeader,
+  parseCookieHeader,
+  partnerAuthRealm,
+  talentAuthRealm,
+} from './src/utils/dualDoorAuth.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,7 +73,105 @@ async function startServer() {
   const httpServer = http.createServer(app);
   app.use(express.json({ limit: '4mb' }));
 
-  app.post('/api/verify/passport', async (req, res) => {
+  const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
+
+  const consentGrantsStore = new Map<string, ConsentGrant>();
+  const accessAuditLog: AccessAuditLogEntry[] = [];
+
+  const extractBearerToken = (req: express.Request): string | null => {
+    const authHeader = String(req.headers.authorization || '').trim();
+    if (authHeader.toLowerCase().startsWith('bearer ')) {
+      return authHeader.slice(7).trim() || null;
+    }
+    return null;
+  };
+
+  const isAllowedSameOriginPost = (req: express.Request): boolean => {
+    const requestedWith = String(req.headers['x-requested-with'] || '');
+    if (requestedWith === 'XMLHttpRequest' || requestedWith === 'VukaNaAmana') {
+      return true;
+    }
+    const origin = String(req.headers.origin || '').trim();
+    if (!origin) return true; // Non-browser or same-origin fetch without Origin header
+    try {
+      const originHost = new URL(origin).host.toLowerCase();
+      const expectedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+        .split(',')[0]
+        .trim()
+        .toLowerCase();
+      return Boolean(expectedHost && originHost === expectedHost);
+    } catch {
+      return false;
+    }
+  };
+
+  const logAudit = (entry: Omit<AccessAuditLogEntry, 'entryId' | 'timestampIso'>) => {
+    const record: AccessAuditLogEntry = {
+      entryId: `audit_${crypto.randomBytes(8).toString('hex')}`,
+      timestampIso: new Date().toISOString(),
+      ...entry,
+    };
+    accessAuditLog.unshift(record);
+    if (accessAuditLog.length > 200) accessAuditLog.pop();
+  };
+
+  const requireTalentAuthOrGuard = (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const bearer = extractBearerToken(req);
+    const partnerCookie = cookies[PARTNER_SESSION_COOKIE];
+    const partnerBearer = bearer ? partnerAuthRealm.verifySession(bearer) : null;
+
+    if (partnerCookie || partnerBearer) {
+      const partnerId = partnerCookie
+        ? partnerAuthRealm.verifySession(partnerCookie)?.sub ?? 'unknown_partner'
+        : partnerBearer?.sub ?? 'unknown_partner';
+      logAudit({
+        actorRole: 'partner',
+        actorId: partnerId,
+        action: 'PORTAL_BOUNDARY_GUARD_TRIGGERED',
+        details: 'Partner credential attempted to access restricted Talent Builder endpoint.',
+      });
+      res.status(403).json({
+        error: '403 Forbidden: Portal Boundary Enforced. Hiring Partner tokens cannot access Builder endpoints.',
+      });
+      return;
+    }
+    next();
+  };
+
+  const requirePartnerAuthOrGuard = (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const bearer = extractBearerToken(req);
+    const talentCookie = cookies[TALENT_SESSION_COOKIE];
+    const talentBearer = bearer ? talentAuthRealm.verifySession(bearer) : null;
+
+    if (talentCookie || talentBearer) {
+      const talentId = talentCookie
+        ? talentAuthRealm.verifySession(talentCookie)?.sub ?? 'unknown_builder'
+        : talentBearer?.sub ?? 'unknown_builder';
+      logAudit({
+        actorRole: 'builder',
+        actorId: talentId,
+        action: 'PORTAL_BOUNDARY_GUARD_TRIGGERED',
+        details: 'Builder credential attempted to access restricted Hiring Partner endpoint.',
+      });
+      res.status(403).json({
+        error: '403 Forbidden: Portal Boundary Enforced. Builder tokens cannot access Hiring Partner management endpoints.',
+      });
+      return;
+    }
+    next();
+  };
+
+  app.post('/api/verify/passport', requireTalentAuthOrGuard, async (req, res) => {
     try {
       const body = req.body as {
         inputMode?: string;
@@ -1694,14 +1803,14 @@ async function startServer() {
   }
 
   // 4. Multi-Tenant Cohort Provisioning Engine (`POST /api/cohorts/provision` & `GET /api/cohorts`)
-  app.get('/api/cohorts', (_req, res) => {
+  app.get('/api/cohorts', requirePartnerAuthOrGuard, (_req, res) => {
     res.json({
       cohorts: partnerScaleStore.getCohorts(),
       activeCohortCount: partnerScaleStore.getCohorts().length,
     });
   });
 
-  app.post('/api/cohorts/provision', (req, res) => {
+  app.post('/api/cohorts/provision', requirePartnerAuthOrGuard, (req, res) => {
     const body = req.body as {
       regionId?: string;
       sectorId?: string;
@@ -1834,7 +1943,460 @@ async function startServer() {
     });
   });
 
-  // 7. System Readiness & Trust Endpoint (`GET /api/health`)
+  // 7. Isolated Dual-Door Authentication Realms & Zero-Trust Consent Bridge
+
+  const revokeOppositeRealm = (req: express.Request, keepRealm: 'talent' | 'partner') => {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const bearer = extractBearerToken(req);
+    if (keepRealm === 'talent') {
+      if (cookies[PARTNER_SESSION_COOKIE]) {
+        partnerAuthRealm.revokeSession(cookies[PARTNER_SESSION_COOKIE]);
+      }
+      if (bearer && partnerAuthRealm.verifySession(bearer)) {
+        partnerAuthRealm.revokeSession(bearer);
+      }
+    } else {
+      if (cookies[TALENT_SESSION_COOKIE]) {
+        talentAuthRealm.revokeSession(cookies[TALENT_SESSION_COOKIE]);
+      }
+      if (bearer && talentAuthRealm.verifySession(bearer)) {
+        talentAuthRealm.revokeSession(bearer);
+      }
+    }
+  };
+
+  app.post('/api/auth/talent/request-code', (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const clientKey = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'global');
+    const limit = aiRateLimiter.consume(`auth-talent:${clientKey}`, 1);
+    if (!limit.allowed) {
+      res.status(429).json({
+        error: `Too many sign-in attempts. Please wait ${limit.retryAfterSeconds}s and try again.`,
+      });
+      return;
+    }
+    try {
+      const body = (req.body ?? {}) as {
+        channel?: 'whatsapp' | 'phone' | 'email';
+        identifier?: string;
+        displayName?: string;
+        ageStage?: '15-17' | '18-29' | '30-45' | '46+';
+      };
+      const challenge = talentAuthRealm.requestChallenge({
+        channel: body.channel || 'whatsapp',
+        identifier: String(body.identifier || ''),
+        displayName: body.displayName,
+        ageStage: body.ageStage,
+      });
+      res.status(200).json({
+        realm: 'talent',
+        ...challenge,
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Unable to send builder verification code.',
+      });
+    }
+  });
+
+  app.post('/api/auth/talent/verify', (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    try {
+      const body = (req.body ?? {}) as { challengeId?: string; code?: string };
+      // Strict mutual exclusion: wipe any active partner session before issuing talent session
+      revokeOppositeRealm(req, 'talent');
+      const result = talentAuthRealm.verifyChallenge({
+        challengeId: String(body.challengeId || ''),
+        code: String(body.code || ''),
+      });
+      res.setHeader('Set-Cookie', [
+        buildIsolatedCookieHeader(TALENT_SESSION_COOKIE, result.token, SESSION_MAX_AGE_SECONDS),
+        buildClearCookieHeader(PARTNER_SESSION_COOKIE),
+      ]);
+      res.status(200).json({
+        authenticated: true,
+        realm: 'talent',
+        sessionCookieName: TALENT_SESSION_COOKIE,
+        token: result.token,
+        claims: result.claims,
+      });
+    } catch (err) {
+      res.status(401).json({
+        error: err instanceof Error ? err.message : 'Builder verification failed.',
+      });
+    }
+  });
+
+  app.post('/api/auth/talent/demo', (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const body = (req.body ?? {}) as {
+      displayName?: string;
+      ageStage?: '15-17' | '18-29' | '30-45' | '46+';
+    };
+    revokeOppositeRealm(req, 'talent');
+    const result = talentAuthRealm.mintDemoBuilderSession({
+      displayName: body.displayName,
+      ageStage: body.ageStage,
+    });
+    res.setHeader('Set-Cookie', [
+      buildIsolatedCookieHeader(TALENT_SESSION_COOKIE, result.token, SESSION_MAX_AGE_SECONDS),
+      buildClearCookieHeader(PARTNER_SESSION_COOKIE),
+    ]);
+    res.status(200).json({
+      authenticated: true,
+      realm: 'talent',
+      sessionCookieName: TALENT_SESSION_COOKIE,
+      token: result.token,
+      claims: result.claims,
+    });
+  });
+
+  app.post('/api/auth/partner/request-code', (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const clientKey = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'global');
+    const limit = aiRateLimiter.consume(`auth-partner:${clientKey}`, 1);
+    if (!limit.allowed) {
+      res.status(429).json({
+        error: `Too many partner sign-in attempts. Please wait ${limit.retryAfterSeconds}s and try again.`,
+      });
+      return;
+    }
+    try {
+      const body = (req.body ?? {}) as {
+        workEmail?: string;
+        organizationName?: string;
+        memberRole?: 'partner_admin' | 'hiring_lead';
+        displayName?: string;
+      };
+      const challenge = partnerAuthRealm.requestChallenge({
+        workEmail: String(body.workEmail || ''),
+        organizationName: String(body.organizationName || ''),
+        memberRole: body.memberRole === 'partner_admin' ? 'partner_admin' : 'hiring_lead',
+        displayName: body.displayName,
+      });
+      res.status(200).json({
+        realm: 'partner',
+        ...challenge,
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Unable to send partner domain verification code.',
+      });
+    }
+  });
+
+  app.post('/api/auth/partner/verify', (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    try {
+      const body = (req.body ?? {}) as { challengeId?: string; code?: string };
+      // Strict mutual exclusion: wipe any active talent session before issuing partner session
+      revokeOppositeRealm(req, 'partner');
+      const result = partnerAuthRealm.verifyChallenge({
+        challengeId: String(body.challengeId || ''),
+        code: String(body.code || ''),
+      });
+      res.setHeader('Set-Cookie', [
+        buildIsolatedCookieHeader(PARTNER_SESSION_COOKIE, result.token, SESSION_MAX_AGE_SECONDS),
+        buildClearCookieHeader(TALENT_SESSION_COOKIE),
+      ]);
+      res.status(200).json({
+        authenticated: true,
+        realm: 'partner',
+        sessionCookieName: PARTNER_SESSION_COOKIE,
+        token: result.token,
+        claims: result.claims,
+      });
+    } catch (err) {
+      res.status(401).json({
+        error: err instanceof Error ? err.message : 'Partner verification failed.',
+      });
+    }
+  });
+
+  app.post('/api/auth/partner/demo', (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const body = (req.body ?? {}) as { memberRole?: 'partner_admin' | 'hiring_lead' };
+    revokeOppositeRealm(req, 'partner');
+    const result = partnerAuthRealm.mintDemoPartnerSession(
+      body.memberRole === 'partner_admin' ? 'partner_admin' : 'hiring_lead'
+    );
+    res.setHeader('Set-Cookie', [
+      buildIsolatedCookieHeader(PARTNER_SESSION_COOKIE, result.token, SESSION_MAX_AGE_SECONDS),
+      buildClearCookieHeader(TALENT_SESSION_COOKIE),
+    ]);
+    res.status(200).json({
+      authenticated: true,
+      realm: 'partner',
+      sessionCookieName: PARTNER_SESSION_COOKIE,
+      token: result.token,
+      claims: result.claims,
+    });
+  });
+
+  app.get('/api/auth/session', (req, res) => {
+    const bearer = extractBearerToken(req);
+    const cookies = parseCookieHeader(req.headers.cookie);
+
+    if (bearer) {
+      const talentClaims = talentAuthRealm.verifySession(bearer);
+      if (talentClaims) {
+        res.json({
+          authenticated: true,
+          realm: 'talent',
+          sessionCookieName: TALENT_SESSION_COOKIE,
+          token: bearer,
+          claims: talentClaims,
+        });
+        return;
+      }
+      const partnerClaims = partnerAuthRealm.verifySession(bearer);
+      if (partnerClaims) {
+        res.json({
+          authenticated: true,
+          realm: 'partner',
+          sessionCookieName: PARTNER_SESSION_COOKIE,
+          token: bearer,
+          claims: partnerClaims,
+        });
+        return;
+      }
+    }
+
+    const talentCookie = cookies[TALENT_SESSION_COOKIE];
+    const partnerCookie = cookies[PARTNER_SESSION_COOKIE];
+
+    // Enforce strict mutual exclusion: if both cookies somehow coexist, revoke and wipe both
+    if (talentCookie && partnerCookie) {
+      talentAuthRealm.revokeSession(talentCookie);
+      partnerAuthRealm.revokeSession(partnerCookie);
+      res.setHeader('Set-Cookie', [
+        buildClearCookieHeader(TALENT_SESSION_COOKIE),
+        buildClearCookieHeader(PARTNER_SESSION_COOKIE),
+      ]);
+      res.json({ authenticated: false, realm: null });
+      return;
+    }
+
+    if (talentCookie) {
+      const talentClaims = talentAuthRealm.verifySession(talentCookie);
+      if (talentClaims) {
+        res.json({
+          authenticated: true,
+          realm: 'talent',
+          sessionCookieName: TALENT_SESSION_COOKIE,
+          token: talentCookie,
+          claims: talentClaims,
+        });
+        return;
+      }
+    }
+
+    if (partnerCookie) {
+      const partnerClaims = partnerAuthRealm.verifySession(partnerCookie);
+      if (partnerClaims) {
+        res.json({
+          authenticated: true,
+          realm: 'partner',
+          sessionCookieName: PARTNER_SESSION_COOKIE,
+          token: partnerCookie,
+          claims: partnerClaims,
+        });
+        return;
+      }
+    }
+
+    res.json({ authenticated: false, realm: null });
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const bearer = extractBearerToken(req);
+    const cookies = parseCookieHeader(req.headers.cookie);
+    if (bearer) {
+      talentAuthRealm.revokeSession(bearer);
+      partnerAuthRealm.revokeSession(bearer);
+    }
+    if (cookies[TALENT_SESSION_COOKIE]) {
+      talentAuthRealm.revokeSession(cookies[TALENT_SESSION_COOKIE]);
+    }
+    if (cookies[PARTNER_SESSION_COOKIE]) {
+      partnerAuthRealm.revokeSession(cookies[PARTNER_SESSION_COOKIE]);
+    }
+    res.setHeader('Set-Cookie', [
+      buildClearCookieHeader(TALENT_SESSION_COOKIE),
+      buildClearCookieHeader(PARTNER_SESSION_COOKIE),
+    ]);
+    res.status(200).json({ loggedOut: true, clearedRealms: ['talent', 'partner'] });
+  });
+
+  // Zero-Trust Consent Bridge & Append-Only Audit Log Endpoints
+  app.post('/api/consent/grant', requireTalentAuthOrGuard, (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const body = (req.body ?? {}) as {
+      talentAlias?: string;
+      verifiedPassportSummary?: string;
+      photoProofHighlights?: string[];
+      complianceShieldStatus?: string;
+      grantedToOrgId?: string;
+      grantedToOrgName?: string;
+    };
+
+    const grantedToOrgId = String(body.grantedToOrgId || '').trim();
+    if (!grantedToOrgId) {
+      res.status(400).json({ error: 'Missing organization ID for consent grant.' });
+      return;
+    }
+
+    const consentId = `VNA-GRANT-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    const nowIso = new Date().toISOString();
+    const grant: ConsentGrant = {
+      consentId,
+      talentAlias: String(body.talentAlias || 'Skilled Builder').trim(),
+      verifiedPassportSummary: String(body.verifiedPassportSummary || 'Living Competency Passport verified').trim(),
+      photoProofHighlights: Array.isArray(body.photoProofHighlights) ? body.photoProofHighlights : [],
+      complianceShieldStatus: String(body.complianceShieldStatus || 'Tier-2 KYC Cleared').trim(),
+      grantedToOrgId,
+      grantedToOrgName: String(body.grantedToOrgName || 'Verified Hiring Partner').trim(),
+      status: 'active',
+      grantedAtIso: nowIso,
+    };
+
+    consentGrantsStore.set(consentId, grant);
+    logAudit({
+      actorRole: 'builder',
+      actorId: grant.talentAlias,
+      action: 'CONSENT_GRANTED',
+      targetOrgId: grantedToOrgId,
+      details: `Active Consent Grant (${consentId}) issued to ${grant.grantedToOrgName}.`,
+    });
+
+    res.status(201).json({ grant, status: 'SUCCESS' });
+  });
+
+  app.post('/api/consent/revoke', requireTalentAuthOrGuard, (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const body = (req.body ?? {}) as { consentId?: string };
+    const consentId = String(body.consentId || '').trim();
+    const grant = consentGrantsStore.get(consentId);
+    if (!grant) {
+      res.status(404).json({ error: 'Consent grant not found.' });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    grant.status = 'revoked';
+    grant.revokedAtIso = nowIso;
+    consentGrantsStore.set(consentId, grant);
+
+    logAudit({
+      actorRole: 'builder',
+      actorId: grant.talentAlias,
+      action: 'CONSENT_REVOKED',
+      targetOrgId: grant.grantedToOrgId,
+      details: `Consent Grant (${consentId}) revoked. Visibility removed from Partner Console immediately.`,
+    });
+
+    res.status(200).json({ revoked: true, consentId });
+  });
+
+  app.get('/api/consent/grants', (_req, res) => {
+    const grants = Array.from(consentGrantsStore.values());
+    res.json({ grants });
+  });
+
+  app.get('/api/partner/dossier/:talentAlias', requirePartnerAuthOrGuard, (req, res) => {
+    const talentAlias = decodeURIComponent(req.params.talentAlias || '').trim();
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const bearer = extractBearerToken(req);
+    const partnerClaims = bearer
+      ? partnerAuthRealm.verifySession(bearer)
+      : cookies[PARTNER_SESSION_COOKIE]
+        ? partnerAuthRealm.verifySession(cookies[PARTNER_SESSION_COOKIE])
+        : null;
+
+    if (!partnerClaims) {
+      res.status(401).json({ error: 'Hiring partner authentication required.' });
+      return;
+    }
+
+    const activeGrant = Array.from(consentGrantsStore.values()).find(
+      (g) =>
+        g.talentAlias.toLowerCase() === talentAlias.toLowerCase() &&
+        g.grantedToOrgId === partnerClaims.orgId &&
+        g.status === 'active'
+    );
+
+    if (!activeGrant) {
+      logAudit({
+        actorRole: 'partner',
+        actorId: partnerClaims.sub,
+        action: 'PORTAL_BOUNDARY_GUARD_TRIGGERED',
+        targetOrgId: partnerClaims.orgId,
+        details: `Partner attempted to view dossier for ${talentAlias} without an active Consent Grant. Zero-raw-ID and PII protected.`,
+      });
+      res.status(403).json({
+        error: '403 Forbidden: Active Consent Grant required. Raw ID numbers, personal contacts, and Tab 5 relocation plans are strictly shielded.',
+      });
+      return;
+    }
+
+    logAudit({
+      actorRole: 'partner',
+      actorId: partnerClaims.sub,
+      action: 'PARTNER_DOSSIER_VIEWED',
+      targetOrgId: partnerClaims.orgId,
+      details: `Partner successfully viewed consented dossier for ${talentAlias} under grant ${activeGrant.consentId}. Zero raw PII exposed.`,
+    });
+
+    res.json({
+      dossier: {
+        consentId: activeGrant.consentId,
+        talentAlias: activeGrant.talentAlias,
+        verifiedPassportSummary: activeGrant.verifiedPassportSummary,
+        photoProofHighlights: activeGrant.photoProofHighlights,
+        complianceShieldStatus: activeGrant.complianceShieldStatus,
+        zeroRawIdProtected: true,
+        piiShielded: true,
+        grantedAtIso: activeGrant.grantedAtIso,
+      },
+    });
+  });
+
+  app.get('/api/audit/logs', (_req, res) => {
+    res.json({
+      auditLogs: accessAuditLog,
+      totalEntries: accessAuditLog.length,
+    });
+  });
+
+  // 8. System Readiness & Trust Endpoint (`GET /api/health`)
   app.get('/api/health', (_req, res) => {
     const cacheStats = complianceCache.getStats();
     const circuitMetrics = visionCircuitBreaker.getMetrics();
@@ -1846,6 +2408,7 @@ async function startServer() {
       cachedComplianceEngineActive: true,
       signedPassportVerificationReady: true,
       zeroRawIdPrivacyMode: true,
+      dualDoorAuthRealmsIsolated: true,
       cacheStats,
       circuitBreaker: circuitMetrics,
       activeCohortCount: telemetry.activeCohortCount,

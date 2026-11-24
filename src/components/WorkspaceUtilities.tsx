@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Download, Globe, Moon, RefreshCw, Sun, WifiOff } from 'lucide-react';
-import type { LocaleCode, ThemeMode } from '../types/kora';
+import { Building2, Download, Globe, Moon, ShieldCheck, Sun, WifiOff } from 'lucide-react';
+import type { ActiveAuthSession, LocaleCode, PortalRealm, ThemeMode } from '../types/kora';
 import { LOCALE_OPTIONS, type TranslationDictionary } from '../utils/i18n';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { PwaOfflineSyncButton } from './PwaOfflineSyncButton';
 
 interface WorkspaceUtilitiesProps {
   locale: LocaleCode;
@@ -13,7 +14,14 @@ interface WorkspaceUtilitiesProps {
   queuedCount: number;
   isSignedIn: boolean;
   isSyncing: boolean;
+  lastSyncedIso?: string | null;
+  userEmail: string | null;
+  userDisplayName: string | null;
+  activePortal: PortalRealm;
+  activeSession: ActiveAuthSession | null;
   onSyncNow: () => void;
+  onOpenAccountSync: () => void;
+  onOpenPrivacyModal?: () => void;
   t: TranslationDictionary;
 }
 
@@ -26,53 +34,127 @@ export const WorkspaceUtilities: React.FC<WorkspaceUtilitiesProps> = ({
   queuedCount,
   isSignedIn,
   isSyncing,
+  lastSyncedIso = null,
+  userEmail,
+  userDisplayName,
+  activePortal,
+  activeSession,
   onSyncNow,
+  onOpenAccountSync,
+  onOpenPrivacyModal,
   t,
 }) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showIosGuide, setShowIosGuide] = useState(false);
 
+  const isPartnerPortal = activePortal === 'partner';
+
   return (
     <div className="border-b border-[#E8E3DB] dark:border-[#2C3037] bg-[#F3EFE9]/65 dark:bg-[#1A1C20]/70">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3">
-        {/* Left: Connectivity & Offline Sync status */}
-        <div className="flex items-center gap-3 text-xs text-[#575B62] dark:text-[#A3A7AE]">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2.5">
+        {/* Left: Connectivity & Isolated Session Context */}
+        <div className="flex flex-wrap items-center gap-2.5 text-xs text-[#575B62] dark:text-[#A3A7AE]">
           {!isOnline ? (
             <span className="inline-flex items-center gap-1.5 font-medium text-[#9A5B13] dark:text-[#E5A95E]">
               <WifiOff className="w-3.5 h-3.5" />
               <span>{t.offlineBanner}</span>
             </span>
+          ) : isPartnerPortal && activeSession?.realm === 'partner' ? (
+            <span
+              data-testid="partner-session-context-strip"
+              className="inline-flex items-center gap-1.5 font-medium text-[#17191C] dark:text-[#F4F2EE]"
+            >
+              <Building2 className="w-3.5 h-3.5 text-[#C4622D] dark:text-[#E07B46]" />
+              <span>{activeSession.claims.orgName}</span>
+              <span aria-hidden="true" className="text-[#A3A7AE]">·</span>
+              <span className="text-[#146C53] dark:text-[#2EB88B] font-semibold">
+                {activeSession.claims.memberRole === 'partner_admin' ? 'Partner Admin' : 'Hiring Lead'}
+              </span>
+              <span aria-hidden="true" className="hidden sm:inline text-[#A3A7AE]">·</span>
+              <span className="hidden sm:inline font-mono-tabular text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                {activeSession.claims.workEmail}
+              </span>
+            </span>
           ) : (
-            <span>
-              {t.onlineReady}
-              <span aria-hidden="true"> · </span>
-              {isSignedIn ? t.syncedAccount : t.guestLocalMode}
-              {queuedCount > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              {activeSession?.realm === 'talent' && (
                 <>
-                  <span aria-hidden="true"> · </span>
-                  <span className="tabular-nums font-medium text-[#17191C] dark:text-[#F4F2EE]">
-                    {queuedCount} {t.queuedUpdatesSuffix}
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                  <span className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                    {activeSession.claims.displayName}
                   </span>
+                  <span aria-hidden="true">·</span>
                 </>
               )}
+              <span>
+                {t.onlineReady}
+                <span aria-hidden="true"> · </span>
+                {isSignedIn ? t.syncedAccount : t.guestLocalMode}
+                {queuedCount > 0 && (
+                  <>
+                    <span aria-hidden="true"> · </span>
+                    <span className="tabular-nums font-medium text-[#17191C] dark:text-[#F4F2EE]">
+                      {queuedCount} {t.queuedUpdatesSuffix}
+                    </span>
+                  </>
+                )}
+              </span>
             </span>
-          )}
-
-          {isSignedIn && isOnline && queuedCount > 0 && (
-            <button
-              type="button"
-              onClick={onSyncNow}
-              disabled={isSyncing}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white dark:bg-[#23262B] border border-[#E8E3DB] dark:border-[#2C3037] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] hover:bg-[#FAF8F5] dark:hover:bg-[#2C3037] transition-colors whitespace-nowrap shrink-0"
-            >
-              <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{t.syncNow}</span>
-            </button>
           )}
         </div>
 
-        {/* Right: Language, Theme, and PWA Install */}
-        <div className="flex items-center gap-2.5">
+        {/* Right: PWA Offline Sync, Account Sync (Talent Studio), Language, Theme, and PWA Install */}
+        <div className="flex flex-wrap items-center gap-2">
+          {!isPartnerPortal && (
+            <>
+              <PwaOfflineSyncButton
+                isOnline={isOnline}
+                isSyncing={isSyncing}
+                queuedCount={queuedCount}
+                lastSyncedIso={lastSyncedIso}
+                syncedEmail={userEmail}
+                onSyncNow={onSyncNow}
+                onOpenEmailVault={onOpenAccountSync}
+                compact
+              />
+
+              {userEmail ? (
+                <button
+                  type="button"
+                  data-testid="topnav-account-sync-btn"
+                  onClick={onOpenAccountSync}
+                  title={`${userEmail} — Manage synced email providers`}
+                  className="min-h-[36px] px-3 py-1 rounded-lg border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-[#E7F3EE]/80 dark:bg-[#142B24]/80 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] hover:bg-[#D5EBE2] dark:hover:bg-[#1C3B31] transition-colors whitespace-nowrap shrink-0 max-w-[180px] truncate"
+                >
+                  {userDisplayName || userEmail} · Synced
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="topnav-account-sync-btn"
+                  onClick={onOpenAccountSync}
+                  className="min-h-[36px] px-3 py-1 rounded-lg bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+                >
+                  <span className="sm:hidden">Sync</span>
+                  <span className="hidden sm:inline">{t.signInGoogle}</span>
+                </button>
+              )}
+
+              {onOpenPrivacyModal && (
+                <button
+                  type="button"
+                  data-testid="privacy-shared-access-drawer-btn"
+                  onClick={onOpenPrivacyModal}
+                  className="min-h-[36px] px-3 py-1 rounded-lg border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-white dark:bg-[#1A1C20] hover:bg-[#E7F3EE] dark:hover:bg-[#142B24] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Privacy &amp; Shared Access</span>
+                  <span className="sm:hidden">Privacy</span>
+                </button>
+              )}
+            </>
+          )}
+
           <div className="relative inline-flex items-center">
             <Globe className="w-3.5 h-3.5 text-[#575B62] dark:text-[#A3A7AE] pointer-events-none absolute start-2.5" />
             <select

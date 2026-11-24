@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, RefreshCw, WifiOff, X } from 'lucide-react';
+import { Building2, CheckCircle2, RefreshCw, ShieldCheck, WifiOff, X } from 'lucide-react';
 import {
   auth,
   deleteCloudCapability,
@@ -31,6 +31,7 @@ import {
   upsertCloudVault,
 } from './lib/firebase';
 import type {
+  ActiveAuthSession,
   AgeStage,
   AppViewMode,
   BriefSubmission,
@@ -46,6 +47,7 @@ import type {
   OfflineMutation,
   PeerEndorsement,
   PodMentorProfile,
+  PortalRealm,
   PractitionerProfile,
   ProblemBrief,
   RankedMatchedWorkOpportunity,
@@ -59,6 +61,8 @@ import type {
   UpskillingBridgePathOption,
   WorkReadyVault,
   WorkspaceTab,
+  ConsentGrant,
+  AccessAuditLogEntry,
 } from './types/kora';
 import { TRANSLATIONS, getLocaleMeta } from './utils/i18n';
 import {
@@ -111,6 +115,9 @@ import { SharedPassportView } from './components/SharedPassportView';
 import { MentorMessagingDrawer } from './components/MentorMessagingDrawer';
 import { CommandPalette } from './components/CommandPalette';
 import { AccountSyncModal, type EmailVaultSyncStatus } from './components/AccountSyncModal';
+import { DualDoorAuthModal } from './components/DualDoorAuthModal';
+import { PrivacySharedAccessModal } from './components/PrivacySharedAccessModal';
+import { SyncLedger } from './components/SyncLedger';
 
 export default function App() {
   const searchParams =
@@ -156,7 +163,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => {
     if (typeof window === 'undefined') return 'verify';
     const saved = window.sessionStorage.getItem('vuka.activeTab');
-    if (saved === 'verify' || saved === 'unlock' || saved === 'solve' || saved === 'pulse') {
+    if (
+      saved === 'verify' ||
+      saved === 'unlock' ||
+      saved === 'solve' ||
+      saved === 'pulse' ||
+      saved === 'cleared'
+    ) {
       return saved;
     }
     return 'verify';
@@ -174,12 +187,73 @@ export default function App() {
     }
     return 'landing';
   });
+  const [activePortal, setActivePortal] = useState<PortalRealm>('talent');
+  // Scoped Dual-Door session token kept strictly in React memory (never persisted to localStorage/sessionStorage)
+  const [activeAuthSession, setActiveAuthSession] = useState<ActiveAuthSession | null>(null);
+  const [dualDoorModal, setDualDoorModal] = useState<{
+    isOpen: boolean;
+    door: PortalRealm;
+    pendingPayload?: { problemStatement: string; ageStage: AgeStage };
+    pendingTab?: WorkspaceTab;
+  }>({ isOpen: false, door: 'talent' });
   const [isScaleDrawerOpen, setIsScaleDrawerOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isAccountSyncOpen, setIsAccountSyncOpen] = useState(false);
+  const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
+  const [consentGrants, setConsentGrants] = useState<ConsentGrant[]>([]);
+  const [accessAuditLogs, setAccessAuditLogs] = useState<AccessAuditLogEntry[]>([]);
   const [sharePassportSignal, setSharePassportSignal] = useState(0);
   const [voiceTriggerSignal, setVoiceTriggerSignal] = useState(0);
   const [endorseBannerDismissed, setEndorseBannerDismissed] = useState(false);
+
+  const fetchGrantsAndLogs = async () => {
+    try {
+      const [gRes, aRes] = await Promise.all([
+        fetch('/api/consent/grants'),
+        fetch('/api/audit/logs'),
+      ]);
+      if (gRes.ok) {
+        const gData = (await gRes.json()) as { grants?: ConsentGrant[] };
+        if (gData.grants) setConsentGrants(gData.grants);
+      }
+      if (aRes.ok) {
+        const aData = (await aRes.json()) as { auditLogs?: AccessAuditLogEntry[] };
+        if (aData.auditLogs) setAccessAuditLogs(aData.auditLogs);
+      }
+    } catch {
+      // Offline fallback
+    }
+  };
+
+  const handleRevokeGrant = async (consentId: string) => {
+    try {
+      const res = await fetch('/api/consent/revoke', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'VukaNaAmana',
+        },
+        body: JSON.stringify({ consentId }),
+      });
+      if (res.ok) {
+        await fetchGrantsAndLogs();
+        setGlobalToast({
+          id: `revoke-${Date.now()}`,
+          variant: 'synced',
+          title: 'Consent Revoked',
+          message: `Access grant (${consentId}) successfully revoked. Partner visibility removed immediately.`,
+        });
+      }
+    } catch {
+      setConsentGrants((prev) =>
+        prev.map((g) =>
+          g.consentId === consentId
+            ? { ...g, status: 'revoked', revokedAtIso: new Date().toISOString() }
+            : g
+        )
+      );
+    }
+  };
 
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -276,6 +350,43 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
+  // Hydrate isolated Dual-Door HttpOnly cookie session on initial load
+  useEffect(() => {
+    let cancelled = false;
+    const hydrateDualDoorSession = async () => {
+      try {
+        const res = await fetch('/api/auth/session', { credentials: 'same-origin' });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          authenticated?: boolean;
+          realm?: PortalRealm | null;
+          sessionCookieName?: 'vna_talent_sid' | 'vna_partner_sid';
+          token?: string;
+          claims?: ActiveAuthSession['claims'];
+        };
+        if (data.authenticated && data.realm && data.token && data.claims && !cancelled) {
+          const restored = {
+            realm: data.realm,
+            sessionCookieName: data.sessionCookieName,
+            token: data.token,
+            claims: data.claims,
+          } as ActiveAuthSession;
+          setActiveAuthSession(restored);
+          setActivePortal(data.realm);
+          if (data.realm === 'partner') {
+            setUnlockViewMode('partner');
+          }
+        }
+      } catch {
+        // Offline or preview cold boot — safe to remain guest local mode
+      }
+    };
+    void hydrateDualDoorSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Persist active view/tab in sessionStorage and reset scroll on navigation
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -313,58 +424,78 @@ export default function App() {
     async (user: User, queueSnapshot: OfflineMutation[], currentProfile: PractitionerProfile) => {
       if (!isOnline || !user.emailVerified) return;
       setIsSyncing(true);
-      try {
-        await ensureCloudProfile(user.uid, currentProfile, user.email || currentProfile.email);
+      const maxAttempts = 3;
+      let attempt = 0;
+      let success = false;
 
-        for (const item of queueSnapshot) {
-          if (item.kind === 'upsert_profile') {
-            await ensureCloudProfile(user.uid, item.payload, user.email || item.payload.email);
-          } else if (item.kind === 'upsert_capability') {
-            await upsertCloudCapability(user.uid, item.payload);
-          } else if (item.kind === 'delete_capability') {
-            await deleteCloudCapability(user.uid, item.capabilityId);
-          } else if (item.kind === 'upsert_contribution') {
-            await upsertCloudContribution(user.uid, item.payload);
-          } else if (item.kind === 'upsert_passport') {
-            await upsertCloudPassport(user.uid, item.payload);
-          } else if (item.kind === 'upsert_vault') {
-            await upsertCloudVault(user.uid, item.payload);
-          } else if (item.kind === 'upsert_endorsement') {
-            await upsertCloudEndorsement(user.uid, item.payload);
-          } else if (item.kind === 'delete_endorsement') {
-            await deleteCloudEndorsement(user.uid, item.endorsementId);
-          } else if (item.kind === 'upsert_payout') {
-            await upsertCloudPayout(user.uid, item.payload);
-          } else if (item.kind === 'upsert_sprint_feedback') {
-            await upsertCloudSprintFeedback(user.uid, item.payload);
-          } else if (item.kind === 'upsert_mentor_message') {
-            await upsertCloudMentorMessage(user.uid, item.payload);
+      while (attempt < maxAttempts && !success && isOnline) {
+        attempt++;
+        try {
+          await ensureCloudProfile(user.uid, currentProfile, user.email || currentProfile.email);
+
+          for (const item of queueSnapshot) {
+            if (item.kind === 'upsert_profile') {
+              await ensureCloudProfile(user.uid, item.payload, user.email || item.payload.email);
+            } else if (item.kind === 'upsert_capability') {
+              await upsertCloudCapability(user.uid, item.payload);
+            } else if (item.kind === 'delete_capability') {
+              await deleteCloudCapability(user.uid, item.capabilityId);
+            } else if (item.kind === 'upsert_contribution') {
+              await upsertCloudContribution(user.uid, item.payload);
+            } else if (item.kind === 'upsert_passport') {
+              await upsertCloudPassport(user.uid, item.payload);
+            } else if (item.kind === 'upsert_vault') {
+              await upsertCloudVault(user.uid, item.payload);
+            } else if (item.kind === 'upsert_endorsement') {
+              await upsertCloudEndorsement(user.uid, item.payload);
+            } else if (item.kind === 'delete_endorsement') {
+              await deleteCloudEndorsement(user.uid, item.endorsementId);
+            } else if (item.kind === 'upsert_payout') {
+              await upsertCloudPayout(user.uid, item.payload);
+            } else if (item.kind === 'upsert_sprint_feedback') {
+              await upsertCloudSprintFeedback(user.uid, item.payload);
+            } else if (item.kind === 'upsert_mentor_message') {
+              await upsertCloudMentorMessage(user.uid, item.payload);
+            }
           }
+
+          success = true;
+          const syncedCount = queueSnapshot.length;
+          const nowIso = new Date().toISOString();
+          setOfflineQueue(saveOfflineQueue([]));
+          setLastSyncedIso(nowIso);
+          saveLastSyncedIso(nowIso);
+
+          setGlobalToast((prev) => {
+            if (syncedCount > 0 || prev?.variant === 'syncing') {
+              return {
+                id: `firebase-synced-${Date.now()}`,
+                variant: 'synced',
+                title: 'Synced to Firebase Cloud',
+                message:
+                  syncedCount > 0
+                    ? `Your offline queue (${syncedCount} update${syncedCount === 1 ? '' : 's'}) has been successfully synced to the Firebase backend (Attempt ${attempt}).`
+                    : 'Connection restored — your workspace is synced with the Firebase backend.',
+              };
+            }
+            return prev;
+          });
+        } catch (err) {
+          if (attempt >= maxAttempts) {
+            setIsSyncing(false);
+            setGlobalToast({
+              id: `sync-retry-failed-${Date.now()}`,
+              variant: 'offline',
+              title: 'Sync Retry-Backoff Notice',
+              message: `Sync attempt ${attempt} failed. Local changes remain safely queued in PWA offline storage and will retry automatically.`,
+            });
+            throw err;
+          }
+          const delayMs = attempt * 1000 * 2;
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
-
-        const syncedCount = queueSnapshot.length;
-        const nowIso = new Date().toISOString();
-        setOfflineQueue(saveOfflineQueue([]));
-        setLastSyncedIso(nowIso);
-        saveLastSyncedIso(nowIso);
-
-        setGlobalToast((prev) => {
-          if (syncedCount > 0 || prev?.variant === 'syncing') {
-            return {
-              id: `firebase-synced-${Date.now()}`,
-              variant: 'synced',
-              title: 'Synced to Firebase Cloud',
-              message:
-                syncedCount > 0
-                  ? `Your offline queue (${syncedCount} update${syncedCount === 1 ? '' : 's'}) has been successfully synced to the Firebase backend.`
-                  : 'Connection restored — your workspace is synced with the Firebase backend.',
-            };
-          }
-          return prev;
-        });
-      } finally {
-        setIsSyncing(false);
       }
+      setIsSyncing(false);
     },
     [isOnline]
   );
@@ -868,8 +999,120 @@ export default function App() {
     if (targetTab === 'unlock') {
       setUnlockViewMode(targetUnlockMode);
     }
+    setActivePortal(targetUnlockMode === 'partner' ? 'partner' : 'talent');
     setActiveTab(targetTab);
     setViewMode('studio');
+  };
+
+  const handleOpenDualDoorFromLanding = (
+    door: PortalRealm,
+    payload: { problemStatement: string; ageStage: AgeStage },
+    targetTab: WorkspaceTab
+  ) => {
+    if (door === 'talent' && activeAuthSession?.realm === 'talent') {
+      handleLandingHandoff(payload, targetTab, 'talent');
+      return;
+    }
+    if (door === 'partner' && activeAuthSession?.realm === 'partner') {
+      setActivePortal('partner');
+      setUnlockViewMode('partner');
+      setActiveTab('unlock');
+      setViewMode('studio');
+      return;
+    }
+    setDualDoorModal({
+      isOpen: true,
+      door,
+      pendingPayload: payload,
+      pendingTab: targetTab,
+    });
+  };
+
+  const handleDualDoorAuthenticated = (session: ActiveAuthSession) => {
+    const pendingPayload = dualDoorModal.pendingPayload;
+    const pendingTab = dualDoorModal.pendingTab;
+
+    setActiveAuthSession(session);
+    setActivePortal(session.realm);
+    setDualDoorModal({ isOpen: false, door: session.realm });
+
+    if (session.realm === 'talent') {
+      const nextProfile: PractitionerProfile = {
+        ...profile,
+        displayName:
+          profile.displayName === 'Practitioner' || session.claims.isDemo
+            ? session.claims.displayName
+            : profile.displayName,
+        problemStatement: pendingPayload?.problemStatement?.trim() || profile.problemStatement,
+        ageStage: pendingPayload?.ageStage || profile.ageStage,
+        onboarded: true,
+        updatedAtIso: new Date().toISOString(),
+      };
+      updateProfileState(nextProfile);
+      setUnlockViewMode('talent');
+      setActiveTab(pendingTab ?? 'verify');
+      setViewMode('studio');
+      setGlobalToast({
+        id: `talent-realm-${Date.now()}`,
+        variant: 'synced',
+        title: 'Talent Studio Active · Isolated Builder Session',
+        message: `Signed in as ${session.claims.displayName} (vna_talent_sid · aud: vna-talent). Partner credentials strictly isolated.`,
+      });
+    } else {
+      setUnlockViewMode('partner');
+      setActiveTab('unlock');
+      setViewMode('studio');
+      setGlobalToast({
+        id: `partner-realm-${Date.now()}`,
+        variant: 'synced',
+        title: `Partner Console Active · ${session.claims.orgName}`,
+        message: `Verified ${session.claims.memberRole === 'partner_admin' ? 'Partner Admin' : 'Hiring Lead'} session (vna_partner_sid · aud: vna-partner). Consent-first access enabled.`,
+      });
+    }
+  };
+
+  const handleWipePortalSession = async (nextDoorToOpen?: PortalRealm) => {
+    const previousRealm = activeAuthSession?.realm ?? activePortal;
+    const tokenToRevoke = activeAuthSession?.token;
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'VukaNaAmana',
+          ...(tokenToRevoke ? { Authorization: `Bearer ${tokenToRevoke}` } : {}),
+        },
+      });
+    } catch {
+      // Even if offline, wipe local React-memory session cleanly
+    }
+
+    setActiveAuthSession(null);
+
+    if (nextDoorToOpen) {
+      setDualDoorModal({
+        isOpen: true,
+        door: nextDoorToOpen,
+        pendingTab: nextDoorToOpen === 'partner' ? 'unlock' : 'verify',
+      });
+      setGlobalToast({
+        id: `portal-wiped-${Date.now()}`,
+        variant: 'synced',
+        title: 'Previous Realm Session Cleared',
+        message: `Cleared ${previousRealm === 'partner' ? 'vna_partner_sid' : 'vna_talent_sid'} before opening the ${nextDoorToOpen === 'partner' ? 'Hiring Partner' : 'Talent Builder'} door.`,
+      });
+    } else {
+      setActivePortal('talent');
+      setUnlockViewMode('talent');
+      setViewMode('landing');
+      setGlobalToast({
+        id: `portal-signout-${Date.now()}`,
+        variant: 'synced',
+        title: 'Signed Out & Session Wiped',
+        message: `Your isolated ${previousRealm === 'partner' ? 'Partner Console' : 'Talent Studio'} session has been cleanly revoked.`,
+      });
+    }
   };
 
   const handleChangeLocale = (preferredLocale: LocaleCode) => {
@@ -1463,6 +1706,26 @@ export default function App() {
       matchedWorkCount: nextMatchedCount,
       appliedOpportunityIds: nextAppliedIds,
     });
+
+    try {
+      void fetch('/api/consent/grant', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'VukaNaAmana',
+        },
+        body: JSON.stringify({
+          talentAlias: profile.displayName || 'Skilled Builder',
+          verifiedPassportSummary: passport?.fieldMatch || 'Living Competency Passport verified',
+          photoProofHighlights: proofPortfolio.analysis?.visualHighlights || ['Verified proof sample'],
+          complianceShieldStatus: vault.identityPathway ? vault.identityPathway.toUpperCase() : 'Tier-2 KYC Cleared',
+          grantedToOrgId: `org_${makeSafeId(opportunity.partnerOrg)}`,
+          grantedToOrgName: opportunity.partnerOrg,
+        }),
+      });
+    } catch {
+      // Offline fallback
+    }
   };
 
   const handleStartUpskillingBridge = (params: {
@@ -1926,6 +2189,18 @@ export default function App() {
     );
   }
 
+  const dualDoorModalElement = (
+    <DualDoorAuthModal
+      isOpen={dualDoorModal.isOpen}
+      initialDoor={dualDoorModal.door}
+      ageStage={dualDoorModal.pendingPayload?.ageStage ?? profile.ageStage}
+      defaultDisplayName={profile.displayName}
+      activeSession={activeAuthSession}
+      onClose={() => setDualDoorModal((prev) => ({ ...prev, isOpen: false }))}
+      onAuthenticated={handleDualDoorAuthenticated}
+    />
+  );
+
   if (viewMode === 'landing') {
     return (
       <>
@@ -1938,13 +2213,16 @@ export default function App() {
           isOnline={isOnline}
           onChangeLocale={handleChangeLocale}
           onToggleTheme={handleToggleTheme}
-          onBeginCrossing={(payload) => handleLandingHandoff(payload, 'verify')}
-          onOpenHiringPartners={(payload) => handleLandingHandoff(payload, 'unlock', 'partner')}
-          onEnterStudio={(payload) => handleLandingHandoff(payload, 'verify')}
-          onPreviewCleared={(payload) => handleLandingHandoff(payload, 'cleared')}
+          onBeginCrossing={(payload) => handleOpenDualDoorFromLanding('talent', payload, 'verify')}
+          onOpenHiringPartners={(payload) =>
+            handleOpenDualDoorFromLanding('partner', payload, 'unlock')
+          }
+          onEnterStudio={(payload) => handleLandingHandoff(payload, 'verify', 'talent')}
+          onPreviewCleared={(payload) => handleLandingHandoff(payload, 'cleared', 'talent')}
           onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
           t={t}
         />
+        {dualDoorModalElement}
         {scaleDrawerElement}
         {commandPaletteElement}
         {globalToastElement}
@@ -1961,6 +2239,8 @@ export default function App() {
         <TopNav
           activeTab={activeTab}
           onSelectTab={setActiveTab}
+          activePortal={activePortal}
+          activeSession={activeAuthSession}
           userEmail={activeSyncedEmail}
           userDisplayName={activeSyncedName}
           isOnline={isOnline}
@@ -1970,6 +2250,8 @@ export default function App() {
           onSyncNow={handleSyncNow}
           onSignIn={handleOpenAccountSync}
           onSignOut={handleSignOut}
+          onSwitchPortal={(target) => void handleWipePortalSession(target)}
+          onSignOutPortal={() => void handleWipePortalSession()}
           onBackToHome={() => setViewMode('landing')}
           onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
           onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
@@ -1985,11 +2267,52 @@ export default function App() {
           queuedCount={offlineQueue.length}
           isSignedIn={Boolean(authUser || activeSyncedEmail)}
           isSyncing={isSyncing}
+          lastSyncedIso={lastSyncedIso}
+          userEmail={activeSyncedEmail}
+          userDisplayName={activeSyncedName}
+          activePortal={activePortal}
+          activeSession={activeAuthSession}
           onSyncNow={handleSyncNow}
+          onOpenAccountSync={handleOpenAccountSync}
           t={t}
         />
 
         <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10">
+          {activePortal === 'partner' && (
+            <div
+              data-testid="partner-console-isolation-banner"
+              className="mb-6 rounded-2xl border border-[#C4622D]/30 dark:border-[#E07B46]/35 bg-white dark:bg-[#1A1C20] px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+            >
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-[#F9ECE5] dark:bg-[#2D1E17] text-[#C4622D] dark:text-[#F59E6C] flex items-center justify-center shrink-0">
+                  <Building2 className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                      {activeAuthSession?.realm === 'partner'
+                        ? activeAuthSession.claims.orgName
+                        : 'Partner Organization Workspace'}
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#E7F3EE] dark:bg-[#142B24] text-[10px] font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                      <ShieldCheck className="w-3 h-3" />
+                      <span>Isolated Organization Workspace · Consent-First Talent Access</span>
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                    Scoped session (<code className="font-mono-tabular">vna_partner_sid</code>) active. Raw identity numbers and personal builder vaults are strictly inaccessible from this console.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleWipePortalSession('talent')}
+                className="min-h-[36px] px-3.5 py-1.5 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                Wipe &amp; Switch to Builder Door
+              </button>
+            </div>
+          )}
           {incomingEndorseToken && !endorseBannerDismissed && (
             <div
               role="status"
@@ -2150,10 +2473,20 @@ export default function App() {
             />
           )}
         </main>
+        {dualDoorModalElement}
         {scaleDrawerElement}
         {commandPaletteElement}
         {accountSyncModalElement}
         <MentorMessagingDrawer />
+        <SyncLedger
+          isOnline={isOnline}
+          isSyncing={isSyncing}
+          queuedCount={offlineQueue.length}
+          lastSyncedIso={lastSyncedIso}
+          syncedEmail={activeSyncedEmail}
+          onForceSync={handleSyncNow}
+          t={t}
+        />
         {globalToastElement}
       </div>
     </MessagingProvider>

@@ -717,4 +717,118 @@ export interface MatchedWorkApplication {
   };
 }
 
+// ============================================================================
+// Dual-Door Isolated Authentication Models (TalentAuthRealm & PartnerAuthRealm)
+// ============================================================================
+
+export type PortalRealm = 'talent' | 'partner';
+export type TalentAuthChannel = 'whatsapp' | 'phone' | 'email';
+export type PartnerMemberRole = 'partner_admin' | 'hiring_lead';
+
+export interface TalentAccount {
+  id: string;
+  displayName: string;
+  contactChannel: TalentAuthChannel;
+  contactIdentifier: string; // Masked or normalized phone/email — never raw national ID
+  ageStage: AgeStage;
+  isDemo: boolean;
+  createdAtIso: string;
+  lastLoginAtIso: string;
+}
+
+export interface PartnerOrganization {
+  id: string;
+  name: string;
+  verifiedDomain: string;
+  sector: string;
+  country: string;
+  complianceVerified: boolean;
+  createdAtIso: string;
+}
+
+export interface PartnerMember {
+  id: string;
+  orgId: string;
+  orgName: string;
+  orgDomain: string;
+  workEmail: string;
+  displayName: string;
+  memberRole: PartnerMemberRole;
+  isDemo: boolean;
+  createdAtIso: string;
+  lastLoginAtIso: string;
+}
+
+export interface TalentSessionClaims {
+  sid: string;
+  sub: string;
+  role: 'builder';
+  aud: 'vna-talent';
+  displayName: string;
+  contactChannel: TalentAuthChannel;
+  contactIdentifier: string;
+  isDemo: boolean;
+  iat: number;
+  exp: number;
+}
+
+export interface PartnerSessionClaims {
+  sid: string;
+  sub: string;
+  role: 'partner';
+  aud: 'vna-partner';
+  orgId: string;
+  orgName: string;
+  orgDomain: string;
+  workEmail: string;
+  displayName: string;
+  memberRole: PartnerMemberRole;
+  isDemo: boolean;
+  iat: number;
+  exp: number;
+}
+
+export type ActiveAuthSession =
+  | {
+      realm: 'talent';
+      sessionCookieName: 'vna_talent_sid';
+      token: string;
+      claims: TalentSessionClaims;
+    }
+  | {
+      realm: 'partner';
+      sessionCookieName: 'vna_partner_sid';
+      token: string;
+      claims: PartnerSessionClaims;
+    };
+
+export interface ConsentGrant {
+  consentId: string;
+  talentAlias: string;
+  verifiedPassportSummary: string;
+  photoProofHighlights: string[];
+  complianceShieldStatus: string;
+  grantedToOrgId: string;
+  grantedToOrgName: string;
+  status: 'active' | 'revoked';
+  grantedAtIso: string;
+  revokedAtIso?: string;
+}
+
+export interface AccessAuditLogEntry {
+  entryId: string;
+  timestampIso: string;
+  actorRole: 'builder' | 'partner' | 'system';
+  actorId: string;
+  action:
+    | 'CONSENT_GRANTED'
+    | 'CONSENT_REVOKED'
+    | 'PARTNER_DOSSIER_VIEWED'
+    | 'COMPLIANT_CONTRACT_ISSUED'
+    | 'PORTAL_BOUNDARY_GUARD_TRIGGERED';
+  targetOrgId?: string;
+  details: string;
+}
+
+
 
