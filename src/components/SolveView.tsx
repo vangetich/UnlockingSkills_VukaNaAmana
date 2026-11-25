@@ -46,6 +46,7 @@ import { PlatformFAQs } from './PlatformFAQs';
 import { VoiceTextarea } from './VoiceField';
 import { VoiceRecorder } from './VoiceRecorder';
 import { useMessaging } from '../contexts/MessagingContext';
+import { useAutoSave } from '../hooks/useAutoSave';
 
 interface SolveViewProps {
   profile: PractitionerProfile;
@@ -144,6 +145,24 @@ export const SolveView: React.FC<SolveViewProps> = ({
       setError(null);
     }
   }, [activeSubmission?.id]);
+
+  // 5-second debounced auto-save for Solve workbench draft & deliverables
+  useAutoSave({
+    key: `solve_draft_${activeSubmission?.id ?? 'default'}`,
+    data: {
+      submissionId: activeSubmission?.id ?? null,
+      notes,
+      hours: Math.max(0, Number(hours) || 0),
+      checkedDeliverables,
+    },
+    debounceMs: 5000,
+    enabled: Boolean(activeSubmission && activeSubmission.status !== 'completed'),
+    onAutoSaved: (saved) => {
+      if (saved.submissionId && saved.notes !== activeSubmission?.solutionNotes) {
+        onSaveDraft(saved.submissionId, saved.notes, saved.hours);
+      }
+    },
+  });
 
   const completedSprintsCount = useMemo(
     () => contributions.filter((c) => c.status === 'completed').length,

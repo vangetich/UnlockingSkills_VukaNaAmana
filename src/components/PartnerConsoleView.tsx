@@ -29,6 +29,7 @@ import type {
 } from '../types/kora';
 import type { TranslationDictionary } from '../utils/i18n';
 import { WovenBridgeArcsMotif } from './ResilienceMotifs';
+import { useAutoSave } from '../hooks/useAutoSave';
 
 interface PartnerConsoleViewProps {
   activeSession: ActiveAuthSession | null;
@@ -65,18 +66,48 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
   t,
 }) => {
   const [activeTab, setActiveTab] = useState<PartnerTab>('sprints');
-  const [newSprintTitle, setNewSprintTitle] = useState('');
+  const [newSprintTitle, setNewSprintTitle] = useState(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? window.localStorage.getItem('vna_autosave_partner_console_draft') : null;
+      if (saved) return (JSON.parse(saved) as { title?: string }).title || '';
+    } catch {
+      // ignore
+    }
+    return '';
+  });
   const [newSprintDomain, setNewSprintDomain] = useState<StudioDomain>('Tech');
   const [newSprintPartnerOrg, setNewSprintPartnerOrg] = useState(
     activeSession?.realm === 'partner' ? activeSession.claims.orgName : 'SolarGrid Innovations'
   );
   const [newSprintDuration, setNewSprintDuration] = useState('7-Day Sprint');
   const [newSprintPayout, setNewSprintPayout] = useState(350);
-  const [newSprintDescription, setNewSprintDescription] = useState('');
+  const [newSprintDescription, setNewSprintDescription] = useState(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? window.localStorage.getItem('vna_autosave_partner_console_draft') : null;
+      if (saved) return (JSON.parse(saved) as { description?: string }).description || '';
+    } catch {
+      // ignore
+    }
+    return '';
+  });
   const [postSuccessBanner, setPostSuccessBanner] = useState<string | null>(null);
 
   const orgName = activeSession?.realm === 'partner' ? activeSession.claims.orgName : 'Hiring Partner';
   const workEmail = activeSession?.realm === 'partner' ? activeSession.claims.workEmail : 'partner@org.org';
+
+  useAutoSave({
+    key: 'partner_console_draft',
+    data: {
+      title: newSprintTitle,
+      domain: newSprintDomain,
+      partnerOrg: newSprintPartnerOrg,
+      duration: newSprintDuration,
+      payout: newSprintPayout,
+      description: newSprintDescription,
+    },
+    debounceMs: 5000,
+    syncedEmail: workEmail,
+  });
 
   const handleCreateSprint = (e: React.FormEvent) => {
     e.preventDefault();

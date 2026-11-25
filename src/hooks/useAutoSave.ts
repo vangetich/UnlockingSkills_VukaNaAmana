@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 export interface UseAutoSaveOptions<T> {
   key: string;
@@ -19,23 +19,19 @@ export function useAutoSave<T>({
 }: UseAutoSaveOptions<T>) {
   const dataRef = useRef(data);
   dataRef.current = data;
+  const serializedData = JSON.stringify(data);
 
-  useEffect(() => {
-    if (!enabled) return;
-
-    const timer = window.setTimeout(async () => {
+  const persistAndSync = useCallback(
+    async (payload: T, serialized: string) => {
       try {
-        const payload = dataRef.current;
-        const serialized = JSON.stringify(payload);
         if (typeof window !== 'undefined') {
           window.localStorage.setItem(`vna_autosave_${key}`, serialized);
-          window.localStorage.setItem(`vna_last_autosave_iso`, new Date().toISOString());
+          window.localStorage.setItem('vna_last_autosave_iso', new Date().toISOString());
         }
 
-        // Asynchronous background sync to email-based storage vault if syncedEmail is active
-        if (syncedEmail) {
+        if (syncedEmail && syncedEmail.includes('@')) {
           try {
-            await fetch('/api/sync/vault', {
+            await fetch('/api/sync/email-vault', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -43,13 +39,16 @@ export function useAutoSave<T>({
               },
               body: JSON.stringify({
                 email: syncedEmail,
-                storeKey: key,
-                payload,
-                timestamp: new Date().toISOString(),
+                provider: 'autosave-vault',
+                payload: {
+                  storeKey: key,
+                  data: payload,
+                  savedAtIso: new Date().toISOString(),
+                },
               }),
             });
           } catch {
-            // Silently fallback to offline queue if network fails
+            // Silently fallback to local offline persistence if network fails
           }
         }
 
@@ -57,8 +56,40 @@ export function useAutoSave<T>({
       } catch (err) {
         console.error('AutoSave persistence error:', err);
       }
+    },
+    [key, syncedEmail, onAutoSaved]
+  );
+
+  // Debounced auto-save every 5 seconds when data changes
+  useEffect(() => {
+    if (!enabled) return;
+
+    const timer = window.setTimeout(() => {
+      void persistAndSync(dataRef.current, JSON.stringify(dataRef.current));
     }, debounceMs);
 
     return () => window.clearTimeout(timer);
-  }, [key, debounceMs, enabled, syncedEmail, onAutoSaved]);
+  }, [serializedData, debounceMs, enabled, persistAndSync]);
+
+  // Flush immediately if user exits section or closes/navigates away
+  useEffect(() => {
+    if (!enabled || typeof window === 'undefined') return;
+
+    const handleBeforeExit = () => {
+      try {
+        const currentSerialized = JSON.stringify(dataRef.current);
+        window.localStorage.setItem(`vna_autosave_${key}`, currentSerialized);
+        window.localStorage.setItem('vna_last_autosave_iso', new Date().toISOString());
+      } catch {
+        // Ignore storage quota issues on unload
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeExit);
+    return () => {
+      handleBeforeExit();
+      window.removeEventListener('beforeunload', handleBeforeExit);
+    };
+  }, [key, enabled]);
 }
+

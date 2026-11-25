@@ -103,6 +103,7 @@ import {
   toggleSprintMilestoneList,
 } from './utils/talentEngine';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
+import { useAutoSave } from './hooks/useAutoSave';
 import { MessagingProvider } from './contexts/MessagingContext';
 import { LandingFunnel } from './components/LandingFunnel';
 import { TopNav } from './components/TopNav';
@@ -2140,6 +2141,21 @@ export default function App() {
   const activeSyncedEmail = authUser?.email ?? emailVaultStatus?.email ?? (profile.email || null);
   const activeSyncedName =
     authUser?.displayName ?? emailVaultStatus?.displayName ?? (activeSyncedEmail ? profile.displayName : null);
+
+  useAutoSave({
+    key: 'builder_studio_workspace',
+    data: {
+      profile,
+      capabilities,
+      contributions,
+      passport,
+      vault,
+      proofPortfolio,
+      sprintMilestonesByBrief,
+    },
+    debounceMs: 5000,
+    syncedEmail: activeSyncedEmail,
+  });
 
   const accountSyncModalElement = (
     <AccountSyncModal
