@@ -2468,6 +2468,7 @@ export default function App() {
               queuedCount={offlineQueue.length}
               isOnline={isOnline}
               isSyncing={isSyncing}
+              sprintMilestonesByBrief={sprintMilestonesByBrief}
               t={t}
               onAddSprintFeedback={handleAddSprintFeedback}
               onDismissCelebration={() => setRecentCompletedContribution(null)}

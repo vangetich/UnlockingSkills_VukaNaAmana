@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
+import { motion } from 'motion/react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -425,9 +426,15 @@ export const AccountSyncModal: React.FC<AccountSyncModalProps> = ({
       aria-labelledby="account-sync-modal-title"
       data-testid="account-sync-modal"
     >
-      <div className="relative w-full max-w-xl sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[85vh] flex flex-col rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-4 sm:my-auto">
+      <motion.div
+        initial={{ opacity: 0, y: 28, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.98 }}
+        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+        className="relative w-full max-w-xl sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[85vh] flex flex-col rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-4 sm:my-auto"
+      >
         {/* Top Modal Header */}
-        <div className="px-6 pt-6 pb-4 border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-start justify-between gap-4">
+        <div className="px-6 pt-6 pb-4 border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-start justify-between gap-4 shrink-0">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#146C53] dark:text-[#2EB88B]">
               Multi-Provider Identity &amp; Sovereign Email Sync
@@ -446,13 +453,13 @@ export const AccountSyncModal: React.FC<AccountSyncModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close sync dialog"
-            className="p-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] transition-colors"
+            className="p-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] transition-colors shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-6 space-y-5 max-h-[78vh] overflow-y-auto">
+        <div className="p-6 space-y-5 overflow-y-auto flex-1 no-scrollbar">
           {/* Status / Error Feedback */}
           {(authError || localInputError) && (
             <div
@@ -872,7 +879,7 @@ export const AccountSyncModal: React.FC<AccountSyncModalProps> = ({
             </div>
           )}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Award,
   Check,
@@ -2050,10 +2051,16 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
           aria-modal="true"
           aria-label="Share or Export Verified Living Competency Passport"
           data-testid="share-passport-modal"
-          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-start sm:items-center justify-center p-4 sm:p-6 pt-16 sm:pt-20 overflow-y-auto"
         >
-          <div className="bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-xl">
-            <div className="flex items-start justify-between gap-3">
+          <motion.div
+            initial={{ opacity: 0, y: 28, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.98 }}
+            transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+            className="bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] rounded-2xl max-w-lg sm:max-w-xl md:max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden my-4 sm:my-auto"
+          >
+            <div className="px-6 py-4 border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-start justify-between gap-3 shrink-0">
               <div>
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-[#146C53] dark:text-[#2EB88B]">
                   <QrCode className="w-3.5 h-3.5" />
@@ -2069,74 +2076,76 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShowExportModal(false)}
-                className="p-1.5 rounded-lg text-[#5A6068] hover:text-[#17191C] dark:hover:text-white cursor-pointer"
+                className="p-1.5 rounded-lg text-[#5A6068] hover:text-[#17191C] dark:hover:text-white cursor-pointer shrink-0"
                 aria-label="Close modal"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Credential Summary Preview Box */}
-            <div className="rounded-xl border border-[#146C53]/30 bg-[#E7F3EE]/50 dark:bg-[#142B24]/50 p-4 space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-serif text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
-                  {sharedPassportPayload.practitionerName}
-                </span>
-                <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded-md bg-white dark:bg-[#1A1C20] text-[#146C53] dark:text-[#5EEAD4] border border-[#146C53]/25">
-                  {passport?.verifiableId ?? sharedPassportPayload.readOnlySignature}
-                </span>
+            <div className="p-6 space-y-5 overflow-y-auto flex-1 no-scrollbar">
+              {/* Credential Summary Preview Box */}
+              <div className="rounded-xl border border-[#146C53]/30 bg-[#E7F3EE]/50 dark:bg-[#142B24]/50 p-4 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-serif text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                    {sharedPassportPayload.practitionerName}
+                  </span>
+                  <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded-md bg-white dark:bg-[#1A1C20] text-[#146C53] dark:text-[#5EEAD4] border border-[#146C53]/25">
+                    {passport?.verifiableId ?? sharedPassportPayload.readOnlySignature}
+                  </span>
+                </div>
+                <p className="text-xs font-medium text-[#C4622D] dark:text-[#F59E6C]">
+                  {sharedPassportPayload.ageStageTrack} · {sharedPassportPayload.fieldMatch}
+                </p>
+                <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] line-clamp-2">
+                  {sharedPassportPayload.executiveSummary}
+                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-[#146C53] dark:text-[#5EEAD4] font-medium">
+                  <span>✓ {sharedPassportPayload.verifiedSkills.length} Core Skills</span>
+                  <span>·</span>
+                  <span>✓ {sharedPassportPayload.verifiedEndorsements.length} Peer Quotes</span>
+                  <span>·</span>
+                  <span>✓ {sharedPassportPayload.studioDomain}</span>
+                </div>
               </div>
-              <p className="text-xs font-medium text-[#C4622D] dark:text-[#F59E6C]">
-                {sharedPassportPayload.ageStageTrack} · {sharedPassportPayload.fieldMatch}
-              </p>
-              <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] line-clamp-2">
-                {sharedPassportPayload.executiveSummary}
-              </p>
-              <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-[#146C53] dark:text-[#5EEAD4] font-medium">
-                <span>✓ {sharedPassportPayload.verifiedSkills.length} Core Skills</span>
-                <span>·</span>
-                <span>✓ {sharedPassportPayload.verifiedEndorsements.length} Peer Quotes</span>
-                <span>·</span>
-                <span>✓ {sharedPassportPayload.studioDomain}</span>
-              </div>
-            </div>
 
-            {/* Shareable URL Input + Copy Button */}
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3]">
-                Public Read-Only Verification Link
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={sharedPassportUrl}
-                  data-testid="shared-passport-url-input"
-                  className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs font-mono text-[#17191C] dark:text-[#F4F2EE]"
-                />
-                <button
-                  type="button"
-                  onClick={handleCopySharedPassportLink}
-                  data-testid="copy-shared-passport-link-btn"
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5440] text-white text-xs font-semibold shrink-0 cursor-pointer"
-                >
-                  {copiedPassportLink ? (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      Copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      Copy Link
-                    </>
-                  )}
-                </button>
+              {/* Shareable URL Input + Copy Button */}
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3]">
+                  Public Read-Only Verification Link
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={sharedPassportUrl}
+                    data-testid="shared-passport-url-input"
+                    className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs font-mono text-[#17191C] dark:text-[#F4F2EE]"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopySharedPassportLink}
+                    data-testid="copy-shared-passport-link-btn"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5440] text-white text-xs font-semibold shrink-0 cursor-pointer"
+                  >
+                    {copiedPassportLink ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        Copy Link
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
 
             {/* Actions */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#E8E3DB] dark:border-[#2C3037]">
+            <div className="p-4 border-t border-[#E8E3DB] dark:border-[#2C3037] flex flex-wrap items-center justify-between gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => {
@@ -2157,7 +2166,7 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
                 Done
               </button>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
     </div>

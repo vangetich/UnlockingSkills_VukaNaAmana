@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Award,
   CheckCircle2,
@@ -651,12 +652,16 @@ export const ClearedView: React.FC<ClearedViewProps> = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="dossier-modal-title"
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-start sm:items-center justify-center p-4 sm:p-6 pt-16 sm:pt-20 overflow-y-auto"
         >
-          <div
-            className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 shadow-2xl space-y-6 my-8"
+          <motion.div
+            initial={{ opacity: 0, y: 28, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.98 }}
+            transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+            className="relative w-full max-w-2xl sm:max-w-3xl max-h-[85vh] flex flex-col rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-4 sm:my-auto"
           >
-            <div className="flex items-center justify-between pb-4 border-b border-[#E8E3DB] dark:border-[#2C3037]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E8E3DB] dark:border-[#2C3037] shrink-0">
               <div>
                 <span className="text-[11px] font-semibold uppercase tracking-widest text-[#146C53] dark:text-[#2EB88B]">
                   VUKA NA AMANA · OFFICIAL CLEARED FUTURE DOSSIER
@@ -668,13 +673,13 @@ export const ClearedView: React.FC<ClearedViewProps> = ({
               <button
                 type="button"
                 onClick={() => setDossierModalOpen(false)}
-                className="w-8 h-8 rounded-full border border-[#E8E3DB] dark:border-[#2C3037] flex items-center justify-center text-[#5A6068] dark:text-[#A3A9B3] hover:text-[#17191C]"
+                className="w-8 h-8 rounded-full border border-[#E8E3DB] dark:border-[#2C3037] flex items-center justify-center text-[#5A6068] dark:text-[#A3A9B3] hover:text-[#17191C] cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-4 text-xs sm:text-sm text-[#5A6068] dark:text-[#A3A9B3]">
+            <div className="p-6 space-y-4 text-xs sm:text-sm text-[#5A6068] dark:text-[#A3A9B3] overflow-y-auto flex-1 no-scrollbar">
               <div className="rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-4 space-y-2">
                 <p className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">1. Living Competency Passport</p>
                 <p>
@@ -704,7 +709,7 @@ export const ClearedView: React.FC<ClearedViewProps> = ({
               </div>
             </div>
 
-            <div className="pt-4 border-t border-[#E8E3DB] dark:border-[#2C3037] flex items-center justify-end gap-3">
+            <div className="p-4 border-t border-[#E8E3DB] dark:border-[#2C3037] flex items-center justify-end gap-3 shrink-0">
               <button
                 type="button"
                 onClick={() => {
@@ -716,7 +721,7 @@ export const ClearedView: React.FC<ClearedViewProps> = ({
                 Copy & Share Cleared Dossier
               </button>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
     </div>

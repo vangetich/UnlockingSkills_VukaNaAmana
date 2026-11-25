@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   ArrowRight,
   BarChart3,
@@ -357,7 +358,13 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       }}
       className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-start justify-center pt-[10vh] px-4 pb-6 overflow-y-auto"
     >
-      <div className="w-full max-w-2xl rounded-2xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden">
+      <motion.div
+        initial={{ opacity: 0, y: 24, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
+        className="w-full max-w-2xl sm:max-w-3xl rounded-2xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden"
+      >
         {/* Search Input Header */}
         <div className="px-4 py-3.5 bg-white dark:bg-[#1A1C20] border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-center gap-3">
           <Search className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B] shrink-0" />
@@ -678,7 +685,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           <span>↑↓ Navigate · Enter to execute · Esc to close</span>
           <span className="font-mono-tabular">Cmd/Ctrl + K</span>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 };

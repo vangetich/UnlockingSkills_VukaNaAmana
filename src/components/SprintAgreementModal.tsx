@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { motion } from 'motion/react';
 import { Check, Copy, Download, FileCheck2, Printer, X } from 'lucide-react';
 import type {
   CompetencyPassport,
@@ -125,14 +126,18 @@ export const SprintAgreementModal: React.FC<SprintAgreementModalProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div
+      <motion.div
         role="dialog"
         aria-modal="true"
         aria-labelledby="sprint-agreement-modal-title"
+        initial={{ opacity: 0, y: 28, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.98 }}
+        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
         className="w-full max-w-2xl sm:max-w-3xl md:max-w-4xl lg:max-w-5xl max-h-[85vh] flex flex-col rounded-2xl bg-[#FAF8F5] dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-4 sm:my-auto"
       >
         {/* Modal Header */}
-        <div className="px-6 py-4 bg-white dark:bg-[#1A1C20] border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-start justify-between gap-4">
+        <div className="px-6 py-4 bg-white dark:bg-[#1A1C20] border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-start justify-between gap-4 shrink-0">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
               <FileCheck2 className="w-4 h-4 shrink-0" />
@@ -161,7 +166,7 @@ export const SprintAgreementModal: React.FC<SprintAgreementModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-5">
+        <div className="p-6 overflow-y-auto flex-1 no-scrollbar space-y-5">
           {/* Selected Vault Terms Summary */}
           <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl bg-white dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-4 text-xs">
             <div>
@@ -324,7 +329,7 @@ export const SprintAgreementModal: React.FC<SprintAgreementModalProps> = ({
             <span>Download Agreement</span>
           </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 };

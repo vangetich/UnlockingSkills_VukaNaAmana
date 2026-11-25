@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   ArrowRight,
   Award,
@@ -1008,28 +1009,62 @@ export const SolveView: React.FC<SolveViewProps> = ({
                     )}
                   </div>
 
-                  <ul className="space-y-2 text-sm text-[#575B62] dark:text-[#A3A7AE]">
+                  <ul className="space-y-2.5 text-sm text-[#575B62] dark:text-[#A3A7AE]">
                     {activeDeliverables.map((line) => {
                       const key = `${activeSubmission.briefId}::${line}`;
                       const checked = isCompleted || Boolean(checkedDeliverables[key]);
                       return (
                         <li key={line}>
-                          <label className="flex items-start gap-2.5 cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={checked}
+                          <div className="flex items-start gap-2.5 select-none">
+                            <motion.button
+                              type="button"
                               disabled={isCompleted}
-                              onChange={() => toggleDeliverable(activeSubmission.briefId, line)}
-                              className="mt-1 h-4 w-4 rounded border-[#E8E3DB] dark:border-[#2C3037] accent-[#146C53] dark:accent-[#2EB88B]"
-                            />
-                            <span
-                              className={
-                                checked ? 'line-through text-[#8A847A] dark:text-[#78726A]' : ''
+                              aria-checked={checked}
+                              role="checkbox"
+                              data-testid={`deliverable-checkbox-${line}`}
+                              onClick={() => toggleDeliverable(activeSubmission.briefId, line)}
+                              whileHover={{ scale: 1.08 }}
+                              whileTap={{ scale: 0.9 }}
+                              animate={
+                                checked
+                                  ? {
+                                      scale: [1, 1.25, 0.94, 1.04, 1],
+                                      boxShadow: [
+                                        '0 0 0 0px rgba(20,108,83,0)',
+                                        '0 0 0 5px rgba(20,108,83,0.28)',
+                                        '0 0 0 0px rgba(20,108,83,0)',
+                                      ],
+                                      transition: { duration: 0.45, ease: [0.34, 1.56, 0.64, 1] },
+                                    }
+                                  : { scale: 1, boxShadow: '0 0 0 0px rgba(20,108,83,0)' }
                               }
+                              className={`mt-0.5 h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                                checked
+                                  ? 'bg-[#146C53] dark:bg-[#2EB88B] border-[#146C53] dark:border-[#2EB88B] text-white dark:text-[#121315]'
+                                  : 'border-[#8A847A] dark:border-[#6C717A] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B]'
+                              } disabled:cursor-default`}
+                            >
+                              {checked && (
+                                <motion.span
+                                  initial={{ scale: 0, rotate: -20, opacity: 0 }}
+                                  animate={{ scale: 1, rotate: 0, opacity: 1 }}
+                                  transition={{ type: 'spring', stiffness: 500, damping: 18 }}
+                                >
+                                  <CheckCircle2 className="w-3 h-3" />
+                                </motion.span>
+                              )}
+                            </motion.button>
+                            <span
+                              onClick={() => {
+                                if (!isCompleted) toggleDeliverable(activeSubmission.briefId, line);
+                              }}
+                              className={`cursor-pointer ${
+                                checked ? 'line-through text-[#8A847A] dark:text-[#78726A]' : ''
+                              }`}
                             >
                               {line}
                             </span>
-                          </label>
+                          </div>
                         </li>
                       );
                     })}

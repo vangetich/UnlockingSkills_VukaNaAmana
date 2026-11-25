@@ -232,22 +232,22 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
           className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 pt-16 sm:pt-20 bg-[#17191C]/60 backdrop-blur-xs overflow-y-auto"
         >
           <motion.div
-            initial={{ opacity: 0, y: 14, scale: 0.98 }}
+            initial={{ opacity: 0, y: 28, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.98 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
+            exit={{ opacity: 0, y: 16, scale: 0.98 }}
+            transition={{ type: 'spring', stiffness: 350, damping: 28 }}
             className="relative w-full max-w-xl sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[85vh] flex flex-col rounded-2xl bg-[#FAF8F5] dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-4 sm:my-auto"
           >
             {/* Top accent line */}
             <div
-              className={`h-1 w-full ${
+              className={`h-1 w-full shrink-0 ${
                 isPartner
                   ? 'bg-gradient-to-r from-[#146C53] via-[#1C8567] to-[#C4622D]'
                   : 'bg-gradient-to-r from-[#C4622D] via-[#146C53] to-[#2EB88B]'
               }`}
             />
 
-            <div className="p-6 sm:p-8 space-y-6">
+            <div className="p-6 sm:p-8 space-y-6 overflow-y-auto flex-1 no-scrollbar">
               {/* Brand lockup + close */}
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">

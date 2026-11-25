@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
+import { motion } from 'motion/react';
 import {
   Check,
   Copy,
@@ -169,8 +170,14 @@ export const PassportPreviewModal: React.FC<PassportPreviewModalProps> = ({
       data-testid="passport-export-modal"
       className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-start sm:items-center justify-center p-4 sm:p-6 pt-16 sm:pt-20 overflow-y-auto"
     >
-      <div className="w-full max-w-2xl sm:max-w-3xl md:max-w-4xl lg:max-w-5xl max-h-[85vh] flex flex-col rounded-2xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] overflow-hidden my-4 sm:my-auto shadow-2xl">
-        <div className="px-6 py-4 bg-white dark:bg-[#1A1C20] border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-center justify-between gap-4">
+      <motion.div
+        initial={{ opacity: 0, y: 28, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.98 }}
+        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+        className="w-full max-w-2xl sm:max-w-3xl md:max-w-4xl lg:max-w-5xl max-h-[85vh] flex flex-col rounded-2xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] overflow-hidden my-4 sm:my-auto shadow-2xl"
+      >
+        <div className="px-6 py-4 bg-white dark:bg-[#1A1C20] border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-center justify-between gap-4 shrink-0">
           <div className="flex items-center gap-2 text-[#146C53] dark:text-[#2EB88B]">
             <ShieldCheck className="w-4 h-4" />
             <h2
@@ -192,7 +199,7 @@ export const PassportPreviewModal: React.FC<PassportPreviewModalProps> = ({
         </div>
 
         {/* Printable Credential Card Preview */}
-        <div className="p-5 sm:p-6 space-y-6">
+        <div className="p-5 sm:p-6 space-y-6 overflow-y-auto flex-1 no-scrollbar">
           <div className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-5 sm:p-7 space-y-6">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#E8E3DB] dark:border-[#2C3037] pb-5">
               <div>
@@ -333,37 +340,37 @@ export const PassportPreviewModal: React.FC<PassportPreviewModalProps> = ({
               </div>
             </div>
           </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => void handleCopy()}
-              className="min-h-[42px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copied ? 'Copied Summary' : 'Copy Shareable Text'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleDownloadJson}
-              className="min-h-[42px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download Credential JSON</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="min-h-[42px] px-5 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print / Save PDF</span>
-            </button>
-          </div>
         </div>
-      </div>
+
+        <div className="p-4 bg-white dark:bg-[#1A1C20] border-t border-[#E8E3DB] dark:border-[#2C3037] flex flex-wrap items-center justify-end gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => void handleCopy()}
+            className="min-h-[42px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copied ? 'Copied Summary' : 'Copy Shareable Text'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadJson}
+            className="min-h-[42px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download Credential JSON</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="min-h-[42px] px-5 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Print / Save PDF</span>
+          </button>
+        </div>
+      </motion.div>
     </div>
   );
 };

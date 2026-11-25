@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Check,
   CheckCircle2,
@@ -220,15 +221,19 @@ export const OnboardingPackModal: React.FC<OnboardingPackModalProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div
+      <motion.div
         role="dialog"
         aria-modal="true"
         aria-labelledby="onboarding-pack-modal-title"
         data-testid="onboarding-pack-modal"
+        initial={{ opacity: 0, y: 28, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.98 }}
+        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
         className="w-full max-w-2xl sm:max-w-3xl md:max-w-4xl lg:max-w-5xl max-h-[85vh] flex flex-col rounded-2xl bg-[#FAF8F5] dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-4 sm:my-auto"
       >
         {/* Header */}
-        <div className="px-6 py-4 bg-white dark:bg-[#1A1C20] border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-start justify-between gap-4">
+        <div className="px-6 py-4 bg-white dark:bg-[#1A1C20] border-b border-[#E8E3DB] dark:border-[#2C3037] flex items-start justify-between gap-4 shrink-0">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
               <FileCheck2 className="w-4 h-4 shrink-0" />
@@ -258,7 +263,7 @@ export const OnboardingPackModal: React.FC<OnboardingPackModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-6 overflow-y-auto space-y-5">
+        <div className="p-6 overflow-y-auto flex-1 no-scrollbar space-y-5">
           {/* Status Strip */}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#E7F3EE]/80 dark:bg-[#142B24] border border-[#146C53]/30 dark:border-[#2EB88B]/35 px-4 py-2.5 text-xs">
             <span className="inline-flex items-center gap-1.5 font-semibold text-[#146C53] dark:text-[#2EB88B]">
@@ -451,7 +456,7 @@ export const OnboardingPackModal: React.FC<OnboardingPackModalProps> = ({
             <span>Download PDF</span>
           </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 };

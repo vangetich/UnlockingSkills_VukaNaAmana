@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   ArrowRight,
   Award,
@@ -780,10 +781,16 @@ export const MatchedWorkSection: React.FC<MatchedWorkSectionProps> = ({
           aria-modal="true"
           aria-labelledby="apply-bundle-modal-title"
           data-testid="apply-living-proof-modal"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-xs p-4 overflow-y-auto"
+          className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/55 backdrop-blur-xs p-4 sm:p-6 pt-16 sm:pt-20 overflow-y-auto"
         >
-          <div className="w-full max-w-xl rounded-2xl bg-[#FAF8F5] dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-auto">
-            <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#15171B]">
+          <motion.div
+            initial={{ opacity: 0, y: 28, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.98 }}
+            transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+            className="w-full max-w-xl sm:max-w-2xl md:max-w-3xl max-h-[85vh] flex flex-col rounded-2xl bg-[#FAF8F5] dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] shadow-2xl overflow-hidden my-4 sm:my-auto"
+          >
+            <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#15171B] shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5">
                   <Briefcase className="w-3.5 h-3.5" />
@@ -809,7 +816,7 @@ export const MatchedWorkSection: React.FC<MatchedWorkSectionProps> = ({
               </button>
             </div>
 
-            <div className="p-6 space-y-5 max-h-[78vh] overflow-y-auto">
+            <div className="p-6 space-y-5 overflow-y-auto flex-1 no-scrollbar">
               {/* Visual Progression Pathway */}
               <div className="rounded-xl bg-white dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-4 space-y-2.5">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#575B62] dark:text-[#A3A7AE]">
@@ -923,7 +930,7 @@ export const MatchedWorkSection: React.FC<MatchedWorkSectionProps> = ({
                 </button>
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
     </section>

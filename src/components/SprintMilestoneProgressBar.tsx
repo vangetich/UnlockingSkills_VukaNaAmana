@@ -68,20 +68,25 @@ export const SprintMilestoneProgressBar: React.FC<SprintMilestoneProgressBarProp
               key={step.key}
               type="button"
               disabled={isCompleted}
+              role="checkbox"
+              aria-checked={checked}
               aria-pressed={checked}
+              data-checked={checked ? 'true' : 'false'}
               data-testid={`milestone-step-${sprintId}-${step.key}`}
               onClick={() => onToggleMilestone(sprintId, step.key)}
-              whileTap={{ scale: 0.96 }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.93 }}
               animate={
                 checked
                   ? {
-                      scale: [1, 1.04, 1],
+                      scale: [1, 1.12, 0.96, 1.02, 1],
                       boxShadow: [
                         '0 0 0 0px rgba(20,108,83,0)',
-                        '0 0 0 4px rgba(20,108,83,0.18)',
+                        '0 0 0 6px rgba(20,108,83,0.3)',
+                        '0 0 0 2px rgba(20,108,83,0.1)',
                         '0 0 0 0px rgba(20,108,83,0)',
                       ],
-                      transition: { duration: 0.42, ease: 'easeOut' },
+                      transition: { duration: 0.5, ease: [0.34, 1.56, 0.64, 1] },
                     }
                   : { scale: 1, boxShadow: '0 0 0 0px rgba(20,108,83,0)' }
               }
@@ -91,18 +96,26 @@ export const SprintMilestoneProgressBar: React.FC<SprintMilestoneProgressBarProp
                   : 'bg-white dark:bg-[#1A1C20] border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:border-[#146C53]/50 dark:hover:border-[#2EB88B]/50 hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
               } disabled:cursor-default`}
             >
-              {checked ? (
-                <motion.span
-                  key={`${step.key}-checked`}
-                  initial={{ scale: 0.4, rotate: -18, opacity: 0 }}
-                  animate={{ scale: 1, rotate: 0, opacity: 1 }}
-                  transition={{ type: 'spring', stiffness: 420, damping: 16 }}
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                </motion.span>
-              ) : (
-                <Circle className="w-3.5 h-3.5 shrink-0 opacity-60" />
-              )}
+              <motion.span
+                data-testid={`milestone-checkbox-${step.key}`}
+                className="shrink-0 inline-flex items-center justify-center"
+                animate={checked ? { scale: [1, 1.3, 0.9, 1] } : { scale: 1 }}
+                transition={{ duration: 0.4, ease: [0.34, 1.56, 0.64, 1] }}
+              >
+                {checked ? (
+                  <motion.span
+                    key={`${step.key}-checked`}
+                    initial={{ scale: 0, rotate: -25, opacity: 0 }}
+                    animate={{ scale: [0, 1.35, 0.92, 1], rotate: 0, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 18, mass: 0.8 }}
+                    className="shrink-0"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  </motion.span>
+                ) : (
+                  <Circle className="w-3.5 h-3.5 shrink-0 opacity-60" />
+                )}
+              </motion.span>
               <span className="truncate">
                 {compact ? `${index + 1}. ${step.label}` : step.label}
               </span>
