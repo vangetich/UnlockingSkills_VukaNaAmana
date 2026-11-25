@@ -99,7 +99,8 @@ export const SprintMilestoneProgressBar: React.FC<SprintMilestoneProgressBarProp
               } disabled:cursor-default`}
             >
               <motion.span
-                data-testid={`milestone-checkbox-${step.key}`}
+                data-testid="milestone-checkbox"
+                data-step-key={step.key}
                 className="shrink-0 inline-flex items-center justify-center"
                 animate={checked ? { scale: [1, 1.3, 0.9, 1] } : { scale: 1 }}
                 transition={{ duration: 0.4, ease: [0.34, 1.56, 0.64, 1] }}
@@ -107,6 +108,7 @@ export const SprintMilestoneProgressBar: React.FC<SprintMilestoneProgressBarProp
                 {checked ? (
                   <motion.span
                     key={`${step.key}-checked`}
+                    data-testid={`milestone-checkbox-${step.key}`}
                     initial={{ scale: 0, rotate: -25, opacity: 0 }}
                     animate={{ scale: [0, 1.35, 0.92, 1], rotate: 0, opacity: 1 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 18, mass: 0.8 }}
@@ -115,7 +117,9 @@ export const SprintMilestoneProgressBar: React.FC<SprintMilestoneProgressBarProp
                     <CheckCircle2 className="w-3.5 h-3.5" />
                   </motion.span>
                 ) : (
-                  <Circle className="w-3.5 h-3.5 shrink-0 opacity-60" />
+                  <span data-testid={`milestone-checkbox-${step.key}`} className="inline-flex">
+                    <Circle className="w-3.5 h-3.5 shrink-0 opacity-60" />
+                  </span>
                 )}
               </motion.span>
               <span className="truncate">

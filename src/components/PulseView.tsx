@@ -320,7 +320,7 @@ export const PulseView: React.FC<PulseViewProps> = ({
     }
 
     // 2. Verification Events: Skills & Credentials
-    for (const cap of capabilities) {
+    for (const cap of capabilities ?? []) {
       const isVerified = cap.verificationStatus === 'field-verified';
       items.push({
         id: `act-cap-${cap.id}`,
@@ -335,7 +335,7 @@ export const PulseView: React.FC<PulseViewProps> = ({
     }
 
     // 3. Sprint Delivery Milestone Events & Sprint Status
-    for (const contrib of contributions) {
+    for (const contrib of contributions ?? []) {
       const isSprintCompleted = contrib.status === 'completed';
       const doneKeys = normalizeSprintMilestones(
         contrib.milestonesDone ?? sprintMilestonesByBrief?.[contrib.briefId],
@@ -368,7 +368,7 @@ export const PulseView: React.FC<PulseViewProps> = ({
     }
 
     // 4. Verification Event: Compliance Readiness Vault
-    if (vault.identityCompleted || vault.contractCompleted || vault.payoutCompleted) {
+    if (vault && (vault.identityCompleted || vault.contractCompleted || vault.payoutCompleted)) {
       items.push({
         id: 'act-vault',
         title: 'Verification Event: Work-Ready Vault Cleared',
@@ -380,7 +380,7 @@ export const PulseView: React.FC<PulseViewProps> = ({
     }
 
     // 5. Escrow & Contract Payout Events
-    for (const payout of payouts) {
+    for (const payout of payouts ?? []) {
       items.push({
         id: `act-payout-${payout.id}`,
         title: payout.status === 'released' ? 'Payout Released Successfully' : 'Escrow Held for Sprint',
@@ -392,7 +392,7 @@ export const PulseView: React.FC<PulseViewProps> = ({
     }
 
     // 6. Verification Event: Peer Endorsement
-    for (const end of endorsements) {
+    for (const end of endorsements ?? []) {
       if (end.status === 'verified') {
         items.push({
           id: `act-end-${end.id}`,
@@ -1034,16 +1034,16 @@ export const PulseView: React.FC<PulseViewProps> = ({
           </div>
         </div>
 
-        {filteredActivities.length === 0 ? (
-          <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] py-6 text-center">
-            No events match the selected filter. Complete verifications, compliance steps, or solution sprints in Tabs 1–3 to populate your live audit trail.
-          </p>
-        ) : (
-          <div
-            data-testid="recent-activity-scroll-list"
-            className="max-h-96 overflow-y-auto space-y-3 pr-1 no-scrollbar"
-          >
-            {filteredActivities.map((act) => {
+        <div
+          data-testid="recent-activity-scroll-list"
+          className="max-h-96 overflow-y-auto space-y-3 pr-1 no-scrollbar"
+        >
+          {filteredActivities.length === 0 ? (
+            <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] py-6 text-center">
+              No events match the selected filter. Complete verifications, compliance steps, or solution sprints in Tabs 1–3 to populate your live audit trail.
+            </p>
+          ) : (
+            filteredActivities.map((act) => {
               const isMilestone = act.eventType === 'milestone';
               const isVerification = act.eventType === 'verification';
               const isPayout = act.eventType === 'payout';
@@ -1113,9 +1113,9 @@ export const PulseView: React.FC<PulseViewProps> = ({
                   </div>
                 </div>
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+        </div>
       </section>
 
       {/* MIDDLE SECTION: Interactive "Knowledge-to-Work Flow" Conversion Funnel + Age & Cohesion Breakdown Strip */}

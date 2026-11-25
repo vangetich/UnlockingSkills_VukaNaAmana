@@ -1048,8 +1048,9 @@ export const SolveView: React.FC<SolveViewProps> = ({
                             >
                               {checked && (
                                 <motion.span
+                                  data-testid="milestone-checkbox-checked"
                                   initial={{ scale: 0, rotate: -20, opacity: 0 }}
-                                  animate={{ scale: 1, rotate: 0, opacity: 1 }}
+                                  animate={{ scale: [0, 1.35, 1], rotate: 0, opacity: 1 }}
                                   transition={{ type: 'spring', stiffness: 500, damping: 18 }}
                                 >
                                   <CheckCircle2 className="w-3 h-3" />
