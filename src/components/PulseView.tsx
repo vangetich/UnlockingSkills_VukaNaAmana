@@ -42,6 +42,7 @@ import { RippleConstellationMotif, WovenBridgeArcsMotif } from './ResilienceMoti
 import { SprintPerformanceWidget } from './SprintPerformanceWidget';
 import { SprintFeedbackPanel } from './SprintFeedbackPanel';
 import { GlobalImpactDashboard } from './GlobalImpactDashboard';
+import { ImpactMilestones } from './ImpactMilestones';
 import { RecentActivityFeed } from './RecentActivityFeed';
 import { exportSdgImpactSummaryPdf } from '../utils/pdfReceipt';
 import solarEngineerImg from '../assets/images/community_solar_engineer_1795539856588.jpg';
@@ -843,6 +844,20 @@ export const PulseView: React.FC<PulseViewProps> = ({
         userTotalDisbursedUsd={impactTelemetry.userTotalDisbursedUsd}
         escrowPipelineUsd={impactTelemetry.escrowPipelineUsd}
         isOnline={isOnline}
+      />
+
+      {/* Platform Impact Milestones Tracker */}
+      <ImpactMilestones
+        capabilities={capabilities}
+        contributions={contributions}
+        passport={passport}
+        vault={vault}
+        endorsements={endorsements}
+        payouts={payouts}
+        sprintMilestonesByBrief={sprintMilestonesByBrief}
+        onGoToVerify={onGoToVerify}
+        onGoToUnlock={onGoToUnlock}
+        onGoToSolve={onGoToSolve}
       />
 
       {/* TOP ROW: 5 Crisp SDG Pulse Cards (Exact UN Target Tag + Live Reactive Counter + 1-Line Human Outcome) */}

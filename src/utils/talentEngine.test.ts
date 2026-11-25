@@ -87,7 +87,11 @@ import {
   formatPayoutReceiptId,
   formatSdgImpactReportId,
 } from './pdfReceipt';
-import { buildRecentActivityTimeline } from '../components/RecentActivityFeed';
+import {
+  buildRecentActivityTimeline,
+  computeVirtualWindow,
+} from '../components/RecentActivityFeed';
+import { computeImpactMilestones } from '../components/ImpactMilestones';
 
 const sampleCap: SkillCapability = {
   id: 'cap-1',
@@ -1656,6 +1660,201 @@ test('RecentActivityFeed timeline chronologically orders sprint completions, cap
   const capabilityIdx = timeline.findIndex((i) => i.kind === 'capability');
   assert.ok(endorsementIdx > 0 && capabilityIdx > endorsementIdx);
 });
+
+test('ImpactMilestones tracks empty, in-progress, and completed states for First Verification, First Sprint Completion, and First Payout', () => {
+  const emptyVault = {
+    ...createInitialVault('u1'),
+    identityCompleted: false,
+    contractCompleted: false,
+    payoutCompleted: false,
+    financialIdentityCleared: false,
+    financialRailTested: false,
+    financialTaxCleared: false,
+  };
+  const emptySummary = computeImpactMilestones({
+    capabilities: [],
+    contributions: [],
+    passport: null,
+    vault: emptyVault,
+    endorsements: [],
+    payouts: [],
+  });
+  assert.equal(emptySummary.totalCount, 3);
+  assert.equal(emptySummary.completedCount, 0);
+  assert.equal(emptySummary.overallProgressPct, 0);
+  assert.equal(emptySummary.nextMilestoneId, 'first-verification');
+  assert.deepEqual(
+    emptySummary.milestones.map((m) => m.title),
+    ['First Verification', 'First Sprint Completion', 'First Payout']
+  );
+
+  // In-progress state across all three milestones
+  const inProgressSummary = computeImpactMilestones({
+    capabilities: [
+      {
+        ...sampleCap,
+        id: 'cap-pending',
+        verificationStatus: 'pending',
+      },
+    ],
+    contributions: [
+      {
+        id: 'sub-active',
+        ownerUid: 'u1',
+        briefId: 'brief-solar-01',
+        briefTitle: 'Clinic Solar Sizing',
+        domain: 'Green Energy',
+        status: 'in-progress',
+        solutionNotes: 'Drafting inverter layout',
+        hoursLogged: 4,
+        payoutUsd: 300,
+        createdAtIso: '2026-11-24T09:00:00Z',
+        updatedAtIso: '2026-11-24T12:00:00Z',
+        milestonesDone: ['analysis-complete'],
+      },
+    ],
+    passport: null,
+    vault: {
+      ...emptyVault,
+      payoutCompleted: true,
+      payoutRail: 'mobile-money',
+    },
+    endorsements: [],
+    payouts: [
+      {
+        id: 'pay-escrow',
+        ownerUid: 'u1',
+        sprintId: 'brief-solar-01',
+        sprintTitle: 'Clinic Solar Sizing',
+        partnerOrg: 'HarvestKeep Network',
+        amountUsd: 300,
+        payoutRail: 'mobile-money',
+        status: 'escrow-held',
+        createdAtIso: '2026-11-24T09:00:00Z',
+        updatedAtIso: '2026-11-24T12:00:00Z',
+      },
+    ],
+  });
+
+  assert.equal(inProgressSummary.completedCount, 0);
+  assert.equal(inProgressSummary.milestones[0].status, 'in-progress');
+  assert.equal(inProgressSummary.milestones[0].progressPct, 50);
+  assert.equal(inProgressSummary.milestones[1].status, 'in-progress');
+  assert.ok(inProgressSummary.milestones[1].progressPct > 25 && inProgressSummary.milestones[1].progressPct < 100);
+  assert.equal(inProgressSummary.milestones[2].status, 'in-progress');
+  assert.equal(inProgressSummary.milestones[2].progressPct, 70);
+
+  // Completed state for all three milestones
+  const completedSummary = computeImpactMilestones({
+    capabilities: [sampleCap],
+    contributions: [
+      {
+        id: 'sub-complete',
+        ownerUid: 'u1',
+        briefId: 'brief-solar-01',
+        briefTitle: 'Clinic Solar Sizing',
+        domain: 'Green Energy',
+        status: 'completed',
+        solutionNotes: 'Delivered and signed off',
+        hoursLogged: 10,
+        payoutUsd: 420,
+        createdAtIso: '2026-11-20T09:00:00Z',
+        updatedAtIso: '2026-11-25T09:00:00Z',
+      },
+    ],
+    passport: samplePassport,
+    vault: {
+      ...emptyVault,
+      identityCompleted: true,
+      contractCompleted: true,
+      payoutCompleted: true,
+    },
+    endorsements: [],
+    payouts: [
+      {
+        id: 'pay-released',
+        ownerUid: 'u1',
+        sprintId: 'brief-solar-01',
+        sprintTitle: 'Clinic Solar Sizing',
+        partnerOrg: 'HarvestKeep Network',
+        amountUsd: 420,
+        payoutRail: 'mobile-money',
+        status: 'released',
+        createdAtIso: '2026-11-20T09:00:00Z',
+        updatedAtIso: '2026-11-25T10:00:00Z',
+      },
+    ],
+  });
+
+  assert.equal(completedSummary.completedCount, 3);
+  assert.equal(completedSummary.overallProgressPct, 100);
+  assert.equal(completedSummary.nextMilestoneId, null);
+  for (const m of completedSummary.milestones) {
+    assert.equal(m.status, 'completed');
+    assert.equal(m.progressPct, 100);
+  }
+});
+
+test('RecentActivityFeed virtual windowing preserves long histories (>100 events) and bounds rendered DOM rows accurately', () => {
+  const manyCaps: SkillCapability[] = Array.from({ length: 120 }, (_, i) => ({
+    ...sampleCap,
+    id: `cap-bulk-${i}`,
+    title: `Capability Record #${i + 1}`,
+    updatedAtIso: new Date(Date.parse('2026-11-01T00:00:00Z') + i * 3_600_000).toISOString(),
+  }));
+
+  const fullTimeline = buildRecentActivityTimeline({
+    capabilities: manyCaps,
+    contributions: [],
+    passport: null,
+    vault: {
+      ...createInitialVault('u1'),
+      identityCompleted: false,
+      contractCompleted: false,
+      payoutCompleted: false,
+    },
+    endorsements: [],
+    payouts: [],
+  });
+  assert.equal(fullTimeline.length, 120);
+  assert.equal(fullTimeline[0].id, 'act-cap-cap-bulk-119');
+
+  // Uniform desktop window at scrollTop = 0
+  const topWindow = computeVirtualWindow({
+    itemCount: fullTimeline.length,
+    scrollTop: 0,
+    viewportHeight: 420,
+    estimatedItemHeight: 108,
+    overscan: 5,
+  });
+  assert.equal(topWindow.startIndex, 0);
+  assert.equal(topWindow.firstVisibleIndex, 0);
+  assert.equal(topWindow.totalHeight, 120 * 108);
+  assert.ok(topWindow.visibleRows.length <= 15, 'Should render only bounded visible + overscan rows');
+
+  // Mid-list window with variable measured row heights (e.g. wrapped mobile items)
+  const midWindow = computeVirtualWindow({
+    itemCount: fullTimeline.length,
+    scrollTop: 4200,
+    viewportHeight: 380,
+    estimatedItemHeight: 148,
+    overscan: 4,
+    getItemHeight: (idx) => (idx % 3 === 0 ? 180 : 120),
+  });
+  assert.ok(midWindow.startIndex > 10);
+  assert.ok(midWindow.endIndex < 119);
+  assert.equal(
+    midWindow.visibleRows.length,
+    midWindow.endIndex - midWindow.startIndex + 1
+  );
+  // Verify offsets are strictly monotonic and match row heights
+  for (let i = 1; i < midWindow.visibleRows.length; i++) {
+    const prev = midWindow.visibleRows[i - 1];
+    const curr = midWindow.visibleRows[i];
+    assert.equal(curr.offsetTop, prev.offsetTop + prev.height);
+  }
+});
+
 
 
 

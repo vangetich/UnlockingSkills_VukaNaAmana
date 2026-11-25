@@ -6,7 +6,15 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  registerSW({ immediate: true });
+  if (import.meta.env.PROD) {
+    registerSW({ immediate: true });
+  } else {
+    void navigator.serviceWorker.getRegistrations().then((regs) => {
+      for (const reg of regs) {
+        void reg.unregister();
+      }
+    });
+  }
 }
 
 createRoot(document.getElementById('root')!).render(

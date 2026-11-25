@@ -51,10 +51,13 @@ import {
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const db = (() => {
   try {
-    // Force HTTP long-polling so proxied/iframe networks never hit WebChannel 10s backend timeouts
+    // Force HTTP long-polling with a responsive timeout so proxied/iframe networks never stall on WebChannel streams
     return initializeFirestore(
       app,
-      { experimentalForceLongPolling: true },
+      {
+        experimentalForceLongPolling: true,
+        experimentalLongPollingOptions: { timeoutSeconds: 10 },
+      },
       firebaseConfig.firestoreDatabaseId
     );
   } catch {
@@ -127,6 +130,30 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
+async function canReachFirestoreBackend(timeoutMs = 4000): Promise<boolean> {
+  if (typeof fetch !== 'function') return true;
+  const dbPath = `projects/${firebaseConfig.projectId}/databases/${firebaseConfig.firestoreDatabaseId}`;
+  const url = `https://firestore.googleapis.com/google.firestore.v1.Firestore/Listen/channel?database=${encodeURIComponent(
+    dbPath
+  )}&VER=8&RID=1&CVER=22&t=1`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `count=1&ofs=0&req0___data__=${encodeURIComponent(JSON.stringify({ database: dbPath }))}`,
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function testConnection() {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     if (typeof window !== 'undefined') {
@@ -134,6 +161,16 @@ async function testConnection() {
     }
     return;
   }
+
+  const reachable = await canReachFirestoreBackend(4000);
+  if (!reachable) {
+    // Gracefully remain in offline-first PWA mode when the device/network blocks or drops firestore.googleapis.com
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => void testConnection(), { once: true });
+    }
+    return;
+  }
+
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
