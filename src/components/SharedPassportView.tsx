@@ -26,7 +26,7 @@ export const SharedPassportView: React.FC<SharedPassportViewProps> = ({ payload,
             <img
               src="/bridge.jpeg"
               alt="Vuka na Amana Bridge Logo"
-              className="h-8 max-w-[96px] sm:h-10 sm:max-w-[140px] w-auto object-contain rounded-md shrink-0"
+              className="h-6 max-w-[68px] sm:h-7 sm:max-w-[84px] w-auto object-contain rounded-md shrink-0"
             />
             <div className="leading-tight min-w-0">
               <span className="block font-display text-[15px] sm:text-lg font-semibold tracking-tight text-[#17191C] dark:text-[#F4F2EE] whitespace-nowrap">
@@ -45,7 +45,7 @@ export const SharedPassportView: React.FC<SharedPassportViewProps> = ({ payload,
         </div>
       </header>
 
-      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-6">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-6">
         <article className="relative overflow-hidden rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#146C53]/35 dark:border-[#2EB88B]/40 p-6 sm:p-10 space-y-8">
           <TopographicAscentMotif />
 

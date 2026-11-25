@@ -59,7 +59,7 @@ export const TopographicAscentMotif: React.FC<ResilienceMotifProps> = ({
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none select-none absolute inset-0 overflow-hidden"
+      className="vuka-bg-motif pointer-events-none select-none absolute inset-0 overflow-hidden"
     >
       <svg
         viewBox="0 0 1440 720"
@@ -151,7 +151,7 @@ export const WovenBridgeArcsMotif: React.FC<ResilienceMotifProps> = ({
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none select-none absolute inset-0 overflow-hidden"
+      className="vuka-bg-motif pointer-events-none select-none absolute inset-0 overflow-hidden"
     >
       <svg
         viewBox="0 0 1440 520"
@@ -284,7 +284,7 @@ export const RippleConstellationMotif: React.FC<
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none select-none absolute inset-0 overflow-hidden"
+      className="vuka-bg-motif pointer-events-none select-none absolute inset-0 overflow-hidden"
     >
       <svg
         viewBox="0 0 1440 620"
@@ -392,7 +392,7 @@ export const UnbrokenMeridianCompassMotif: React.FC<{ className?: string }> = ({
     <div
       aria-hidden="true"
       data-testid="unbroken-meridian-motif"
-      className={`pointer-events-none select-none absolute inset-0 overflow-hidden opacity-[0.05] text-[#146C53] dark:text-[#2EB88B] ${className}`}
+      className={`vuka-bg-motif pointer-events-none select-none absolute inset-0 overflow-hidden opacity-[0.05] text-[#146C53] dark:text-[#2EB88B] ${className}`}
     >
       <svg
         viewBox="0 0 1200 480"
@@ -432,7 +432,7 @@ export const OpenHorizonDawnMotif: React.FC<{ className?: string }> = ({
     <div
       aria-hidden="true"
       data-testid="open-horizon-dawn-motif"
-      className={`pointer-events-none select-none absolute inset-0 overflow-hidden opacity-[0.05] text-[#146C53] dark:text-[#2EB88B] ${className}`}
+      className={`vuka-bg-motif pointer-events-none select-none absolute inset-0 overflow-hidden opacity-[0.05] text-[#146C53] dark:text-[#2EB88B] ${className}`}
     >
       <svg
         viewBox="0 0 1200 480"

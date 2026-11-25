@@ -6,14 +6,17 @@ import {
   CheckCircle2,
   Compass,
   Globe,
+  KeyRound,
+  Lock,
   LogOut,
   Search,
   ShieldCheck,
-  WifiOff,
+  SlidersHorizontal,
   Wrench,
 } from 'lucide-react';
 import type { ActiveAuthSession, PortalRealm, WorkspaceTab } from '../types/kora';
 import type { TranslationDictionary } from '../utils/i18n';
+import { PwaSyncStatusBar } from './PwaSyncStatusBar';
 
 interface TopNavProps {
   activeTab: WorkspaceTab;
@@ -25,6 +28,9 @@ interface TopNavProps {
   isOnline: boolean;
   isSyncing?: boolean;
   queuedCount: number;
+  syncProgress?: number;
+  syncCompletedCount?: number;
+  syncTotalCount?: number;
   lastSyncedIso?: string | null;
   onSyncNow?: () => Promise<void> | void;
   onSignIn: () => void;
@@ -34,6 +40,8 @@ interface TopNavProps {
   onBackToHome: () => void;
   onOpenScaleDrawer: () => void;
   onOpenCommandPalette?: () => void;
+  onOpenAccessComfort?: () => void;
+  hasCustomAccessComfort?: boolean;
   t: TranslationDictionary;
 }
 
@@ -43,12 +51,19 @@ export const TopNav: React.FC<TopNavProps> = ({
   activePortal,
   activeSession,
   isOnline,
+  isSyncing = false,
   queuedCount,
+  syncProgress = 0,
+  syncCompletedCount = 0,
+  syncTotalCount = 0,
+  onSyncNow,
   onSwitchPortal,
   onSignOutPortal,
   onBackToHome,
   onOpenScaleDrawer,
   onOpenCommandPalette,
+  onOpenAccessComfort,
+  hasCustomAccessComfort = false,
   t,
 }) => {
   const isPartnerPortal = activePortal === 'partner';
@@ -72,9 +87,26 @@ export const TopNav: React.FC<TopNavProps> = ({
   const partnerOrgLabel =
     activeSession?.realm === 'partner' ? activeSession.claims.orgName : 'Verified Partner';
 
+  const talentSessionClaims = activeSession?.realm === 'talent' ? activeSession.claims : null;
+  const isPinSecured = talentSessionClaims?.authMethod === 'dedicated_pin';
+  const builderHeaderIdentity = talentSessionClaims
+    ? talentSessionClaims.builderId
+      ? `${talentSessionClaims.displayName} · ${talentSessionClaims.builderId}`
+      : talentSessionClaims.displayName
+    : null;
+
   return (
     <>
       <header className="sticky top-0 z-30 bg-[#FAF8F5]/95 dark:bg-[#121315]/95 backdrop-blur-sm border-b border-[#E8E3DB] dark:border-[#2C3037]">
+        <PwaSyncStatusBar
+          isOnline={isOnline}
+          isSyncing={isSyncing}
+          queuedCount={queuedCount}
+          syncProgress={syncProgress}
+          syncCompletedCount={syncCompletedCount}
+          syncTotalCount={syncTotalCount}
+          onSyncNow={onSyncNow}
+        />
         <div className="max-w-6xl mx-auto h-16 px-3 sm:px-6 flex items-center justify-between gap-4 overflow-x-auto no-scrollbar touch-pan-x whitespace-nowrap">
           {/* Zone 1: Clickable Official Bridge Logo + Vuka na Amana lockup + Active Portal Pill */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink-0">
@@ -84,24 +116,24 @@ export const TopNav: React.FC<TopNavProps> = ({
                 e.preventDefault();
                 onBackToHome();
               }}
-              aria-label={`${t.brandName} — ${t.backToHome}`}
-              title={t.backToHome}
+              aria-label={`${t.brandName} — Lock Session & Return to Landing Page`}
+              title="Lock Session & Return to Landing Page"
               data-testid="topnav-brand-home-btn"
               className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink-0 text-start group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] rounded-md py-1 cursor-pointer"
             >
               <div
                 data-testid="featured-logo-button"
-                className="p-1 rounded-xl bg-white dark:bg-[#1A1C20] border border-[#146C53]/35 dark:border-[#2EB88B]/40 shadow-xs group-hover:border-[#146C53] dark:group-hover:border-[#2EB88B] group-hover:shadow-sm group-hover:scale-105 transition-all shrink-0 flex items-center justify-center cursor-pointer"
-                title="Return to Funnel / Landing Page"
+                className="p-0.5 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#146C53]/35 dark:border-[#2EB88B]/40 shadow-xs group-hover:border-[#146C53] dark:group-hover:border-[#2EB88B] group-hover:shadow-sm group-hover:scale-105 transition-all shrink-0 flex items-center justify-center cursor-pointer"
+                title="Lock Session & Return to Landing Page"
               >
                 <img
                   src="/bridge.jpeg"
                   alt="Vuka na Amana Bridge Logo"
-                  className="h-7 sm:h-8 max-w-[96px] sm:max-w-[128px] w-auto object-contain rounded-lg shrink-0"
+                  className="h-5 sm:h-6 max-w-[64px] sm:max-w-[82px] w-auto object-contain rounded-md shrink-0"
                 />
               </div>
               <div className="leading-tight min-w-0">
-                <span className="block font-display text-sm sm:text-base font-semibold tracking-tight text-[#17191C] dark:text-[#F4F2EE] group-hover:text-[#146C53] dark:group-hover:text-[#2EB88B] transition-colors whitespace-nowrap">
+                <span className="block font-display text-[17px] sm:text-[19px] font-semibold tracking-tight text-[#17191C] dark:text-[#F4F2EE] group-hover:text-[#146C53] dark:group-hover:text-[#2EB88B] transition-colors whitespace-nowrap">
                   {t.brandName}
                 </span>
                 <span className="hidden sm:block text-[10px] font-medium uppercase tracking-[0.14em] text-[#575B62] dark:text-[#A3A7AE] whitespace-nowrap">
@@ -162,15 +194,43 @@ export const TopNav: React.FC<TopNavProps> = ({
               <button
                 type="button"
                 onClick={onOpenCommandPalette}
-                aria-label="Open quick search command palette (Cmd+K or Ctrl+K)"
-                title="Quick Search (Cmd+K / Ctrl+K)"
+                aria-label="Search stages, guides, glossary (press / or Cmd+K)"
+                title="Search stages, guides, glossary (/ or ⌘K)"
                 data-testid="open-command-palette-btn"
-                className="min-h-[36px] min-w-[36px] px-2 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#146C53] dark:hover:text-[#2EB88B] inline-flex items-center justify-center gap-1.5 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B]"
+                className="min-h-[40px] min-w-[40px] px-2.5 lg:px-3 rounded-full border border-[#D8D1C5] dark:border-[#343A44] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] focus-visible:outline-none focus-visible:border-[#146C53] dark:focus-visible:border-[#2EB88B] inline-flex items-center justify-center lg:justify-between gap-2 transition-colors shrink-0 cursor-pointer"
               >
-                <Search className="w-3.5 h-3.5" />
-                <kbd className="hidden xl:inline text-[10px] font-mono-tabular text-[#575B62] dark:text-[#A3A7AE]">
-                  ⌘K
-                </kbd>
+                <span className="inline-flex items-center gap-2 min-w-0">
+                  <Search className="w-4 h-4 text-[#17191C] dark:text-[#F4F2EE] shrink-0" />
+                  <span className="hidden xl:inline text-xs font-normal text-[#525866] dark:text-[#A3A7AE] truncate">
+                    Search stages, guides, glossary…
+                  </span>
+                </span>
+                <span className="hidden lg:inline-flex items-center gap-1 shrink-0">
+                  <kbd className="px-1.5 py-0.5 rounded border border-[#E2DCD2] dark:border-[#2F343D] bg-[#FAF8F5] dark:bg-[#121315] text-[10px] font-mono-tabular text-[#525866] dark:text-[#A3A7AE]">
+                    /
+                  </kbd>
+                  <kbd className="hidden xl:inline px-1.5 py-0.5 rounded border border-[#E2DCD2] dark:border-[#2F343D] bg-[#FAF8F5] dark:bg-[#121315] text-[10px] font-mono-tabular text-[#525866] dark:text-[#A3A7AE]">
+                    ⌘K
+                  </kbd>
+                </span>
+              </button>
+            )}
+
+            {onOpenAccessComfort && (
+              <button
+                type="button"
+                onClick={onOpenAccessComfort}
+                aria-label="Access & Comfort Settings"
+                title="Access & Comfort Settings (WCAG 2.2)"
+                data-testid="topnav-open-access-comfort-btn"
+                className={`min-h-[44px] min-w-[44px] px-2.5 rounded-lg border inline-flex items-center justify-center gap-1.5 transition-colors shrink-0 cursor-pointer ${
+                  hasCustomAccessComfort
+                    ? 'border-[#146C53] dark:border-[#2EB88B] bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+                    : 'border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
+                }`}
+              >
+                <SlidersHorizontal className="w-4 h-4 shrink-0" />
+                <span className="hidden xl:inline text-xs font-medium">Access</span>
               </button>
             )}
 
@@ -207,50 +267,65 @@ export const TopNav: React.FC<TopNavProps> = ({
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => onSwitchPortal('partner')}
-                data-testid="switch-to-partner-portal-btn"
-                title="Wipes builder session and opens Hiring Partner Console"
-                className="min-h-[36px] px-3 py-1.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <ArrowLeftRight className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
-                <span className="hidden sm:inline">Partner Portal</span>
-                <span className="sm:hidden">Partner</span>
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {talentSessionClaims && (
+                  <div
+                    data-testid="builder-security-status-pill"
+                    data-auth-method={talentSessionClaims.authMethod}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#E7F3EE] dark:bg-[#142B24] border border-[#146C53]/30 dark:border-[#2EB88B]/35 text-[11px] font-semibold text-[#146C53] dark:text-[#2EB88B] whitespace-nowrap shrink-0"
+                    title={
+                      builderHeaderIdentity
+                        ? `${builderHeaderIdentity} — ${isPinSecured ? 'PIN Secured' : '2FA Verified'}`
+                        : isPinSecured
+                          ? 'PIN Secured'
+                          : '2FA Verified'
+                    }
+                  >
+                    {isPinSecured ? (
+                      <KeyRound className="w-3 h-3 shrink-0" />
+                    ) : (
+                      <ShieldCheck className="w-3 h-3 shrink-0" />
+                    )}
+                    <span>{isPinSecured ? 'PIN Secured' : '2FA Verified'}</span>
+                    {builderHeaderIdentity && (
+                      <span
+                        data-testid="builder-header-identity"
+                        className="hidden xl:inline text-[#17191C] dark:text-[#F4F2EE] font-medium border-l border-[#146C53]/25 dark:border-[#2EB88B]/30 pl-1.5 max-w-[170px] truncate"
+                      >
+                        {builderHeaderIdentity}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {talentSessionClaims && (
+                  <button
+                    type="button"
+                    onClick={onSignOutPortal}
+                    data-testid="builder-lock-signout-btn"
+                    title="Lock Builder Studio & Sign Out"
+                    className="min-h-[36px] px-2.5 py-1.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#C4622D]/50 dark:hover:border-[#E07B46]/50 hover:text-[#C4622D] dark:hover:text-[#F59E6C] text-xs font-semibold text-[#575B62] dark:text-[#A3A7AE] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <Lock className="w-3.5 h-3.5 shrink-0" />
+                    <span className="hidden lg:inline">Lock / Sign Out</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => onSwitchPortal('partner')}
+                  data-testid="switch-to-partner-portal-btn"
+                  title="Wipes builder session and opens Hiring Partner Console"
+                  className="min-h-[36px] px-3 py-1.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                  <span className="hidden sm:inline">Partner Portal</span>
+                  <span className="sm:hidden">Partner</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
-
-        {/* Subtle, non-intrusive Offline PWA Enabled Mode indicator (shown only when disconnected) */}
-        {!isOnline && (
-          <div
-            role="status"
-            aria-live="polite"
-            data-testid="offline-pwa-banner"
-            className="border-t border-[#C4622D]/20 dark:border-[#E07B46]/25 bg-[#F9ECE5]/95 dark:bg-[#261B15]/95"
-          >
-            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-1.5 flex items-center justify-between gap-3 text-[11px] sm:text-xs text-[#8D4119] dark:text-[#F0A47A]">
-              <div className="flex items-center gap-2 min-w-0">
-                <WifiOff className="w-3.5 h-3.5 shrink-0 text-[#C4622D] dark:text-[#E07B46]" />
-                <p className="truncate sm:whitespace-normal">
-                  <span className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
-                    Offline PWA Enabled Mode
-                  </span>
-                  <span aria-hidden="true"> · </span>
-                  <span>
-                    Progress is saved locally and will sync automatically once back online.
-                  </span>
-                </p>
-              </div>
-              {queuedCount > 0 && (
-                <span className="font-mono-tabular tabular-nums font-medium shrink-0 text-[#146C53] dark:text-[#2EB88B]">
-                  {queuedCount} queued
-                </span>
-              )}
-            </div>
-          </div>
-        )}
       </header>
 
       {/* Mobile bottom thumb-zone tab bar (64px) */}

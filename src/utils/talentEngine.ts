@@ -60,9 +60,89 @@ import type {
   VerificationRouteId,
   VerificationStatus,
   WorkReadyVault,
+  WorkSetupPreferenceId,
   WorkplaceReadinessSignals,
+  WorkspaceReadinessTag,
   PassportTrustTier,
 } from '../types/kora';
+
+export interface WorkSetupPreferenceOption {
+  id: WorkSetupPreferenceId;
+  label: string;
+  shortLabel: string;
+  helperText: string;
+}
+
+export const WORK_SETUP_PREFERENCE_OPTIONS: WorkSetupPreferenceOption[] = [
+  {
+    id: 'remote-home',
+    label: 'Remote / Home-Based Work Preferred',
+    shortLabel: 'Remote / Home-Based',
+    helperText: 'Deliver work digitally from home or a quiet local hub.',
+  },
+  {
+    id: 'captioned-text',
+    label: 'Captioned / Text-First Communication',
+    shortLabel: 'Captioned / Text-First',
+    helperText: 'Async chat, written briefs, and live captions over uncaptioned voice calls.',
+  },
+  {
+    id: 'screen-reader-keyboard',
+    label: 'Screen-Reader or Keyboard-Friendly Digital Tools',
+    shortLabel: 'Screen-Reader / Keyboard Ready',
+    helperText: 'Accessible documents, keyboard navigation, and clean semantic tools.',
+  },
+  {
+    id: 'step-free-seated',
+    label: 'Seated / Step-Free Local Workspace Access',
+    shortLabel: 'Seated / Step-Free Access',
+    helperText: 'Step-free physical entry and seated workstation setup for local sites.',
+  },
+  {
+    id: 'flexible-hours',
+    label: 'Flexible Milestone Hours',
+    shortLabel: 'Flexible Milestone Hours',
+    helperText: 'Paced delivery windows focused on outcomes rather than rigid shifts.',
+  },
+  {
+    id: 'assistive-tech-stipend',
+    label: 'Assistive-Tech or Connectivity Stipend Needed',
+    shortLabel: 'Assistive-Tech / Data Stipend',
+    helperText: 'Links to Partner Fee-Waiver & Enablement Stipend pool (screen readers, ergonomic gear, or data).',
+  },
+];
+
+export interface WorkspaceReadinessOption {
+  id: WorkspaceReadinessTag;
+  label: string;
+  helperText: string;
+}
+
+export const WORKSPACE_READINESS_OPTIONS: WorkspaceReadinessOption[] = [
+  {
+    id: 'remote-flexible',
+    label: 'Remote / Flexible Hours',
+    helperText: 'Async milestone delivery with paced schedule options.',
+  },
+  {
+    id: 'written-captioned',
+    label: 'Written & Captioned Briefs',
+    helperText: 'Clear text-first briefs, async updates, and captioned check-ins.',
+  },
+  {
+    id: 'step-free-accessible',
+    label: 'Step-Free / Accessible Site',
+    helperText: 'Step-free physical workspace or keyboard/screen-reader ready tools.',
+  },
+];
+
+export function getWorkSetupPreferenceLabel(id: WorkSetupPreferenceId): string {
+  return WORK_SETUP_PREFERENCE_OPTIONS.find((opt) => opt.id === id)?.label ?? id;
+}
+
+export function getWorkspaceReadinessLabel(tag: WorkspaceReadinessTag): string {
+  return WORKSPACE_READINESS_OPTIONS.find((opt) => opt.id === tag)?.label ?? tag;
+}
 
 export const STUDIO_DOMAINS: StudioDomain[] = [
   'Tech',
@@ -1016,6 +1096,8 @@ export const SOLUTION_SPRINTS: SolutionSprint[] = [
     podLeadRole: 'Systems Diagnostics Lead & Safety Reviewer',
     podDeliveryRole: 'Field Data Logger & Wiring Schematic Partner',
     requiredKeywords: ['solar', 'inverter', 'battery', 'microgrid', 'cold', 'electrical', 'energy', 'green', 'power'],
+    workspaceReadiness: ['written-captioned', 'remote-flexible'],
+    inclusiveReady: true,
   },
   {
     id: 'sprint-ngo-maternal-02',
@@ -1039,6 +1121,8 @@ export const SOLUTION_SPRINTS: SolutionSprint[] = [
     podLeadRole: 'Clinical Ops Lead & Protocol QA Assessor',
     podDeliveryRole: 'Multilingual Localization & Intake Testing Partner',
     requiredKeywords: ['health', 'healthcare', 'clinic', 'triage', 'vaccine', 'medical', 'cold', 'swahili', 'arabic', 'french', 'sop'],
+    workspaceReadiness: ['remote-flexible', 'written-captioned'],
+    inclusiveReady: true,
   },
   {
     id: 'sprint-remote-sync-03',
@@ -1062,6 +1146,8 @@ export const SOLUTION_SPRINTS: SolutionSprint[] = [
     podLeadRole: 'Architecture Lead & Code Review Mentor',
     podDeliveryRole: 'TypeScript Implementation & Edge-Case QA Partner',
     requiredKeywords: ['tech', 'software', 'api', 'sync', 'offline', 'typescript', 'backend', 'code', 'network', 'mobile'],
+    workspaceReadiness: ['remote-flexible', 'written-captioned', 'step-free-accessible'],
+    inclusiveReady: true,
   },
   {
     id: 'sprint-sme-cashflow-04',
@@ -1085,6 +1171,8 @@ export const SOLUTION_SPRINTS: SolutionSprint[] = [
     podLeadRole: 'Working-Capital Lead & Financial Reviewer',
     podDeliveryRole: 'Spreadsheet Modeling & Invoice Audit Partner',
     requiredKeywords: ['finance', 'sme', 'cash', 'ledger', 'accounting', 'invoice', 'budget', 'supplier', 'margin'],
+    workspaceReadiness: ['remote-flexible', 'written-captioned'],
+    inclusiveReady: true,
   },
 ];
 
@@ -1439,6 +1527,21 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
         ? `Employer-Ready Proof + ${partnerOrgs.size} partner org(s) including ${featuredPartner} connected across ${contributions.length} pod(s).`
         : `${partnerOrgs.size} partner org(s) including ${featuredPartner} linked with ${contributions.length} active/completed pod(s).`;
 
+  // Inclusive & Accommodated Pathways Active count (SDG 4.5, SDG 8.5, SDG 10.2)
+  const preVerifiedInclusiveSprints =
+    SOLUTION_SPRINTS.filter((s) => s.inclusiveReady).length +
+    MATCHED_WORK_OPPORTUNITIES.filter((o) => o.inclusiveReady).length;
+  const builderWorkSetupSelectedCount = vault.workSetupPreferences?.length ?? 0;
+  const assistiveStipendActive =
+    Boolean(vault.workSetupPreferences?.includes('assistive-tech-stipend')) ||
+    Boolean(passport?.stipendEligible);
+  const inclusivePathwaysActiveCount =
+    preVerifiedInclusiveSprints +
+    (builderWorkSetupSelectedCount > 0 ? 1 : 0) +
+    (vault.shareWorkSetupWithPartners && builderWorkSetupSelectedCount > 0 ? 1 : 0) +
+    (assistiveStipendActive ? 1 : 0);
+  const inclusivePathwaysPill = `Inclusive & Accommodated Pathways Active · ${inclusivePathwaysActiveCount}`;
+
   return [
     {
       sdgNumber: 4,
@@ -1451,6 +1554,8 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
       liveDeltaLabel: `+${liveSdg4} live`,
       microStory: sdg4Story,
       accent: 'emerald',
+      inclusivePathwaysPill,
+      inclusivePathwaysCount: inclusivePathwaysActiveCount,
     },
     {
       sdgNumber: 8,
@@ -1468,6 +1573,8 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
       liveDeltaLabel: `+$${(liveUnlockedUsd + onboardingSdg8BonusUsd + proofSdg8BonusUsd + matchedWorkBonusUsd).toLocaleString()} live`,
       microStory: sdg8Story,
       accent: 'terracotta',
+      inclusivePathwaysPill,
+      inclusivePathwaysCount: inclusivePathwaysActiveCount,
     },
     {
       sdgNumber: 10,
@@ -1480,6 +1587,8 @@ export function computeSdgPulseMetrics(inputs: ReactivePulseInputs): SdgPulseMet
       liveDeltaLabel: `+${liveSdg10} live`,
       microStory: sdg10Story,
       accent: 'emerald',
+      inclusivePathwaysPill,
+      inclusivePathwaysCount: inclusivePathwaysActiveCount,
     },
     {
       sdgNumber: 16,
@@ -3393,6 +3502,8 @@ export const MATCHED_WORK_OPPORTUNITIES: MatchedWorkOpportunity[] = [
     podLeadRole: '30–46+ Experienced Specialist/Mentor (QA Lead)',
     podDeliveryRole: '15–29 Emerging/Early-Career Builder (Paid Delivery)',
     keywords: ['solar', '48v', 'inverter', 'battery', 'wiring', 'electrical', 'breaker', 'repair', 'clinic'],
+    workspaceReadiness: ['written-captioned'],
+    inclusiveReady: false,
   },
   {
     id: 'opp-sme-bookkeeping-02',
@@ -3413,6 +3524,8 @@ export const MATCHED_WORK_OPPORTUNITIES: MatchedWorkOpportunity[] = [
     podLeadRole: '30–46+ Experienced Specialist/Mentor (QA Lead)',
     podDeliveryRole: '15–29 Emerging/Early-Career Builder (Paid Delivery)',
     keywords: ['inventory', 'bookkeeping', 'cash', 'ledger', 'stock', 'sme', 'invoice', 'finance', 'sku'],
+    workspaceReadiness: ['step-free-accessible', 'written-captioned'],
+    inclusiveReady: true,
   },
   {
     id: 'opp-tailoring-batch-03',
@@ -3433,6 +3546,8 @@ export const MATCHED_WORK_OPPORTUNITIES: MatchedWorkOpportunity[] = [
     podLeadRole: '30–46+ Experienced Specialist/Mentor (QA Lead)',
     podDeliveryRole: '15–29 Emerging/Early-Career Builder (Paid Delivery)',
     keywords: ['tailoring', 'pattern', 'seam', 'garment', 'craft', 'woodwork', 'design', 'uniform', 'qa'],
+    workspaceReadiness: ['step-free-accessible', 'remote-flexible'],
+    inclusiveReady: true,
   },
   {
     id: 'opp-multilingual-support-04',
@@ -3453,6 +3568,8 @@ export const MATCHED_WORK_OPPORTUNITIES: MatchedWorkOpportunity[] = [
     podLeadRole: '30–46+ Experienced Specialist/Mentor (QA Lead)',
     podDeliveryRole: '15–29 Emerging/Early-Career Builder (Paid Delivery)',
     keywords: ['translation', 'language', 'support', 'bilingual', 'arabic', 'swahili', 'french', 'ops', 'remote'],
+    workspaceReadiness: ['remote-flexible', 'written-captioned'],
+    inclusiveReady: true,
   },
   {
     id: 'opp-accessibility-audit-05',
@@ -3473,6 +3590,8 @@ export const MATCHED_WORK_OPPORTUNITIES: MatchedWorkOpportunity[] = [
     podLeadRole: '30–46+ Experienced Specialist/Mentor (QA Lead)',
     podDeliveryRole: '15–29 Emerging/Early-Career Builder (Paid Delivery)',
     keywords: ['web', 'mobile', 'app', 'accessibility', 'qa', 'code', 'audit', 'typescript', 'offline', 'fix'],
+    workspaceReadiness: ['remote-flexible', 'written-captioned', 'step-free-accessible'],
+    inclusiveReady: true,
   },
 ];
 
@@ -3562,6 +3681,14 @@ export function filterMatchedWorkOpportunities(
   if (mode === 'all') return opportunities;
   if (mode === 'local') return opportunities.filter((o) => o.workMode === 'local');
   if (mode === 'remote') return opportunities.filter((o) => o.workMode === 'remote');
+  if (mode === 'inclusive') {
+    return opportunities.filter(
+      (o) =>
+        Boolean(o.inclusiveReady) ||
+        o.workMode === 'remote' ||
+        Boolean(o.workspaceReadiness && o.workspaceReadiness.length > 0)
+    );
+  }
   return opportunities.filter((o) => o.fellowshipEligible);
 }
 

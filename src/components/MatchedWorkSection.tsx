@@ -36,6 +36,7 @@ import {
   filterMatchedWorkOpportunities,
   getFinancialPayoutRailLabel,
   getSkillTrackOption,
+  getWorkspaceReadinessLabel,
   rankMatchedWorkOpportunities,
 } from '../utils/talentEngine';
 import { WovenBridgeArcsMotif } from './ResilienceMotifs';
@@ -63,6 +64,7 @@ const WORK_MODE_FILTERS: Array<{ id: MatchedWorkMode; label: string }> = [
   { id: 'local', label: 'Local Hands-On Roles' },
   { id: 'remote', label: 'Remote & Global Roles' },
   { id: 'fellowship', label: 'Paid Fellowships / Returnships' },
+  { id: 'inclusive', label: 'Inclusive & Remote-Ready Sprints' },
 ];
 
 export const MatchedWorkSection: React.FC<MatchedWorkSectionProps> = ({
@@ -434,12 +436,35 @@ export const MatchedWorkSection: React.FC<MatchedWorkSectionProps> = ({
                         <span>Fellowship / Returnship</span>
                       </span>
                     )}
+
+                    {opp.inclusiveReady && (
+                      <span
+                        data-testid={`inclusive-ready-badge-${opp.id}`}
+                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#E7F3EE] dark:bg-[#142B24] border border-[#146C53]/25 dark:border-[#2EB88B]/30 text-[#146C53] dark:text-[#2EB88B]"
+                      >
+                        <ShieldCheck className="w-3 h-3" />
+                        <span>Inclusive Ready</span>
+                      </span>
+                    )}
                   </div>
 
                   <span className="font-mono-tabular tabular-nums text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
                     {opp.matchScore}% Proof Match
                   </span>
                 </div>
+
+                {opp.workspaceReadiness && opp.workspaceReadiness.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {opp.workspaceReadiness.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center px-2 py-0.5 rounded-md bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-[10px] font-medium text-[#575B62] dark:text-[#A3A7AE]"
+                      >
+                        {getWorkspaceReadinessLabel(tag)}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 {/* Fit Status Pill: Strong Fit vs 65%–90% Close the Final Gap Pill */}
                 <div className="flex flex-wrap items-center gap-2">

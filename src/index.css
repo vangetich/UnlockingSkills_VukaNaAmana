@@ -210,3 +210,220 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ==========================================================================
+   Vuka na Amana — W3C WCAG 2.2 (AA/AAA) & W3C COGA Universal Access Layer
+   ========================================================================== */
+
+/* 1. Visible-on-focus "Skip to Main Content" link (first focusable DOM element) */
+.vuka-skip-link {
+  position: fixed;
+  top: -120px;
+  left: 1rem;
+  z-index: 100;
+  min-height: 44px;
+  padding: 0.65rem 1.15rem;
+  border-radius: 0.75rem;
+  background-color: #146C53;
+  color: #FFFFFF;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 8px 24px rgba(23, 25, 28, 0.22);
+  border: 2px solid #FFFFFF;
+  transition: top 120ms ease-out;
+}
+
+.vuka-skip-link:focus,
+.vuka-skip-link:focus-visible {
+  top: 0.75rem;
+  outline: 3px solid #17191C;
+  outline-offset: 2px;
+}
+
+.dark .vuka-skip-link {
+  background-color: #2EB88B;
+  color: #0B0D0F;
+  border-color: #0B0D0F;
+}
+
+.dark .vuka-skip-link:focus,
+.dark .vuka-skip-link:focus-visible {
+  outline-color: #FFFFFF;
+}
+
+/* 2. WCAG 2.4.11 Focus Not Obscured & High-Visibility Focus Rings */
+a,
+button,
+input,
+select,
+textarea,
+summary,
+[role="tab"],
+[role="option"],
+[role="switch"],
+[tabindex]:not([tabindex="-1"]) {
+  scroll-margin-top: 6.5rem;
+  scroll-margin-bottom: 5rem;
+}
+
+:is(a, button, input, select, textarea, summary, [role="tab"], [role="option"], [role="switch"], [tabindex]):focus-visible {
+  outline: 2.5px solid #146C53 !important;
+  outline-offset: 2px !important;
+}
+
+.dark :is(a, button, input, select, textarea, summary, [role="tab"], [role="option"], [role="switch"], [tabindex]):focus-visible {
+  outline: 2.5px solid #2EB88B !important;
+  outline-offset: 2px !important;
+}
+
+#main-content:focus {
+  outline: none;
+}
+
+/* 3. Smooth Text Scaling without breaking grids or overflowing 375px mobile */
+html[data-text-scale="large"] {
+  font-size: 125%;
+}
+
+html[data-text-scale="xlarge"] {
+  font-size: 150%;
+}
+
+@media (max-width: 480px) {
+  html[data-text-scale="large"] {
+    font-size: 118.75%;
+  }
+  html[data-text-scale="xlarge"] {
+    font-size: 131.25%;
+  }
+}
+
+html[data-text-scale="large"] body,
+html[data-text-scale="xlarge"] body {
+  overflow-x: clip;
+  overflow-wrap: break-word;
+}
+
+html[data-text-scale="large"] :is(h1, h2, h3, h4, p, span, button, a, li),
+html[data-text-scale="xlarge"] :is(h1, h2, h3, h4, p, span, button, a, li) {
+  overflow-wrap: break-word;
+}
+
+/* 4. High-Contrast Mode (WCAG AAA 7:1+) */
+html.vuka-high-contrast {
+  --vuka-canvas: #FFFFFF;
+  --vuka-surface: #FFFFFF;
+  --vuka-surface-muted: #F3F4F6;
+  --vuka-border: #17191C;
+  --vuka-ink: #0B0D0F;
+  --vuka-ink-muted: #1F2329;
+  --vuka-emerald: #0B533E;
+  --vuka-emerald-hover: #073D2D;
+  --vuka-terracotta: #9A4315;
+  --vuka-terracotta-hover: #7B330D;
+}
+
+html.vuka-high-contrast.dark {
+  --vuka-canvas: #07080A;
+  --vuka-surface: #111317;
+  --vuka-surface-muted: #181B21;
+  --vuka-border: #E5E7EB;
+  --vuka-ink: #FFFFFF;
+  --vuka-ink-muted: #E5E7EB;
+  --vuka-emerald: #5EEAD4;
+  --vuka-terracotta: #FDBA74;
+}
+
+html.vuka-high-contrast body {
+  background-color: var(--vuka-canvas);
+  color: var(--vuka-ink);
+}
+
+html.vuka-high-contrast .vuka-bg-motif {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+html.vuka-high-contrast:not(.dark) :is([class*="text-[#575B62]"], [class*="text-[#525866]"], [class*="text-[#43484E]"], [class*="text-[#6B7280]"]) {
+  color: #1F2329 !important;
+}
+
+html.vuka-high-contrast:not(.dark) [class*="text-[#17191C]"] {
+  color: #0B0D0F !important;
+}
+
+html.vuka-high-contrast:not(.dark) [class*="text-[#146C53]"] {
+  color: #0B533E !important;
+}
+
+html.vuka-high-contrast:not(.dark) [class*="bg-[#146C53]"] {
+  background-color: #0B533E !important;
+}
+
+html.vuka-high-contrast:not(.dark) [class*="text-[#C4622D]"] {
+  color: #9A4315 !important;
+}
+
+html.vuka-high-contrast:not(.dark) [class*="bg-[#C4622D]"] {
+  background-color: #9A4315 !important;
+}
+
+html.vuka-high-contrast:not(.dark) :is([class*="border-[#E8E3DB]"], [class*="border-[#E2DCD2]"], [class*="border-[#D8D1C5]"], [class*="border-[#ECE7DF]"]) {
+  border-color: #17191C !important;
+}
+
+html.vuka-high-contrast.dark :is([class*="text-[#A3A7AE]"], [class*="text-[#8E95A0]"], [class*="text-[#C4C9D0]"]) {
+  color: #E5E7EB !important;
+}
+
+html.vuka-high-contrast.dark :is([class*="border-[#2C3037]"], [class*="border-[#343A44]"], [class*="border-[#2F343D]"]) {
+  border-color: #CBD5E1 !important;
+}
+
+html.vuka-high-contrast :is(a, button, input, select, textarea, [role="tab"], [role="option"], [role="switch"]):focus-visible {
+  outline: 3px solid #0B533E !important;
+  outline-offset: 2px !important;
+}
+
+html.vuka-high-contrast.dark :is(a, button, input, select, textarea, [role="tab"], [role="option"], [role="switch"]):focus-visible {
+  outline: 3px solid #5EEAD4 !important;
+  outline-offset: 2px !important;
+}
+
+/* 5. Easy-Read / Calm Focus Mode (W3C COGA) */
+html.vuka-easy-read body {
+  line-height: 1.75;
+  letter-spacing: 0.02em;
+  word-spacing: 0.06em;
+}
+
+html.vuka-easy-read .font-display {
+  font-family: var(--font-sans) !important;
+  letter-spacing: -0.01em;
+}
+
+html.vuka-easy-read .vuka-bg-motif,
+html.vuka-easy-read [data-decorative="true"] {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+html.vuka-easy-read p,
+html.vuka-easy-read li {
+  line-height: 1.75 !important;
+}
+
+/* 6. Reduced Motion User Toggle */
+html.vuka-reduced-motion *,
+html.vuka-reduced-motion *::before,
+html.vuka-reduced-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+

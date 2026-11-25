@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  AuthLockoutError,
   PARTNER_SESSION_COOKIE,
   PartnerAuthRealm,
   TALENT_SESSION_COOKIE,
@@ -14,7 +15,7 @@ test('TalentAuthRealm issues scoped builder sessions via WhatsApp/Phone OTP or E
   const realm = new TalentAuthRealm();
   const challenge = realm.requestChallenge({
     channel: 'whatsapp',
-    identifier: '+254712345678',
+    identifier: '254712345678',
     displayName: 'Samira Omer',
     ageStage: '30-45',
   });
@@ -204,4 +205,195 @@ test('Switch to Skilled Builder Door server validation checks active builder ses
   });
   assert.equal(consentSession.claims.role, 'builder');
   assert.equal(consentSession.claims.displayName, 'Ibrahim Diallo');
+  assert.equal(consentSession.claims.twoFactorVerified, true);
+  assert.equal(consentSession.claims.authMethod, 'otp_2fa');
 });
+
+test('Path A 2FA OTP emits twoFactorVerified, authMethod otp_2fa, builderId, and AuthLockoutError on 5th wrong attempt', () => {
+  const realm = new TalentAuthRealm();
+  const challenge = realm.requestChallenge({
+    channel: 'phone',
+    identifier: '254700112233',
+    displayName: 'Nadia O.',
+    ageStage: '18-29',
+  });
+
+  const verified = realm.verifyChallenge({
+    challengeId: challenge.challengeId,
+    code: challenge.previewCode,
+    trustedDevice: true,
+  });
+
+  assert.equal(verified.claims.twoFactorVerified, true);
+  assert.equal(verified.claims.authMethod, 'otp_2fa');
+  assert.equal(verified.claims.trustedDevice, true);
+  assert.match(verified.claims.builderId || '', /^VNA-B-\d{4,5}$/);
+
+  // Verify brute-force lockout throws AuthLockoutError with retryAfterSeconds
+  const lockedChallenge = realm.requestChallenge({
+    channel: 'whatsapp',
+    identifier: '254700998877',
+  });
+  const wrongCode = lockedChallenge.previewCode === '111111' ? '222222' : '111111';
+  for (let i = 0; i < 4; i += 1) {
+    assert.throws(() =>
+      realm.verifyChallenge({ challengeId: lockedChallenge.challengeId, code: wrongCode })
+    );
+  }
+  assert.throws(
+    () => realm.verifyChallenge({ challengeId: lockedChallenge.challengeId, code: wrongCode }),
+    (err: unknown) => err instanceof AuthLockoutError && err.retryAfterSeconds > 0
+  );
+});
+
+test('Path B Dedicated Crossing PIN generates salted-hash enrollment, confirms 2-step gate, supports returning login, and enforces lockout + realm isolation', () => {
+  const talentRealm = new TalentAuthRealm();
+  const partnerRealm = new PartnerAuthRealm();
+
+  // Step 1: Generate Dedicated PIN without phone number or raw ID
+  const enrollment = talentRealm.generateDedicatedPinEnrollment({
+    displayName: 'Amina K.',
+    ageStage: '18-29',
+  });
+
+  assert.match(enrollment.builderId, /^VNA-B-\d{4,5}$/);
+  assert.match(enrollment.pin, /^\d{6}$/);
+  assert.equal(enrollment.recoveryPhrase.split('-').length, 3);
+
+  // Reject mismatched confirmation PIN
+  const wrongPin = enrollment.pin === '000000' ? '999999' : '000000';
+  assert.throws(
+    () =>
+      talentRealm.confirmDedicatedPinEnrollment({
+        enrollmentId: enrollment.enrollmentId,
+        pin: wrongPin,
+      }),
+    /doesn't match/i
+  );
+
+  // Step 2: Confirm PIN -> mints isolated builder session with authMethod dedicated_pin
+  const confirmed = talentRealm.confirmDedicatedPinEnrollment({
+    enrollmentId: enrollment.enrollmentId,
+    pin: enrollment.pin,
+    trustedDevice: true,
+  });
+
+  assert.equal(confirmed.claims.role, 'builder');
+  assert.equal(confirmed.claims.aud, 'vna-talent');
+  assert.equal(confirmed.claims.twoFactorVerified, true);
+  assert.equal(confirmed.claims.authMethod, 'dedicated_pin');
+  assert.equal(confirmed.claims.builderId, enrollment.builderId);
+  assert.equal(confirmed.claims.displayName, 'Amina K.');
+
+  // Ensure plaintext PIN never appears in persisted account or session claims
+  assert.equal(JSON.stringify(confirmed.account).includes(enrollment.pin), false);
+  assert.equal(JSON.stringify(confirmed.claims).includes(enrollment.pin), false);
+
+  // Strictly isolated from Partner realm
+  assert.equal(partnerRealm.verifySession(confirmed.token), null);
+
+  // Returning Sign-In works with Builder ID (case-insensitive) AND Display Alias
+  const byId = talentRealm.loginWithDedicatedPin({
+    identifier: enrollment.builderId.toLowerCase(),
+    pin: enrollment.pin,
+  });
+  assert.equal(byId.claims.authMethod, 'dedicated_pin');
+  assert.equal(byId.claims.builderId, enrollment.builderId);
+
+  const byAlias = talentRealm.loginWithDedicatedPin({
+    identifier: 'amina k.',
+    pin: enrollment.pin,
+  });
+  assert.equal(byAlias.claims.displayName, 'Amina K.');
+
+  // Brute-force lockout on 5 invalid returning PIN login attempts
+  for (let i = 0; i < 4; i += 1) {
+    assert.throws(() =>
+      talentRealm.loginWithDedicatedPin({
+        identifier: enrollment.builderId,
+        pin: wrongPin,
+      })
+    );
+  }
+  assert.throws(
+    () =>
+      talentRealm.loginWithDedicatedPin({
+        identifier: enrollment.builderId,
+        pin: wrongPin,
+      }),
+    (err: unknown) => err instanceof AuthLockoutError && err.retryAfterSeconds > 0
+  );
+});
+
+test('Strict numerals-only enforcement rejects letters, +, -, spaces, and symbols on phone, OTP, and PIN auth', () => {
+  const talentRealm = new TalentAuthRealm();
+  const partnerRealm = new PartnerAuthRealm();
+
+  // Phone & WhatsApp must reject '+', '-', spaces, and letters
+  for (const invalidPhone of ['+254712345678', '254-712-345678', '254 712 345678', '25471234abc8']) {
+    assert.throws(
+      () =>
+        talentRealm.requestChallenge({
+          channel: 'whatsapp',
+          identifier: invalidPhone,
+        }),
+      /numerals only/i
+    );
+    assert.throws(
+      () =>
+        talentRealm.requestChallenge({
+          channel: 'phone',
+          identifier: invalidPhone,
+        }),
+      /numerals only/i
+    );
+  }
+
+  // Builder 2FA OTP rejects letters or symbols
+  const builderChal = talentRealm.requestChallenge({
+    channel: 'phone',
+    identifier: '254712345678',
+  });
+  for (const badCode of ['12345a', '123-456', '+12345', '12 3456']) {
+    assert.throws(
+      () => talentRealm.verifyChallenge({ challengeId: builderChal.challengeId, code: badCode }),
+      /numerals only/i
+    );
+  }
+
+  // Partner 2FA OTP rejects letters or symbols
+  const partnerChal = partnerRealm.requestChallenge({
+    workEmail: 'lead@solargridea.org',
+    organizationName: 'SolarGrid East Africa',
+    memberRole: 'hiring_lead',
+  });
+  assert.throws(
+    () => partnerRealm.verifyChallenge({ challengeId: partnerChal.challengeId, code: '12a456' }),
+    /numerals only/i
+  );
+
+  // Dedicated PIN confirm and returning login reject letters or symbols
+  const pinEnrollment = talentRealm.generateDedicatedPinEnrollment({ displayName: 'Zainab N.' });
+  assert.throws(
+    () =>
+      talentRealm.confirmDedicatedPinEnrollment({
+        enrollmentId: pinEnrollment.enrollmentId,
+        pin: '123-45',
+      }),
+    /numerals only/i
+  );
+  talentRealm.confirmDedicatedPinEnrollment({
+    enrollmentId: pinEnrollment.enrollmentId,
+    pin: pinEnrollment.pin,
+  });
+  assert.throws(
+    () =>
+      talentRealm.loginWithDedicatedPin({
+        identifier: pinEnrollment.builderId,
+        pin: '12ab56',
+      }),
+    /numerals only/i
+  );
+});
+
+

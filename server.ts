@@ -15,6 +15,7 @@ import {
   visionCircuitBreaker,
 } from './src/utils/serverArchitecture.ts';
 import {
+  AuthLockoutError,
   PARTNER_SESSION_COOKIE,
   TALENT_SESSION_COOKIE,
   buildClearCookieHeader,
@@ -2008,13 +2009,18 @@ async function startServer() {
       return;
     }
     try {
-      const body = (req.body ?? {}) as { challengeId?: string; code?: string };
-      // Strict mutual exclusion: wipe any active partner session before issuing talent session
-      revokeOppositeRealm(req, 'talent');
+      const body = (req.body ?? {}) as {
+        challengeId?: string;
+        code?: string;
+        trustedDevice?: boolean;
+      };
       const result = talentAuthRealm.verifyChallenge({
         challengeId: String(body.challengeId || ''),
         code: String(body.code || ''),
+        trustedDevice: Boolean(body.trustedDevice),
       });
+      // Strict mutual exclusion: wipe any active partner session before issuing talent session
+      revokeOppositeRealm(req, 'talent');
       res.setHeader('Set-Cookie', [
         buildIsolatedCookieHeader(TALENT_SESSION_COOKIE, result.token, SESSION_MAX_AGE_SECONDS),
         buildClearCookieHeader(PARTNER_SESSION_COOKIE),
@@ -2027,8 +2033,157 @@ async function startServer() {
         claims: result.claims,
       });
     } catch (err) {
+      if (err instanceof AuthLockoutError) {
+        res.status(429).json({
+          error: err.message,
+          lockedOut: true,
+          retryAfterSeconds: err.retryAfterSeconds,
+        });
+        return;
+      }
       res.status(401).json({
         error: err instanceof Error ? err.message : 'Builder verification failed.',
+      });
+    }
+  });
+
+  app.post('/api/auth/talent/pin/generate', (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const clientKey = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'global');
+    const limit = aiRateLimiter.consume(`auth-talent-pin:${clientKey}`, 1);
+    if (!limit.allowed) {
+      res.status(429).json({
+        error: `Too many PIN requests. Please wait ${limit.retryAfterSeconds}s and try again.`,
+        lockedOut: true,
+        retryAfterSeconds: limit.retryAfterSeconds,
+      });
+      return;
+    }
+    try {
+      const body = (req.body ?? {}) as {
+        displayName?: string;
+        ageStage?: '15-17' | '18-29' | '30-45' | '46+';
+      };
+      const enrollment = talentAuthRealm.generateDedicatedPinEnrollment({
+        displayName: String(body.displayName || ''),
+        ageStage: body.ageStage,
+      });
+      res.status(200).json({
+        realm: 'talent',
+        ...enrollment,
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Unable to generate Dedicated PIN.',
+      });
+    }
+  });
+
+  app.post('/api/auth/talent/pin/confirm', (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const clientKey = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'global');
+    const limit = aiRateLimiter.consume(`auth-talent-pin-confirm:${clientKey}`, 1);
+    if (!limit.allowed) {
+      res.status(429).json({
+        error: `Too many confirmation attempts. Please wait ${limit.retryAfterSeconds}s and try again.`,
+        lockedOut: true,
+        retryAfterSeconds: limit.retryAfterSeconds,
+      });
+      return;
+    }
+    try {
+      const body = (req.body ?? {}) as {
+        enrollmentId?: string;
+        pin?: string;
+        trustedDevice?: boolean;
+      };
+      const result = talentAuthRealm.confirmDedicatedPinEnrollment({
+        enrollmentId: String(body.enrollmentId || ''),
+        pin: String(body.pin || ''),
+        trustedDevice: Boolean(body.trustedDevice),
+      });
+      revokeOppositeRealm(req, 'talent');
+      res.setHeader('Set-Cookie', [
+        buildIsolatedCookieHeader(TALENT_SESSION_COOKIE, result.token, SESSION_MAX_AGE_SECONDS),
+        buildClearCookieHeader(PARTNER_SESSION_COOKIE),
+      ]);
+      res.status(200).json({
+        authenticated: true,
+        realm: 'talent',
+        sessionCookieName: TALENT_SESSION_COOKIE,
+        token: result.token,
+        claims: result.claims,
+      });
+    } catch (err) {
+      if (err instanceof AuthLockoutError) {
+        res.status(429).json({
+          error: err.message,
+          lockedOut: true,
+          retryAfterSeconds: err.retryAfterSeconds,
+        });
+        return;
+      }
+      res.status(401).json({
+        error: err instanceof Error ? err.message : 'PIN confirmation failed.',
+      });
+    }
+  });
+
+  app.post('/api/auth/talent/pin/login', (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const clientKey = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'global');
+    const limit = aiRateLimiter.consume(`auth-talent-pin-login:${clientKey}`, 1);
+    if (!limit.allowed) {
+      res.status(429).json({
+        error: `Too many sign-in attempts. Please wait ${limit.retryAfterSeconds}s and try again.`,
+        lockedOut: true,
+        retryAfterSeconds: limit.retryAfterSeconds,
+      });
+      return;
+    }
+    try {
+      const body = (req.body ?? {}) as {
+        identifier?: string;
+        pin?: string;
+        trustedDevice?: boolean;
+      };
+      const result = talentAuthRealm.loginWithDedicatedPin({
+        identifier: String(body.identifier || ''),
+        pin: String(body.pin || ''),
+        trustedDevice: Boolean(body.trustedDevice),
+      });
+      revokeOppositeRealm(req, 'talent');
+      res.setHeader('Set-Cookie', [
+        buildIsolatedCookieHeader(TALENT_SESSION_COOKIE, result.token, SESSION_MAX_AGE_SECONDS),
+        buildClearCookieHeader(PARTNER_SESSION_COOKIE),
+      ]);
+      res.status(200).json({
+        authenticated: true,
+        realm: 'talent',
+        sessionCookieName: TALENT_SESSION_COOKIE,
+        token: result.token,
+        claims: result.claims,
+      });
+    } catch (err) {
+      if (err instanceof AuthLockoutError) {
+        res.status(429).json({
+          error: err.message,
+          lockedOut: true,
+          retryAfterSeconds: err.retryAfterSeconds,
+        });
+        return;
+      }
+      res.status(401).json({
+        error: err instanceof Error ? err.message : 'Dedicated PIN sign-in failed.',
       });
     }
   });
@@ -2327,6 +2482,7 @@ async function startServer() {
       complianceShieldStatus?: string;
       grantedToOrgId?: string;
       grantedToOrgName?: string;
+      sharedWorkSetupPreferences?: string[];
     };
 
     const grantedToOrgId = String(body.grantedToOrgId || '').trim();
@@ -2334,6 +2490,13 @@ async function startServer() {
       res.status(400).json({ error: 'Missing organization ID for consent grant.' });
       return;
     }
+
+    const sanitizedWorkSetupPreferences = Array.isArray(body.sharedWorkSetupPreferences)
+      ? body.sharedWorkSetupPreferences
+          .map((item) => String(item || '').trim().slice(0, 90))
+          .filter(Boolean)
+          .slice(0, 6)
+      : [];
 
     const consentId = `VNA-GRANT-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
     const nowIso = new Date().toISOString();
@@ -2345,6 +2508,9 @@ async function startServer() {
       complianceShieldStatus: String(body.complianceShieldStatus || 'Tier-2 KYC Cleared').trim(),
       grantedToOrgId,
       grantedToOrgName: String(body.grantedToOrgName || 'Verified Hiring Partner').trim(),
+      ...(sanitizedWorkSetupPreferences.length > 0
+        ? { sharedWorkSetupPreferences: sanitizedWorkSetupPreferences }
+        : {}),
       status: 'active',
       grantedAtIso: nowIso,
     };
@@ -2458,6 +2624,95 @@ async function startServer() {
       auditLogs: accessAuditLog,
       totalEntries: accessAuditLog.length,
     });
+  });
+
+  // 7b. App-Wide Search with Live Google Search Grounding (`POST /api/search/google`)
+  app.post('/api/search/google', async (req, res) => {
+    try {
+      const rateLimitKey = `google-search:${req.ip || 'local'}`;
+      const limitCheck = aiRateLimiter.consume(rateLimitKey);
+      if (!limitCheck.allowed) {
+        res.status(429).json({
+          error: `Search rate limit reached. Please retry in ${Math.max(1, limitCheck.retryAfterSeconds)} seconds.`,
+        });
+        return;
+      }
+
+      const body = req.body as { query?: string; contextPortal?: string };
+      const rawQuery = typeof body?.query === 'string' ? body.query.trim() : '';
+      if (rawQuery.length < 2) {
+        res.status(400).json({ error: 'Please enter at least 2 characters to search Google.' });
+        return;
+      }
+      if (rawQuery.length > 220) {
+        res.status(400).json({ error: 'Search query must be 220 characters or fewer.' });
+        return;
+      }
+
+      const portalContext =
+        body?.contextPortal === 'partner'
+          ? 'Hiring Partner / employer compliance, refugee hiring, EOR contracting, or SDG impact'
+          : 'displaced talent, credential recognition (UNESCO UQP / WES / RPL), legal work rights (ILO), tiered KYC payouts (FATF), complementary mobility pathways (UNHCR), scholarships, or technical skills';
+
+      const ai = getGeminiClient();
+      const response = await generateWithRetry(() =>
+        ai.models.generateContent({
+          model: 'gemini-4-hydrogen',
+          contents: `Provide concise, verified, factual functional details for the user search query: "${rawQuery}". Context: Vuka na Amana platform (${portalContext}). Write 2 to 4 crisp plain-language sentences or short factual bullet points (under 95 words total) with practical, accurate details grounded in live Google Search results. No hype, no marketing fluff.`,
+          config: {
+            tools: [{ googleSearch: {} }],
+            systemInstruction:
+              'You are a calm, factual research reference assistant inside Vuka na Amana. Use live Google Search grounding to answer queries with clear, verified, plain-language functional details. Keep answers concise (under 95 words) and strictly factual.',
+          },
+        })
+      );
+
+      const summary = (response.text ?? '').trim();
+      const metadata = response.candidates?.[0]?.groundingMetadata;
+      const rawChunks = metadata?.groundingChunks ?? [];
+      const seenUris = new Set<string>();
+      const sources: Array<{ title: string; uri: string }> = [];
+
+      for (const chunk of rawChunks) {
+        const uri = chunk?.web?.uri?.trim();
+        const title = chunk?.web?.title?.trim();
+        if (uri && /^https?:\/\//i.test(uri) && !seenUris.has(uri)) {
+          seenUris.add(uri);
+          sources.push({
+            title: title || uri.replace(/^https?:\/\/(www\.)?/i, '').split('/')[0] || 'Google Source',
+            uri,
+          });
+        }
+        if (sources.length >= 6) break;
+      }
+
+      const searchQueries = Array.isArray(metadata?.webSearchQueries)
+        ? metadata.webSearchQueries.filter((q): q is string => typeof q === 'string' && q.trim().length > 0).slice(0, 4)
+        : [];
+
+      if (!summary && sources.length === 0) {
+        res.status(502).json({
+          error: 'Google Search returned no verifiable details for this query. Try refining your terms.',
+        });
+        return;
+      }
+
+      res.json({
+        query: rawQuery,
+        summary,
+        sources,
+        searchQueries,
+        generatedAtIso: new Date().toISOString(),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to complete Google Search right now.';
+      const status = message.includes('GEMINI_API_KEY')
+        ? 503
+        : message.includes('429') || message.includes('RESOURCE_EXHAUSTED')
+          ? 429
+          : 500;
+      res.status(status).json({ error: message });
+    }
   });
 
   // 8. System Readiness & Trust Endpoint (`GET /api/health`)

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building2, Download, Globe, Moon, ShieldCheck, Sun, WifiOff } from 'lucide-react';
+import { Building2, Download, Globe, LogOut, Moon, ShieldCheck, SlidersHorizontal, Sun, WifiOff } from 'lucide-react';
 import type { ActiveAuthSession, LocaleCode, PortalRealm, ThemeMode } from '../types/kora';
 import { LOCALE_OPTIONS, type TranslationDictionary } from '../utils/i18n';
 import { usePWAInstall } from '../hooks/usePWAInstall';
@@ -22,6 +22,9 @@ interface WorkspaceUtilitiesProps {
   onSyncNow: () => void;
   onOpenAccountSync: () => void;
   onOpenPrivacyModal?: () => void;
+  onOpenAccessComfort?: () => void;
+  hasCustomAccessComfort?: boolean;
+  onEndSession?: () => void;
   t: TranslationDictionary;
 }
 
@@ -42,6 +45,9 @@ export const WorkspaceUtilities: React.FC<WorkspaceUtilitiesProps> = ({
   onSyncNow,
   onOpenAccountSync,
   onOpenPrivacyModal,
+  onOpenAccessComfort,
+  hasCustomAccessComfort = false,
+  onEndSession,
   t,
 }) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
@@ -171,15 +177,48 @@ export const WorkspaceUtilities: React.FC<WorkspaceUtilitiesProps> = ({
             </select>
           </div>
 
+          {onOpenAccessComfort && (
+            <button
+              type="button"
+              onClick={onOpenAccessComfort}
+              aria-label="Access & Comfort Settings"
+              title="Access & Comfort Settings (WCAG 2.2)"
+              data-testid="utilities-open-access-comfort-btn"
+              className={`min-h-[44px] min-w-[44px] px-3 py-1 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                hasCustomAccessComfort
+                  ? 'border-[#146C53] dark:border-[#2EB88B] bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+                  : 'bg-white dark:bg-[#1A1C20] border-[#E8E3DB] dark:border-[#2C3037] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] dark:hover:border-[#2EB88B]'
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+              <span>Access</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onToggleTheme}
             aria-label={theme === 'dark' ? t.themeLight : t.themeDark}
-            className="min-h-[36px] px-3 py-1 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] hover:bg-[#F3EFE9] dark:hover:bg-[#23262B] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+            data-testid="utilities-theme-toggle-btn"
+            className="min-h-[36px] px-3 py-1 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] hover:bg-[#F3EFE9] dark:hover:bg-[#23262B] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
             <span>{theme === 'dark' ? t.themeLight : t.themeDark}</span>
           </button>
+
+          {onEndSession && (
+            <button
+              type="button"
+              onClick={onEndSession}
+              aria-label="End Session and lock workspace"
+              title="End Session — lock workspace and return to landing page"
+              data-testid="utilities-end-session-btn"
+              className="min-h-[36px] px-3 py-1 rounded-lg border border-[#C4622D]/35 dark:border-[#E07B46]/40 bg-[#FFF7F3] dark:bg-[#2A1B14] hover:bg-[#F9ECE5] dark:hover:bg-[#3A241B] text-xs font-semibold text-[#B44E1E] dark:text-[#F59E6C] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5 shrink-0" />
+              <span>End Session</span>
+            </button>
+          )}
 
           {!isInstalled && isInstallable && (
             <button

@@ -36,11 +36,13 @@ import {
   STUDIO_DOMAINS,
   filterSolutionSprints,
   getSprintComplexityLevel,
+  getWorkspaceReadinessLabel,
   rankSolutionSprints,
 } from '../utils/talentEngine';
 import { TopographicAscentMotif } from './ResilienceMotifs';
 import { LivingProofPortfolioSection } from './LivingProofPortfolioSection';
 import { MatchedWorkSection } from './MatchedWorkSection';
+import { WorkSetupPreferencesCard } from './WorkSetupPreferencesCard';
 import { SprintMilestoneProgressBar } from './SprintMilestoneProgressBar';
 import { PlatformFAQs } from './PlatformFAQs';
 import { VoiceTextarea } from './VoiceField';
@@ -77,6 +79,7 @@ interface SolveViewProps {
   onGoToUnlock: () => void;
   onGoToVerify: () => void;
   onGoToPulse?: () => void;
+  onUpdateVault?: (next: WorkReadyVault) => void;
 }
 
 export const SolveView: React.FC<SolveViewProps> = ({
@@ -104,6 +107,7 @@ export const SolveView: React.FC<SolveViewProps> = ({
   onGoToUnlock,
   onGoToVerify,
   onGoToPulse,
+  onUpdateVault,
 }) => {
   const workbenchRef = useRef<HTMLDivElement | null>(null);
   const { openMentorThread, getMentorForSprint, getMessagesForSprint } = useMessaging();
@@ -121,6 +125,7 @@ export const SolveView: React.FC<SolveViewProps> = ({
 
   const [levelFilter, setLevelFilter] = useState<'ALL' | SprintComplexityLevel>('ALL');
   const [domainFilter, setDomainFilter] = useState<'ALL' | StudioDomain>('ALL');
+  const [inclusiveOnly, setInclusiveOnly] = useState(false);
   const [notes, setNotes] = useState(activeSubmission?.solutionNotes ?? '');
   const [hours, setHours] = useState<string>(
     activeSubmission ? String(activeSubmission.hoursLogged || 2) : '2'
@@ -130,12 +135,17 @@ export const SolveView: React.FC<SolveViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [justJoinedTitle, setJustJoinedTitle] = useState<string | null>(null);
 
-  const visibleSprints = useMemo(
-    () => filterSolutionSprints(rankedSprints, levelFilter, domainFilter),
-    [rankedSprints, levelFilter, domainFilter]
-  );
+  const visibleSprints = useMemo(() => {
+    const base = filterSolutionSprints(rankedSprints, levelFilter, domainFilter);
+    if (!inclusiveOnly) return base;
+    return base.filter(
+      (s) =>
+        Boolean(s.inclusiveReady) ||
+        Boolean(s.workspaceReadiness && s.workspaceReadiness.length > 0)
+    );
+  }, [rankedSprints, levelFilter, domainFilter, inclusiveOnly]);
 
-  const hasActiveFilters = levelFilter !== 'ALL' || domainFilter !== 'ALL';
+  const hasActiveFilters = levelFilter !== 'ALL' || domainFilter !== 'ALL' || inclusiveOnly;
 
   useEffect(() => {
     if (activeSubmission) {
@@ -411,6 +421,14 @@ export const SolveView: React.FC<SolveViewProps> = ({
         </div>
       </div>
 
+      {/* Optional & Private by Default "How I Work Best" Card (ILO Inclusive Work Standard) */}
+      <WorkSetupPreferencesCard
+        vault={vault}
+        onUpdateVault={onUpdateVault}
+        onJumpToStipendPool={onGoToVerify}
+        contextLabel="solve"
+      />
+
       {/* 4 Curated Paid Solution Sprints Grid */}
       <div className="space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
@@ -494,6 +512,21 @@ export const SolveView: React.FC<SolveViewProps> = ({
                   </button>
                 );
               })}
+
+              <button
+                type="button"
+                data-testid="solve-filter-inclusive-chip"
+                aria-pressed={inclusiveOnly}
+                onClick={() => setInclusiveOnly((prev) => !prev)}
+                className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5 cursor-pointer ${
+                  inclusiveOnly
+                    ? 'bg-[#146C53] dark:bg-[#2EB88B] text-white dark:text-[#121315]'
+                    : 'bg-[#E7F3EE]/70 dark:bg-[#142B24]/70 border border-[#146C53]/30 dark:border-[#2EB88B]/35 text-[#146C53] dark:text-[#2EB88B] hover:bg-[#D8EDE4] dark:hover:bg-[#1A392F]'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>Inclusive &amp; Remote-Ready Sprints</span>
+              </button>
             </div>
           </div>
 
@@ -505,6 +538,7 @@ export const SolveView: React.FC<SolveViewProps> = ({
                   {[
                     levelFilter !== 'ALL' ? levelFilter : null,
                     domainFilter !== 'ALL' ? domainFilter : null,
+                    inclusiveOnly ? 'Inclusive & Remote-Ready' : null,
                   ]
                     .filter(Boolean)
                     .join(' · ')}
@@ -516,6 +550,7 @@ export const SolveView: React.FC<SolveViewProps> = ({
                 onClick={() => {
                   setLevelFilter('ALL');
                   setDomainFilter('ALL');
+                  setInclusiveOnly(false);
                 }}
                 className="font-semibold text-[#146C53] dark:text-[#2EB88B] hover:underline whitespace-nowrap"
               >
@@ -543,6 +578,7 @@ export const SolveView: React.FC<SolveViewProps> = ({
                 onClick={() => {
                   setLevelFilter('ALL');
                   setDomainFilter('ALL');
+                  setInclusiveOnly(false);
                 }}
                 className="min-h-[40px] px-4 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold transition-colors"
               >
@@ -602,6 +638,18 @@ export const SolveView: React.FC<SolveViewProps> = ({
                     <p className="mt-2 text-sm text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
                       {sprint.painPoint}
                     </p>
+                    {sprint.workspaceReadiness && sprint.workspaceReadiness.length > 0 && (
+                      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                        {sprint.workspaceReadiness.map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[10px] font-medium text-[#146C53] dark:text-[#5EEAD4]"
+                          >
+                            {getWorkspaceReadinessLabel(tag)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Crisp "Why You Fit" Rationale */}

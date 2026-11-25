@@ -30,6 +30,7 @@ import type {
 } from '../types/kora';
 import type { TranslationDictionary } from '../utils/i18n';
 import { OpenHorizonDawnMotif } from './ResilienceMotifs';
+import { WorkSetupPreferencesCard } from './WorkSetupPreferencesCard';
 import { computeVaultReadiness, computeFinancialCrossingProgress } from '../utils/talentEngine';
 
 interface ClearedViewProps {
@@ -41,6 +42,7 @@ interface ClearedViewProps {
   endorsements: PeerEndorsement[];
   payouts?: ContractPayout[];
   onSelectTab: (tab: WorkspaceTab) => void;
+  onUpdateVault?: (next: WorkReadyVault) => void;
   t: TranslationDictionary;
 }
 
@@ -77,6 +79,7 @@ export const ClearedView: React.FC<ClearedViewProps> = ({
   endorsements,
   payouts = [],
   onSelectTab,
+  onUpdateVault,
   t: _t,
 }) => {
   const recommendedTrack: HorizonTrackId = useMemo(() => {
@@ -89,6 +92,7 @@ export const ClearedView: React.FC<ClearedViewProps> = ({
   const [activeTrack, setActiveTrack] = useState<HorizonTrackId>(recommendedTrack);
   const [dossierExported, setDossierExported] = useState(false);
   const [dossierModalOpen, setDossierModalOpen] = useState(false);
+  const [dossierCopiedMessage, setDossierCopiedMessage] = useState<string | null>(null);
 
   // Module 3 Roadmap checked milestone state
   const [checkedMilestones, setCheckedMilestones] = useState<Record<string, boolean>>(() => {
@@ -628,6 +632,31 @@ export const ClearedView: React.FC<ClearedViewProps> = ({
           })}
         </div>
 
+        {/* Optional Practical Work Setup Preferences (Synced with Tab 3 & Consent Bridge) */}
+        <WorkSetupPreferencesCard
+          vault={vault}
+          onUpdateVault={onUpdateVault}
+          onJumpToStipendPool={() => onSelectTab('verify')}
+          contextLabel="cleared"
+        />
+
+        {dossierCopiedMessage && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-xl border border-[#146C53]/35 bg-[#E7F3EE] dark:bg-[#142B24] px-4 py-3 text-xs font-medium text-[#146C53] dark:text-[#5EEAD4] flex items-center justify-between gap-3"
+          >
+            <span>{dossierCopiedMessage}</span>
+            <button
+              type="button"
+              onClick={() => setDossierCopiedMessage(null)}
+              className="underline font-semibold cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Footer Actions */}
         <div className="pt-6 border-t border-[#E8E3DB] dark:border-[#2C3037] flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3]">
@@ -713,7 +742,13 @@ export const ClearedView: React.FC<ClearedViewProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  window.alert('Dossier successfully copied to clipboard and ready to share with employer, scholarship panel, or RLO partner.');
+                  const summaryText = `Vuka na Amana Cleared Future Dossier — ${profile.displayName || 'Skilled Practitioner'} | Track: ${selectedHorizon.title} (${selectedHorizon.frameworkRef}) | Momentum: ${momentumPct}%`;
+                  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+                    void navigator.clipboard.writeText(summaryText).catch(() => {});
+                  }
+                  setDossierCopiedMessage(
+                    'Cleared Future Dossier copied to clipboard and ready to share with an employer, scholarship panel, or RLO partner.'
+                  );
                   setDossierModalOpen(false);
                 }}
                 className="px-5 py-2.5 rounded-xl bg-[#146C53] hover:bg-[#0F5440] text-white text-xs font-semibold cursor-pointer"

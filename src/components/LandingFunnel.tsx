@@ -5,11 +5,14 @@ import {
   ArrowUp,
   ArrowUpDown,
   Globe,
+  Keyboard,
   Mic,
   Moon,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
   Square,
   Sun,
-  WifiOff,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { AgeStage, LocaleCode, ThemeMode } from '../types/kora';
@@ -202,6 +205,10 @@ interface LandingFunnelProps {
   onOpenHiringPartners: (payload: { problemStatement: string; ageStage: AgeStage }) => void;
   onEnterStudio: (payload: { problemStatement: string; ageStage: AgeStage }) => void;
   onPreviewCleared?: (payload: { problemStatement: string; ageStage: AgeStage }) => void;
+  onDraftChange?: (payload: { problemStatement: string; ageStage: AgeStage }) => void;
+  onOpenCommandPalette?: () => void;
+  onOpenAccessComfort?: () => void;
+  hasCustomAccessComfort?: boolean;
   onOpenScaleDrawer: () => void;
   t: TranslationDictionary;
 }
@@ -221,16 +228,34 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
   onOpenHiringPartners,
   onEnterStudio,
   onPreviewCleared,
+  onDraftChange,
+  onOpenCommandPalette,
+  onOpenAccessComfort,
+  hasCustomAccessComfort = false,
   onOpenScaleDrawer,
   t,
 }) => {
   const [selectedStage, setSelectedStage] = useState<AgeStage>(initialStage);
   const [problemStatement, setProblemStatement] = useState<string>(initialProblem);
 
+  const handleSelectStage = (stage: AgeStage) => {
+    setSelectedStage(stage);
+    onDraftChange?.({ problemStatement: problemStatement.trim(), ageStage: stage });
+  };
+
+  const handleChangeProblem = (nextText: string) => {
+    setProblemStatement(nextText);
+    onDraftChange?.({ problemStatement: nextText.trim(), ageStage: selectedStage });
+  };
+
   const { isListening, unsupportedMessage, toggleListening } = useSpeechInput(
     speechLang,
     (spoken) => {
-      setProblemStatement((prev) => (prev.trim() ? `${prev.trim()} ${spoken}` : spoken));
+      setProblemStatement((prev) => {
+        const nextVal = prev.trim() ? `${prev.trim()} ${spoken}` : spoken;
+        onDraftChange?.({ problemStatement: nextVal.trim(), ageStage: selectedStage });
+        return nextVal;
+      });
     }
   );
 
@@ -272,38 +297,38 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
     <div className="min-h-screen overflow-x-clip bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] flex flex-col">
       {/* BEAT 1: Minimal Top Bar */}
       <header className="sticky top-0 z-30 bg-[#FAF8F5]/92 dark:bg-[#121315]/92 backdrop-blur-md border-b border-[#E8E3DB] dark:border-[#2C3037]">
-        <div className="max-w-6xl mx-auto h-16 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-6">
-          {/* Brand Wordmark + Official Bridge Logo */}
+        <div className="max-w-7xl mx-auto min-h-[60px] px-3 sm:px-5 lg:px-6 py-2 flex items-center justify-between gap-2 sm:gap-3">
+          {/* Brand Wordmark + Official Bridge Logo (never truncated) */}
           <button
             type="button"
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             aria-label="Vuka na Amana — Crossing Over"
             data-testid="landing-brand-home-btn"
-            className="flex items-center gap-2 sm:gap-3 min-w-0 shrink text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] rounded-md py-1"
+            className="flex items-center gap-2 sm:gap-2.5 shrink-0 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] rounded-md py-1 cursor-pointer"
           >
             <img
               src="/bridge.jpeg"
               alt="Vuka na Amana Bridge Logo"
-              className="h-8 max-w-[96px] sm:h-10 sm:max-w-[140px] w-auto object-contain rounded-md shrink-0"
+              className="h-6 max-w-[68px] sm:h-7 sm:max-w-[84px] w-auto object-contain rounded-md shrink-0"
             />
-            <div className="leading-tight min-w-0">
-              <span className="block font-display text-[13px] sm:text-lg font-semibold tracking-tight text-[#17191C] dark:text-[#F4F2EE] truncate">
+            <div className="leading-tight shrink-0">
+              <span className="block font-display text-[15px] sm:text-[18px] lg:text-[20px] font-semibold tracking-tight text-[#17191C] dark:text-[#F4F2EE] whitespace-nowrap">
                 {t.brandName}
               </span>
-              <span className="hidden sm:block text-[10px] font-medium uppercase tracking-[0.14em] text-[#575B62] dark:text-[#A3A7AE] whitespace-nowrap">
+              <span className="hidden sm:block text-[9.5px] font-medium uppercase tracking-[0.14em] text-[#575B62] dark:text-[#A3A7AE] whitespace-nowrap">
                 Crossing Over
               </span>
             </div>
           </button>
 
-          {/* Language Toggle (EN / SW / FR / AR) + Quiet Partner & Studio Links */}
-          <div className="flex items-center gap-1 sm:gap-4 shrink-0">
-            {/* Compact native select on <640px phones to prevent any horizontal clipping */}
+          {/* Language Toggle (EN / SW / FR / AR) + Quiet Partner, Studio & Utility Controls */}
+          <div className="flex items-center justify-end gap-1.5 sm:gap-2 min-w-0">
+            {/* Compact native select on <lg screens to keep Vuka na Amana spacious and uncrowded */}
             <select
               aria-label="Language"
               value={locale}
               onChange={(e) => onChangeLocale(e.target.value as LocaleCode)}
-              className="sm:hidden min-h-[34px] px-1.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53]"
+              className="lg:hidden min-h-[36px] px-1.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] shrink-0"
             >
               {LOCALE_OPTIONS.map((opt) => (
                 <option key={opt.code} value={opt.code}>
@@ -312,11 +337,11 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               ))}
             </select>
 
-            {/* Full segmented EN / SW / FR / AR toggle on sm+ */}
+            {/* Full segmented EN / SW / FR / AR toggle on lg+ */}
             <div
               role="group"
               aria-label="Language switcher"
-              className="hidden sm:inline-flex items-center rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] p-0.5"
+              className="hidden lg:inline-flex items-center rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] p-0.5 shrink-0"
             >
               {LOCALE_OPTIONS.map((opt) => {
                 const active = locale === opt.code;
@@ -327,7 +352,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
                     onClick={() => onChangeLocale(opt.code)}
                     aria-pressed={active}
                     title={opt.nativeLabel}
-                    className={`min-h-[30px] px-2.5 rounded-md text-[11px] font-semibold tracking-wide transition-colors whitespace-nowrap ${
+                    className={`min-h-[30px] px-2 rounded-md text-[11px] font-semibold tracking-wide transition-colors whitespace-nowrap cursor-pointer ${
                       active
                         ? 'bg-[#146C53] dark:bg-[#2EB88B] text-white dark:text-[#121315]'
                         : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
@@ -339,10 +364,28 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               })}
             </div>
 
+            {onOpenAccessComfort && (
+              <button
+                type="button"
+                onClick={onOpenAccessComfort}
+                aria-label="Access & Comfort Settings"
+                title="Access & Comfort Settings (WCAG 2.2)"
+                data-testid="landing-open-access-comfort-btn"
+                className={`inline-flex min-h-[36px] min-w-[36px] sm:min-h-[38px] px-2 sm:px-2.5 items-center justify-center gap-1.5 rounded-lg border transition-colors shrink-0 cursor-pointer ${
+                  hasCustomAccessComfort
+                    ? 'border-[#146C53] dark:border-[#2EB88B] bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+                    : 'border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[#575B62] dark:text-[#A3A7AE] hover:border-[#146C53] dark:hover:border-[#2EB88B] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
+                }`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden 2xl:inline text-xs font-medium">Access</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => onOpenHiringPartners(currentPayload)}
-              className="hidden md:inline-flex items-center text-xs font-medium text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] transition-colors whitespace-nowrap shrink-0"
+              className="hidden md:inline-flex items-center min-h-[36px] px-2 text-xs font-medium text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {t.navHiringPartners}
             </button>
@@ -350,11 +393,37 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
             <button
               type="button"
               onClick={() => onEnterStudio(currentPayload)}
-              className="min-h-[34px] px-2 sm:px-3 py-1.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] transition-colors whitespace-nowrap shrink-0"
+              className="min-h-[36px] px-2.5 sm:px-3 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <span className="sm:hidden">Studio</span>
               <span className="hidden sm:inline">{t.navEnterStudio}</span>
             </button>
+
+            {onOpenCommandPalette && (
+              <button
+                type="button"
+                onClick={onOpenCommandPalette}
+                aria-label="Search stages, guides, glossary (press / or Cmd+K)"
+                title="Search stages, guides, glossary (/ or ⌘K)"
+                data-testid="landing-open-command-palette-btn"
+                className="inline-flex min-h-[36px] min-w-[36px] sm:min-h-[38px] px-2 xl:px-3 xl:min-w-[190px] items-center justify-center xl:justify-between gap-2 rounded-full border border-[#D8D1C5] dark:border-[#343A44] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] focus-visible:outline-none focus-visible:border-[#146C53] dark:focus-visible:border-[#2EB88B] transition-colors shrink-0 cursor-pointer"
+              >
+                <span className="inline-flex items-center gap-1.5 min-w-0">
+                  <Search className="w-3.5 h-3.5 text-[#17191C] dark:text-[#F4F2EE] shrink-0" />
+                  <span className="hidden xl:inline text-xs font-normal text-[#525866] dark:text-[#A3A7AE] truncate">
+                    Search app…
+                  </span>
+                </span>
+                <span className="hidden xl:inline-flex items-center gap-1 shrink-0">
+                  <kbd className="px-1.5 py-0.5 rounded border border-[#E2DCD2] dark:border-[#2F343D] bg-[#FAF8F5] dark:bg-[#121315] text-[10px] font-mono-tabular text-[#525866] dark:text-[#A3A7AE]">
+                    /
+                  </kbd>
+                  <kbd className="px-1.5 py-0.5 rounded border border-[#E2DCD2] dark:border-[#2F343D] bg-[#FAF8F5] dark:bg-[#121315] text-[10px] font-mono-tabular text-[#525866] dark:text-[#A3A7AE]">
+                    ⌘K
+                  </kbd>
+                </span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -362,7 +431,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               aria-label="Open Partner & Scale Mode"
               title="Partner & Scale Mode"
               data-testid="landing-open-partner-scale-drawer"
-              className="inline-flex min-h-[34px] min-w-[34px] items-center justify-center rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[#575B62] dark:text-[#A3A7AE] hover:border-[#146C53] dark:hover:border-[#2EB88B] hover:text-[#146C53] dark:hover:text-[#2EB88B] transition-colors shrink-0"
+              className="hidden sm:inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[#575B62] dark:text-[#A3A7AE] hover:border-[#146C53] dark:hover:border-[#2EB88B] hover:text-[#146C53] dark:hover:text-[#2EB88B] transition-colors shrink-0 cursor-pointer"
             >
               <Globe className="w-3.5 h-3.5" />
             </button>
@@ -371,38 +440,16 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               type="button"
               onClick={onToggleTheme}
               aria-label={theme === 'dark' ? t.themeLight : t.themeDark}
-              className="hidden sm:inline-flex min-h-[34px] min-w-[34px] items-center justify-center rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] transition-colors shrink-0"
+              title={theme === 'dark' ? t.themeLight : t.themeDark}
+              className="hidden sm:inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] transition-colors shrink-0 cursor-pointer"
             >
               {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
             </button>
           </div>
         </div>
-
-        {/* Subtle, non-intrusive Offline PWA Enabled Mode indicator (shown only when disconnected) */}
-        {!isOnline && (
-          <div
-            role="status"
-            aria-live="polite"
-            data-testid="offline-pwa-banner"
-            className="border-t border-[#C4622D]/20 dark:border-[#E07B46]/25 bg-[#F9ECE5]/95 dark:bg-[#261B15]/95"
-          >
-            <div className="max-w-6xl mx-auto px-3 sm:px-6 py-1.5 flex items-center gap-2 text-[11px] sm:text-xs text-[#8D4119] dark:text-[#F0A47A]">
-              <WifiOff className="w-3.5 h-3.5 shrink-0 text-[#C4622D] dark:text-[#E07B46]" />
-              <p className="truncate sm:whitespace-normal">
-                <span className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
-                  Offline PWA Enabled Mode
-                </span>
-                <span aria-hidden="true"> · </span>
-                <span>
-                  Progress is saved locally and will sync automatically once back online.
-                </span>
-              </p>
-            </div>
-          </div>
-        )}
       </header>
 
-      <main className="flex-1">
+      <main id="main-content" tabIndex={-1} className="flex-1">
         {/* BEAT 2: Hero Threshold with Topographic Ascent Motif */}
         <section
           id="landing-hero-section"
@@ -445,7 +492,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
                       key={stage}
                       type="button"
                       aria-pressed={active}
-                      onClick={() => setSelectedStage(stage)}
+                      onClick={() => handleSelectStage(stage)}
                       className={`min-h-[42px] px-4 py-2 rounded-xl border text-xs sm:text-sm font-medium transition-all whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] ${
                         active
                           ? 'bg-[#E7F3EE] dark:bg-[#132922] border-[#146C53] dark:border-[#2EB88B] text-[#146C53] dark:text-[#2EB88B] font-semibold'
@@ -474,7 +521,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               <textarea
                 id="landing-problem-input"
                 value={problemStatement}
-                onChange={(e) => setProblemStatement(e.target.value)}
+                onChange={(e) => handleChangeProblem(e.target.value)}
                 placeholder={t.problemInputPlaceholder}
                 rows={3}
                 maxLength={500}
@@ -482,46 +529,86 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               />
 
               {unsupportedMessage && (
-                <p role="status" className="mt-2 text-xs text-[#9A5B13] dark:text-[#E5A95E]">
+                <p role="status" aria-live="polite" className="mt-2 text-xs text-[#9A5B13] dark:text-[#E5A95E]">
                   {unsupportedMessage}
                 </p>
               )}
 
+              {/* GSMA Non-Voice Inclusion: Equal Type or Quick-Pick Parity */}
+              <div
+                data-testid="landing-quick-pick-parity"
+                className="mt-3 flex flex-wrap items-center gap-1.5"
+              >
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#575B62] dark:text-[#A3A7AE] me-1">
+                  <Keyboard className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                  <span>Type or Quick-Pick (voice optional):</span>
+                </span>
+                {[
+                  '48V solar microgrid & battery diagnostics',
+                  'Community clinic cold-chain & triage logistics',
+                  'Small business bookkeeping & inventory systems',
+                ].map((starter) => (
+                  <button
+                    key={starter}
+                    type="button"
+                    onClick={() => handleChangeProblem(starter)}
+                    className="min-h-[34px] px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-[11px] font-medium text-[#17191C] dark:text-[#F4F2EE] transition-colors cursor-pointer"
+                  >
+                    {starter}
+                  </button>
+                ))}
+              </div>
+
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => toggleListening(t.voiceUnsupportedNote)}
-                  aria-pressed={isListening}
-                  className={`min-h-[44px] px-4 py-2 rounded-xl border text-xs sm:text-sm font-medium inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap ${
-                    isListening
-                      ? 'bg-[#C4622D] border-[#C4622D] text-white'
-                      : 'bg-white dark:bg-[#1A1C20] border-[#E8E3DB] dark:border-[#2C3037] text-[#17191C] dark:text-[#F4F2EE] hover:bg-[#F3EFE9] dark:hover:bg-[#23262B]'
-                  }`}
-                >
-                  {isListening ? (
-                    <>
-                      <Square className="w-3.5 h-3.5 fill-current" />
-                      <span>{t.voiceListeningLabel}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Mic className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B]" />
-                      <span>{t.voiceStartLabel}</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleListening(t.voiceUnsupportedNote)}
+                    aria-pressed={isListening}
+                    className={`min-h-[44px] px-4 py-2 rounded-xl border text-xs sm:text-sm font-medium inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap cursor-pointer ${
+                      isListening
+                        ? 'bg-[#C4622D] border-[#C4622D] text-white'
+                        : 'bg-white dark:bg-[#1A1C20] border-[#E8E3DB] dark:border-[#2C3037] text-[#17191C] dark:text-[#F4F2EE] hover:bg-[#F3EFE9] dark:hover:bg-[#23262B]'
+                    }`}
+                  >
+                    {isListening ? (
+                      <>
+                        <Square className="w-3.5 h-3.5 fill-current" />
+                        <span>{t.voiceListeningLabel}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B]" />
+                        <span>{t.voiceStartLabel}</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('landing-problem-input')?.focus()}
+                    className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+                  >
+                    <Keyboard className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                    <span>Type Instead</span>
+                  </button>
+                </div>
 
                 <button
                   type="submit"
-                  className="min-h-[46px] px-6 py-2.5 rounded-xl bg-[#C4622D] hover:bg-[#AA5223] dark:bg-[#E07B46] dark:hover:bg-[#CE6A36] text-white dark:text-[#121315] text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
+                  className="min-h-[46px] px-6 py-2.5 rounded-xl bg-[#C4622D] hover:bg-[#AA5223] dark:bg-[#E07B46] dark:hover:bg-[#CE6A36] text-white dark:text-[#121315] text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
                 >
                   <span>{t.beginCrossingCta}</span>
                   <ArrowRight className="w-4 h-4 rtl:rotate-180" />
                 </button>
               </div>
 
-              {onPreviewCleared && (
-                <div className="mt-3 pt-3 border-t border-[#E8E3DB] dark:border-[#2C3037] text-center">
+              <div className="mt-3 pt-3 border-t border-[#E8E3DB] dark:border-[#2C3037] flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B] shrink-0" />
+                  <span>Protected by 2FA OTP or No-Phone Dedicated PIN</span>
+                </span>
+                {onPreviewCleared && (
                   <button
                     type="button"
                     onClick={() => onPreviewCleared(currentPayload)}
@@ -531,8 +618,8 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
                     <span>Preview Where This Leads</span>
                     <span aria-hidden="true">→</span>
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </form>
 
             {/* Top Arrow Unit: Up to Hero Start / Down to 3-Pillar Crossing Strip */}
@@ -654,7 +741,7 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
                     type="button"
                     role="tab"
                     aria-selected={active}
-                    onClick={() => setSelectedStage(stage)}
+                    onClick={() => handleSelectStage(stage)}
                     className={`min-h-[56px] px-4 py-3 rounded-xl border text-start transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] ${
                       active
                         ? 'bg-white dark:bg-[#1A1C20] border-[#146C53] dark:border-[#2EB88B] shadow-xs'
@@ -767,6 +854,10 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
                   {t.navHiringPartners}
                 </button>
               </div>
+              <p className="mt-3 inline-flex items-center justify-center gap-1.5 text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B] shrink-0" />
+                <span>2FA / Dedicated PIN verification required before entering the Crossing Studio</span>
+              </p>
             </div>
 
             {/* Bottom Arrow Unit: Up to 3-Pillar Strip / Down to Tagline Footer Anchor */}

@@ -5,9 +5,6 @@ import {
   ChevronUp,
   HelpCircle,
   ShieldCheck,
-  Sparkles,
-  Users,
-  Wallet,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { TranslationDictionary } from '../utils/i18n';

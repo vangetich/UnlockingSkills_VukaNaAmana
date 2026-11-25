@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import {
   Camera,
   CheckCircle2,
+  Keyboard,
   Lightbulb,
   Loader2,
   Mic,
@@ -507,9 +508,12 @@ export const LivingProofPortfolioSection: React.FC<LivingProofPortfolioSectionPr
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isProcessingImages || portfolio.images.length >= 3}
-                className="min-h-[38px] px-3.5 py-1.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] disabled:opacity-50 text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] whitespace-nowrap shrink-0 transition-colors"
+                data-testid="proof-choose-file-btn"
+                aria-label="Choose file or take photo of your work sample"
+                className="min-h-[44px] px-4 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B74] disabled:opacity-50 text-xs font-semibold text-white dark:text-[#121315] inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
               >
-                Tap to Upload
+                <Camera className="w-4 h-4 shrink-0" />
+                <span>Choose File / Take Photo</span>
               </button>
             </div>
 
@@ -602,33 +606,70 @@ export const LivingProofPortfolioSection: React.FC<LivingProofPortfolioSectionPr
               >
                 Explain this job in 30 seconds
               </label>
-              <button
-                type="button"
-                onClick={() =>
-                  toggleListening(
-                    'Speech-to-text is unavailable in this browser — type your 30-second summary directly.'
-                  )
-                }
-                aria-pressed={isListening}
-                className={`min-h-[30px] px-2.5 py-1 rounded-lg border text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors ${
-                  isListening
-                    ? 'bg-[#C4622D] border-[#C4622D] text-white'
-                    : 'bg-white dark:bg-[#1A1C20] border-[#E8E3DB] dark:border-[#2C3037] text-[#146C53] dark:text-[#2EB88B] hover:border-[#146C53]'
-                }`}
-              >
-                {isListening ? (
-                  <>
-                    <Square className="w-3 h-3 fill-current" />
-                    <span>Stop Voice</span>
-                  </>
-                ) : (
-                  <>
-                    <Mic className="w-3 h-3" />
-                    <span>Voice Walkthrough</span>
-                  </>
-                )}
-              </button>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    toggleListening(
+                      'Speech-to-text is unavailable in this browser — type or quick-pick your 30-second summary directly.'
+                    )
+                  }
+                  aria-pressed={isListening}
+                  className={`min-h-[36px] px-3 py-1 rounded-lg border text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    isListening
+                      ? 'bg-[#C4622D] border-[#C4622D] text-white'
+                      : 'bg-white dark:bg-[#1A1C20] border-[#E8E3DB] dark:border-[#2C3037] text-[#146C53] dark:text-[#2EB88B] hover:border-[#146C53]'
+                  }`}
+                >
+                  {isListening ? (
+                    <>
+                      <Square className="w-3 h-3 fill-current" />
+                      <span>Stop Voice</span>
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="w-3 h-3" />
+                      <span>Voice Walkthrough</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('proof-voice-walkthrough')?.focus()}
+                  className="min-h-[36px] px-3 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] text-[11px] font-semibold text-[#17191C] dark:text-[#F4F2EE] inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Keyboard className="w-3 h-3 text-[#146C53] dark:text-[#2EB88B]" />
+                  <span>Type / Quick-Pick</span>
+                </button>
+              </div>
             </div>
+
+            {/* Quick-Pick Non-Voice Walkthrough Starters (GSMA Inclusion) */}
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              {[
+                'Isolated fault with multimeter, verified safety lockout, and restored load.',
+                'Documented cold-chain log, verified calibration, and trained clinic staff.',
+                'Built weekly cashflow ledger, reconciled receipts, and reduced shrinkage.',
+              ].map((snippet) => (
+                <button
+                  key={snippet}
+                  type="button"
+                  onClick={() =>
+                    onUpdatePortfolio({
+                      ...portfolio,
+                      voiceWalkthrough: portfolio.voiceWalkthrough.trim()
+                        ? `${portfolio.voiceWalkthrough.trim()} ${snippet}`
+                        : snippet,
+                      updatedAtIso: new Date().toISOString(),
+                    })
+                  }
+                  className="min-h-[32px] px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] text-[11px] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] transition-colors cursor-pointer text-left"
+                >
+                  + {snippet.slice(0, 44)}…
+                </button>
+              ))}
+            </div>
+
             <textarea
               id="proof-voice-walkthrough"
               rows={2}
@@ -641,11 +682,11 @@ export const LivingProofPortfolioSection: React.FC<LivingProofPortfolioSectionPr
                   updatedAtIso: new Date().toISOString(),
                 })
               }
-              placeholder="Briefly walk a hiring partner through the tools, safety check, or outcome delivered..."
+              placeholder="Briefly walk a hiring partner through the tools, safety check, or outcome delivered (typing works equally to voice)..."
               className="w-full rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] px-3.5 py-2.5 text-xs sm:text-sm text-[#17191C] dark:text-[#F4F2EE] placeholder:text-[#787C84] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] resize-y"
             />
             {unsupportedMessage && (
-              <p className="mt-1 text-[11px] text-[#9A5B13] dark:text-[#E5A95E]">
+              <p role="status" aria-live="polite" className="mt-1 text-[11px] text-[#9A5B13] dark:text-[#E5A95E]">
                 {unsupportedMessage}
               </p>
             )}

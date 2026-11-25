@@ -7,6 +7,7 @@ import type {
   PartnerSessionClaims,
   TalentAccount,
   TalentAuthChannel,
+  TalentAuthMethod,
   TalentSessionClaims,
 } from '../types/kora.ts';
 
@@ -14,7 +15,52 @@ export const TALENT_SESSION_COOKIE = 'vna_talent_sid' as const;
 export const PARTNER_SESSION_COOKIE = 'vna_partner_sid' as const;
 const SESSION_TTL_SECONDS = 60 * 60 * 8; // 8 hours
 const CHALLENGE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const PIN_ENROLLMENT_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_CHALLENGE_ATTEMPTS = 5;
+const BRUTE_FORCE_COOLDOWN_MS = 30 * 1000; // 30-second calm lockout cooldown in demo mode
+
+const RECOVERY_WORDS = [
+  'bridge',
+  'cedar',
+  'dawn',
+  'harbor',
+  'olive',
+  'lantern',
+  'river',
+  'summit',
+  'amber',
+  'compass',
+  'meadow',
+  'horizon',
+  'acacia',
+  'beacon',
+  'oasis',
+  'pebble',
+  'starlight',
+  'willow',
+  'harvest',
+  'breeze',
+  'shelter',
+  'journey',
+  'craft',
+  'promise',
+  'canyon',
+  'solstice',
+  'timber',
+  'veranda',
+  'compassion',
+  'sunrise',
+] as const;
+
+export class AuthLockoutError extends Error {
+  public readonly retryAfterSeconds: number;
+
+  constructor(message: string, retryAfterSeconds: number) {
+    super(message);
+    this.name = 'AuthLockoutError';
+    this.retryAfterSeconds = Math.max(1, Math.ceil(retryAfterSeconds));
+  }
+}
 
 const FREE_EMAIL_DOMAINS = new Set([
   'gmail.com',
@@ -104,23 +150,84 @@ function hashChallengeCode(challengeId: string, code: string): Buffer {
     .digest();
 }
 
+function createSaltedPinHash(pin: string): { salt: string; hashHex: string } {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(pin.trim(), salt, 32);
+  return { salt, hashHex: derived.toString('hex') };
+}
+
+function verifySaltedPinHash(pin: string, salt: string, expectedHashHex: string): boolean {
+  const derived = crypto.scryptSync(pin.trim(), salt, 32);
+  const expected = Buffer.from(expectedHashHex, 'hex');
+  if (derived.length !== expected.length) return false;
+  return crypto.timingSafeEqual(derived, expected);
+}
+
+function generateRecoveryPhrase(): string {
+  const chosen: string[] = [];
+  const used = new Set<number>();
+  while (chosen.length < 3) {
+    const idx = crypto.randomInt(0, RECOVERY_WORDS.length);
+    if (!used.has(idx)) {
+      used.add(idx);
+      chosen.push(RECOVERY_WORDS[idx]);
+    }
+  }
+  return chosen.join('-');
+}
+
 interface PendingChallenge {
   challengeId: string;
   realm: 'talent' | 'partner';
   codeHash: Buffer;
   expiresAtMs: number;
   attempts: number;
+  lockedUntilMs?: number;
   meta: Record<string, string>;
+}
+
+interface PendingPinEnrollment {
+  enrollmentId: string;
+  builderId: string;
+  displayName: string;
+  ageStage: AgeStage;
+  pinSalt: string;
+  pinHashHex: string;
+  recoverySalt: string;
+  recoveryHashHex: string;
+  expiresAtMs: number;
+  attempts: number;
+  lockedUntilMs?: number;
+}
+
+interface StoredPinCredential {
+  accountKey: string;
+  builderId: string;
+  displayNameLower: string;
+  pinSalt: string;
+  pinHashHex: string;
+  recoverySalt: string;
+  recoveryHashHex: string;
+}
+
+interface AttemptGuardRecord {
+  attempts: number;
+  lockedUntilMs: number;
 }
 
 /**
  * Isolated Talent Auth Realm (`talent_accounts`)
- * Dignified, low-friction sign-in via Phone / WhatsApp OTP or Email Magic Code.
- * Issues strictly scoped `vna_talent_sid` sessions (`role: "builder"`, `aud: "vna-talent"`).
+ * Supports:
+ * - Path A: Standard 2FA via Phone / WhatsApp OTP or Email Magic Code (`authMethod: "otp_2fa"`)
+ * - Path B: No-Phone Dedicated Crossing PIN (`authMethod: "dedicated_pin"`, salted scrypt hash only)
+ * Issues strictly scoped `vna_talent_sid` sessions (`role: "builder"`, `aud: "vna-talent"`, `twoFactorVerified: true`).
  */
 export class TalentAuthRealm {
   private talentAccounts = new Map<string, TalentAccount>();
   private challenges = new Map<string, PendingChallenge>();
+  private pendingPinEnrollments = new Map<string, PendingPinEnrollment>();
+  private pinCredentialsByBuilderId = new Map<string, StoredPinCredential>();
+  private pinLoginGuards = new Map<string, AttemptGuardRecord>();
   private activeSessionIds = new Set<string>();
   private revokedSessionIds = new Set<string>();
 
@@ -129,14 +236,28 @@ export class TalentAuthRealm {
     const nowIso = new Date().toISOString();
     this.talentAccounts.set('demo-builder@vuka.local', {
       id: 'tal_demo_builder_01',
+      builderId: 'VNA-B-1024',
       displayName: 'Amina Hassan',
       contactChannel: 'whatsapp',
       contactIdentifier: '+254 712 ••• 890',
       ageStage: '30-45',
+      authMethod: 'otp_2fa',
+      twoFactorVerified: true,
       isDemo: true,
       createdAtIso: nowIso,
       lastLoginAtIso: nowIso,
     });
+  }
+
+  private generateUniqueBuilderId(): string {
+    for (let i = 0; i < 20; i += 1) {
+      const code = crypto.randomInt(1000, 9999);
+      const candidate = `VNA-B-${code}`;
+      if (!this.pinCredentialsByBuilderId.has(candidate)) {
+        return candidate;
+      }
+    }
+    return `VNA-B-${crypto.randomInt(10000, 99999)}`;
   }
 
   public requestChallenge(input: {
@@ -151,12 +272,13 @@ export class TalentAuthRealm {
 
     if (channel === 'email') {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawIdentifier) || rawIdentifier.length > 120) {
-        throw new Error('Please enter a valid email address for your magic code.');
+        throw new Error('Please enter a valid email address for your 6-digit verification code.');
       }
     } else {
-      const digits = rawIdentifier.replace(/[^\d+]/g, '');
-      if (digits.length < 8 || digits.length > 18) {
-        throw new Error('Please enter a valid phone or WhatsApp number with country code (e.g., +254712345678).');
+      if (!/^\d{8,15}$/.test(rawIdentifier)) {
+        throw new Error(
+          'Please enter numerals only (8–15 digits including country code, e.g., 254712345678) — no +, spaces, letters, or symbols.'
+        );
       }
     }
 
@@ -193,27 +315,57 @@ export class TalentAuthRealm {
   public verifyChallenge(input: {
     challengeId: string;
     code: string;
+    trustedDevice?: boolean;
   }): { token: string; claims: TalentSessionClaims; account: TalentAccount } {
     const challenge = this.challenges.get(input.challengeId);
     if (!challenge || challenge.realm !== 'talent') {
       throw new Error('Verification code expired or not found. Please request a fresh code.');
     }
-    if (Date.now() > challenge.expiresAtMs) {
+    const now = Date.now();
+    if (now > challenge.expiresAtMs) {
       this.challenges.delete(input.challengeId);
       throw new Error('Verification code expired. Please request a new code.');
     }
+    if (challenge.lockedUntilMs && now < challenge.lockedUntilMs) {
+      const remaining = Math.ceil((challenge.lockedUntilMs - now) / 1000);
+      throw new AuthLockoutError(
+        `Too many invalid attempts. For your protection, please wait ${remaining}s and try again.`,
+        remaining
+      );
+    }
     if (challenge.attempts >= MAX_CHALLENGE_ATTEMPTS) {
-      this.challenges.delete(input.challengeId);
-      throw new Error('Too many invalid attempts. Please request a fresh code.');
+      challenge.lockedUntilMs = now + BRUTE_FORCE_COOLDOWN_MS;
+      const remaining = Math.ceil(BRUTE_FORCE_COOLDOWN_MS / 1000);
+      throw new AuthLockoutError(
+        `Too many invalid attempts. For your protection, please wait ${remaining}s or request a fresh code.`,
+        remaining
+      );
     }
 
+    const rawCode = String(input.code || '').trim();
+    if (!/^\d{6}$/.test(rawCode)) {
+      throw new Error(
+        'Verification code must contain numerals only (6 digits, 0–9) — no letters, spaces, or special symbols.'
+      );
+    }
     challenge.attempts += 1;
-    const candidateHash = hashChallengeCode(challenge.challengeId, String(input.code || ''));
+    const candidateHash = hashChallengeCode(challenge.challengeId, rawCode);
     if (
       candidateHash.length !== challenge.codeHash.length ||
       !crypto.timingSafeEqual(candidateHash, challenge.codeHash)
     ) {
-      throw new Error('Code does not match. Please double-check the 6-digit code.');
+      if (challenge.attempts >= MAX_CHALLENGE_ATTEMPTS) {
+        challenge.lockedUntilMs = now + BRUTE_FORCE_COOLDOWN_MS;
+        const remaining = Math.ceil(BRUTE_FORCE_COOLDOWN_MS / 1000);
+        throw new AuthLockoutError(
+          `Too many invalid attempts. Take a brief ${remaining}s pause before trying again, or request a fresh code.`,
+          remaining
+        );
+      }
+      const attemptsLeft = MAX_CHALLENGE_ATTEMPTS - challenge.attempts;
+      throw new Error(
+        `Code does not match. Please double-check the 6-digit code (${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left before a brief cooldown).`
+      );
     }
 
     this.challenges.delete(challenge.challengeId);
@@ -229,20 +381,260 @@ export class TalentAuthRealm {
         : 'Skilled Builder');
 
     const account: TalentAccount = existing
-      ? { ...existing, displayName, lastLoginAtIso: nowIso }
+      ? {
+          ...existing,
+          displayName,
+          ageStage: (challenge.meta.ageStage as AgeStage) || existing.ageStage,
+          authMethod: 'otp_2fa',
+          twoFactorVerified: true,
+          lastLoginAtIso: nowIso,
+        }
       : {
           id: `tal_${crypto.randomBytes(8).toString('hex')}`,
+          builderId: this.generateUniqueBuilderId(),
           displayName,
           contactChannel: challenge.meta.channel as TalentAuthChannel,
           contactIdentifier: challenge.meta.identifier,
           ageStage: (challenge.meta.ageStage as AgeStage) || '30-45',
+          authMethod: 'otp_2fa',
+          twoFactorVerified: true,
           isDemo: false,
           createdAtIso: nowIso,
           lastLoginAtIso: nowIso,
         };
 
     this.talentAccounts.set(key, account);
-    return this.mintSessionForAccount(account);
+    return this.mintSessionForAccount(account, 'otp_2fa', Boolean(input.trustedDevice));
+  }
+
+  /**
+   * Path B (Step 1): Generate a Dedicated Crossing PIN for builders without a phone number.
+   * Cryptographically generates Builder ID (VNA-B-XXXX), 6-digit PIN, and 3-word recovery phrase.
+   * Stores ONLY salted scrypt hashes in pending enrollment — never plaintext PIN.
+   */
+  public generateDedicatedPinEnrollment(input: {
+    displayName: string;
+    ageStage?: AgeStage;
+  }): {
+    enrollmentId: string;
+    builderId: string;
+    pin: string;
+    recoveryPhrase: string;
+    displayName: string;
+    ageStage: AgeStage;
+    expiresInSeconds: number;
+  } {
+    const cleanName = String(input.displayName || '').trim().slice(0, 80);
+    if (cleanName.length < 2) {
+      throw new Error('Please enter a dignified display name or alias (at least 2 characters).');
+    }
+
+    const ageStage: AgeStage =
+      input.ageStage === '15-17' ||
+      input.ageStage === '18-29' ||
+      input.ageStage === '30-45' ||
+      input.ageStage === '46+'
+        ? input.ageStage
+        : '30-45';
+
+    const enrollmentId = `pinenr_${crypto.randomBytes(12).toString('hex')}`;
+    const builderId = this.generateUniqueBuilderId();
+    const pin = String(crypto.randomInt(100000, 999999));
+    const recoveryPhrase = generateRecoveryPhrase();
+
+    const { salt: pinSalt, hashHex: pinHashHex } = createSaltedPinHash(pin);
+    const { salt: recoverySalt, hashHex: recoveryHashHex } = createSaltedPinHash(recoveryPhrase);
+
+    this.pendingPinEnrollments.set(enrollmentId, {
+      enrollmentId,
+      builderId,
+      displayName: cleanName,
+      ageStage,
+      pinSalt,
+      pinHashHex,
+      recoverySalt,
+      recoveryHashHex,
+      expiresAtMs: Date.now() + PIN_ENROLLMENT_TTL_MS,
+      attempts: 0,
+    });
+
+    return {
+      enrollmentId,
+      builderId,
+      pin,
+      recoveryPhrase,
+      displayName: cleanName,
+      ageStage,
+      expiresInSeconds: Math.round(PIN_ENROLLMENT_TTL_MS / 1000),
+    };
+  }
+
+  /**
+   * Path B (Step 2 — 2FA Confirmation Gate):
+   * Builder re-enters their generated 6-digit PIN once to prove they saved it safely.
+   * Stores ONLY the salted hash on the persisted builder credential and mints `vna_talent_sid`.
+   */
+  public confirmDedicatedPinEnrollment(input: {
+    enrollmentId: string;
+    pin: string;
+    trustedDevice?: boolean;
+  }): { token: string; claims: TalentSessionClaims; account: TalentAccount } {
+    const enrollment = this.pendingPinEnrollments.get(input.enrollmentId);
+    if (!enrollment) {
+      throw new Error('PIN setup session expired. Please generate a fresh Dedicated PIN.');
+    }
+
+    const now = Date.now();
+    if (now > enrollment.expiresAtMs) {
+      this.pendingPinEnrollments.delete(input.enrollmentId);
+      throw new Error('PIN setup session expired. Please generate a fresh Dedicated PIN.');
+    }
+
+    if (enrollment.lockedUntilMs && now < enrollment.lockedUntilMs) {
+      const remaining = Math.ceil((enrollment.lockedUntilMs - now) / 1000);
+      throw new AuthLockoutError(
+        `Too many invalid attempts. Take a calm ${remaining}s pause before re-entering your PIN.`,
+        remaining
+      );
+    }
+
+    const rawPin = String(input.pin || '').trim();
+    if (!/^\d{6}$/.test(rawPin)) {
+      throw new Error(
+        'Dedicated PIN must contain numerals only (6 digits, 0–9) — no letters, spaces, or special symbols.'
+      );
+    }
+    if (!verifySaltedPinHash(rawPin, enrollment.pinSalt, enrollment.pinHashHex)) {
+      enrollment.attempts += 1;
+      if (enrollment.attempts >= MAX_CHALLENGE_ATTEMPTS) {
+        enrollment.lockedUntilMs = now + BRUTE_FORCE_COOLDOWN_MS;
+        enrollment.attempts = 0;
+        const remaining = Math.ceil(BRUTE_FORCE_COOLDOWN_MS / 1000);
+        throw new AuthLockoutError(
+          `Too many invalid attempts. Take a calm ${remaining}s pause before re-entering your 6-digit PIN.`,
+          remaining
+        );
+      }
+      const left = MAX_CHALLENGE_ATTEMPTS - enrollment.attempts;
+      throw new Error(
+        `That PIN doesn't match the one shown above. Please check your card and try again (${left} ${left === 1 ? 'try' : 'tries'} left).`
+      );
+    }
+
+    this.pendingPinEnrollments.delete(input.enrollmentId);
+
+    const nowIso = new Date().toISOString();
+    const accountKey = `pin:${enrollment.builderId.toUpperCase()}`;
+    const account: TalentAccount = {
+      id: `tal_${crypto.randomBytes(8).toString('hex')}`,
+      builderId: enrollment.builderId,
+      displayName: enrollment.displayName,
+      contactChannel: 'dedicated_pin',
+      contactIdentifier: enrollment.builderId,
+      ageStage: enrollment.ageStage,
+      authMethod: 'dedicated_pin',
+      twoFactorVerified: true,
+      isDemo: false,
+      createdAtIso: nowIso,
+      lastLoginAtIso: nowIso,
+    };
+
+    this.talentAccounts.set(accountKey, account);
+    this.pinCredentialsByBuilderId.set(enrollment.builderId.toUpperCase(), {
+      accountKey,
+      builderId: enrollment.builderId,
+      displayNameLower: enrollment.displayName.toLowerCase(),
+      pinSalt: enrollment.pinSalt,
+      pinHashHex: enrollment.pinHashHex,
+      recoverySalt: enrollment.recoverySalt,
+      recoveryHashHex: enrollment.recoveryHashHex,
+    });
+
+    return this.mintSessionForAccount(account, 'dedicated_pin', Boolean(input.trustedDevice));
+  }
+
+  /**
+   * Path B (Returning Sign-In):
+   * Authenticates by Builder ID (e.g. VNA-B-4821) or Display Alias + 6-Digit Dedicated PIN.
+   * Enforces 5-attempt 30s brute-force lockout cooldown.
+   */
+  public loginWithDedicatedPin(input: {
+    identifier: string;
+    pin: string;
+    trustedDevice?: boolean;
+  }): { token: string; claims: TalentSessionClaims; account: TalentAccount } {
+    const rawId = String(input.identifier || '').trim();
+    const rawPin = String(input.pin || '').trim();
+    if (rawId.length < 2) {
+      throw new Error('Please enter your Builder ID (e.g., VNA-B-4821) or Display Alias.');
+    }
+    if (!/^\d{6}$/.test(rawPin)) {
+      throw new Error(
+        'Dedicated PIN must contain numerals only (6 digits, 0–9) — no letters, spaces, or special symbols.'
+      );
+    }
+
+    const guardKey = rawId.toLowerCase();
+    const now = Date.now();
+    const guard = this.pinLoginGuards.get(guardKey) || { attempts: 0, lockedUntilMs: 0 };
+
+    if (guard.lockedUntilMs > now) {
+      const remaining = Math.ceil((guard.lockedUntilMs - now) / 1000);
+      throw new AuthLockoutError(
+        `Too many invalid attempts. For your protection, please wait ${remaining}s before trying again.`,
+        remaining
+      );
+    }
+
+    const upperLookup = rawId.toUpperCase();
+    let credential = this.pinCredentialsByBuilderId.get(upperLookup);
+    if (!credential) {
+      for (const item of this.pinCredentialsByBuilderId.values()) {
+        if (item.displayNameLower === guardKey) {
+          credential = item;
+          break;
+        }
+      }
+    }
+
+    const valid =
+      Boolean(credential) &&
+      verifySaltedPinHash(rawPin, credential!.pinSalt, credential!.pinHashHex);
+
+    if (!valid || !credential) {
+      guard.attempts += 1;
+      if (guard.attempts >= MAX_CHALLENGE_ATTEMPTS) {
+        guard.lockedUntilMs = now + BRUTE_FORCE_COOLDOWN_MS;
+        guard.attempts = 0;
+        this.pinLoginGuards.set(guardKey, guard);
+        const remaining = Math.ceil(BRUTE_FORCE_COOLDOWN_MS / 1000);
+        throw new AuthLockoutError(
+          `Too many invalid attempts. For your protection, please wait ${remaining}s and try again.`,
+          remaining
+        );
+      }
+      this.pinLoginGuards.set(guardKey, guard);
+      const left = MAX_CHALLENGE_ATTEMPTS - guard.attempts;
+      throw new Error(
+        `Builder ID/Alias or 6-Digit PIN did not match. Please double-check your PIN card (${left} ${left === 1 ? 'try' : 'tries'} left).`
+      );
+    }
+
+    this.pinLoginGuards.delete(guardKey);
+
+    const existing = this.talentAccounts.get(credential.accountKey);
+    if (!existing) {
+      throw new Error('Builder profile could not be found. Please generate a new Dedicated PIN.');
+    }
+
+    const updatedAccount: TalentAccount = {
+      ...existing,
+      authMethod: 'dedicated_pin',
+      twoFactorVerified: true,
+      lastLoginAtIso: new Date().toISOString(),
+    };
+    this.talentAccounts.set(credential.accountKey, updatedAccount);
+    return this.mintSessionForAccount(updatedAccount, 'dedicated_pin', Boolean(input.trustedDevice));
   }
 
   public mintDemoBuilderSession(input?: {
@@ -253,16 +645,23 @@ export class TalentAuthRealm {
     const demoBase = this.talentAccounts.get('demo-builder@vuka.local')!;
     const account: TalentAccount = {
       ...demoBase,
+      builderId: demoBase.builderId || 'VNA-B-1024',
       displayName: input?.displayName?.trim().slice(0, 80) || demoBase.displayName,
       ageStage: input?.ageStage || demoBase.ageStage,
+      authMethod: 'otp_2fa',
+      twoFactorVerified: true,
       isDemo: true,
       lastLoginAtIso: nowIso,
     };
     this.talentAccounts.set('demo-builder@vuka.local', account);
-    return this.mintSessionForAccount(account);
+    return this.mintSessionForAccount(account, 'otp_2fa', true);
   }
 
-  private mintSessionForAccount(account: TalentAccount): {
+  private mintSessionForAccount(
+    account: TalentAccount,
+    authMethod: TalentAuthMethod,
+    trustedDevice = false
+  ): {
     token: string;
     claims: TalentSessionClaims;
     account: TalentAccount;
@@ -275,8 +674,12 @@ export class TalentAuthRealm {
       role: 'builder',
       aud: 'vna-talent',
       displayName: account.displayName,
+      builderId: account.builderId,
       contactChannel: account.contactChannel,
       contactIdentifier: account.contactIdentifier,
+      twoFactorVerified: true,
+      authMethod,
+      trustedDevice,
       isDemo: account.isDemo,
       iat,
       exp: iat + SESSION_TTL_SECONDS,
@@ -317,6 +720,7 @@ export class TalentAuthRealm {
   public getStats() {
     return {
       accountsCount: this.talentAccounts.size,
+      pinAccountsCount: this.pinCredentialsByBuilderId.size,
       activeSessionsCount: this.activeSessionIds.size,
     };
   }
@@ -440,8 +844,15 @@ export class PartnerAuthRealm {
       throw new Error('Too many invalid attempts. Please request a fresh verification code.');
     }
 
+    const rawCode = String(input.code || '').trim();
+    if (!/^\d{6}$/.test(rawCode)) {
+      throw new Error(
+        'Partner verification code must contain numerals only (6 digits, 0–9) — no letters, spaces, or special symbols.'
+      );
+    }
+
     challenge.attempts += 1;
-    const candidateHash = hashChallengeCode(challenge.challengeId, String(input.code || ''));
+    const candidateHash = hashChallengeCode(challenge.challengeId, rawCode);
     if (
       candidateHash.length !== challenge.codeHash.length ||
       !crypto.timingSafeEqual(candidateHash, challenge.codeHash)

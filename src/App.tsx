@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { Building2, CheckCircle2, RefreshCw, ShieldCheck, WifiOff, X } from 'lucide-react';
 import {
   auth,
@@ -93,6 +93,7 @@ import {
   advancePayoutStatus,
   buildMentorQuickReply,
   countWorkplaceSignals,
+  getWorkSetupPreferenceLabel,
   isComplianceClearedForWork,
   makeSafeId,
   normalizeAgeStage,
@@ -107,6 +108,7 @@ import { useAutoSave } from './hooks/useAutoSave';
 import { MessagingProvider } from './contexts/MessagingContext';
 import { LandingFunnel } from './components/LandingFunnel';
 import { TopNav } from './components/TopNav';
+import { PwaSyncStatusBar } from './components/PwaSyncStatusBar';
 import { WorkspaceUtilities } from './components/WorkspaceUtilities';
 import { VerifyView } from './components/VerifyView';
 import { UnlockView } from './components/UnlockView';
@@ -117,11 +119,24 @@ import { PartnerScaleDrawer } from './components/PartnerScaleDrawer';
 import { SharedPassportView } from './components/SharedPassportView';
 import { MentorMessagingDrawer } from './components/MentorMessagingDrawer';
 import { CommandPalette } from './components/CommandPalette';
+import { GlossaryModal, type PartnerConsoleTab } from './components/GlossaryModal';
+import { BibliographyModal } from './components/BibliographyModal';
+import { JudgeGuidePdfModal, type PdfDocumentSpec } from './components/JudgeGuidePdfModal';
 import { AccountSyncModal, type EmailVaultSyncStatus } from './components/AccountSyncModal';
 import { DualDoorAuthModal } from './components/DualDoorAuthModal';
 import { PrivacySharedAccessModal } from './components/PrivacySharedAccessModal';
 import { SyncLedger } from './components/SyncLedger';
 import { PartnerConsoleView } from './components/PartnerConsoleView';
+import { AccessComfortDrawer, ReadAloudMiniBar } from './components/AccessComfortDrawer';
+import {
+  applyAccessComfortToDocument,
+  getDefaultAccessComfortPreferences,
+  hasCustomAccessComfort,
+  loadAccessComfortPreferences,
+  saveAccessComfortPreferences,
+  useReadAloud,
+  type AccessComfortPreferences,
+} from './utils/accessComfort';
 
 export default function App() {
   const searchParams =
@@ -184,16 +199,14 @@ export default function App() {
   );
   const [recentCompletedContribution, setRecentCompletedContribution] =
     useState<BriefSubmission | null>(null);
-  const [viewMode, setViewMode] = useState<AppViewMode>(() => {
-    if (autostart || Boolean(incomingEndorseToken)) return 'studio';
-    if (typeof window !== 'undefined' && window.sessionStorage.getItem('vuka.viewMode') === 'studio') {
-      return 'studio';
-    }
-    return 'landing';
-  });
+  // Always start on Landing Funnel until an authenticated 2FA/PIN or Partner session is verified
+  const [viewMode, setViewMode] = useState<AppViewMode>('landing');
+  const [authSessionChecked, setAuthSessionChecked] = useState(false);
   const [activePortal, setActivePortal] = useState<PortalRealm>('talent');
   // Scoped Dual-Door session token kept strictly in React memory (never persisted to localStorage/sessionStorage)
   const [activeAuthSession, setActiveAuthSession] = useState<ActiveAuthSession | null>(null);
+  const [pendingRedirectTab, setPendingRedirectTab] = useState<WorkspaceTab | null>(null);
+  const pendingPostAuthActionRef = useRef<(() => void) | null>(null);
   const [dualDoorModal, setDualDoorModal] = useState<{
     isOpen: boolean;
     door: PortalRealm;
@@ -202,6 +215,14 @@ export default function App() {
   }>({ isOpen: false, door: 'talent' });
   const [isScaleDrawerOpen, setIsScaleDrawerOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isAccessDrawerOpen, setIsAccessDrawerOpen] = useState(false);
+  const [accessPrefs, setAccessPrefs] = useState<AccessComfortPreferences>(() =>
+    loadAccessComfortPreferences()
+  );
+  const [isGlossaryOpen, setIsGlossaryOpen] = useState(false);
+  const [isBibliographyOpen, setIsBibliographyOpen] = useState(false);
+  const [activePdfPreview, setActivePdfPreview] = useState<PdfDocumentSpec | null>(null);
+  const [partnerConsoleTab, setPartnerConsoleTab] = useState<PartnerConsoleTab>('sprints');
   const [isAccountSyncOpen, setIsAccountSyncOpen] = useState(false);
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
   const [consentGrants, setConsentGrants] = useState<ConsentGrant[]>([]);
@@ -210,6 +231,30 @@ export default function App() {
   const [sharePassportSignal, setSharePassportSignal] = useState(0);
   const [voiceTriggerSignal, setVoiceTriggerSignal] = useState(0);
   const [endorseBannerDismissed, setEndorseBannerDismissed] = useState(false);
+  const [srAnnouncement, setSrAnnouncement] = useState('');
+  const srAnnounceTimerRef = useRef<number | null>(null);
+
+  const announcePolite = useCallback((message: string) => {
+    setSrAnnouncement('');
+    if (typeof window === 'undefined') {
+      setSrAnnouncement(message);
+      return;
+    }
+    if (srAnnounceTimerRef.current !== null) {
+      window.clearTimeout(srAnnounceTimerRef.current);
+    }
+    srAnnounceTimerRef.current = window.setTimeout(() => {
+      setSrAnnouncement(message);
+    }, 30);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (srAnnounceTimerRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(srAnnounceTimerRef.current);
+      }
+    };
+  }, []);
 
   const fetchGrantsAndLogs = async () => {
     try {
@@ -242,6 +287,7 @@ export default function App() {
       });
       if (res.ok) {
         await fetchGrantsAndLogs();
+        announcePolite('Consent Grant revoked. Partner visibility removed immediately.');
         setGlobalToast({
           id: `revoke-${Date.now()}`,
           variant: 'synced',
@@ -257,6 +303,7 @@ export default function App() {
             : g
         )
       );
+      announcePolite('Consent Grant revoked locally.');
     }
   };
 
@@ -264,6 +311,11 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{
+    percent: number;
+    completed: number;
+    total: number;
+  }>({ percent: 0, completed: 0, total: 0 });
   const [emailVaultStatus, setEmailVaultStatus] = useState<EmailVaultSyncStatus | null>(() => {
     if (typeof window === 'undefined') return null;
     try {
@@ -343,21 +395,71 @@ export default function App() {
   const localeMeta = getLocaleMeta(profile.preferredLocale);
   const t = TRANSLATIONS[profile.preferredLocale] ?? TRANSLATIONS.en;
 
-  // Global Cmd+K / Ctrl+K Command Palette shortcut
+  const isCustomAccessComfort = hasCustomAccessComfort(accessPrefs);
+  const readAloud = useReadAloud(localeMeta.speechLang, accessPrefs.readAloudRate);
+
+  const handleUpdateAccessPrefs = useCallback((next: AccessComfortPreferences) => {
+    setAccessPrefs(next);
+    saveAccessComfortPreferences(next);
+    applyAccessComfortToDocument(next);
+  }, []);
+
+  const handleResetAccessPrefs = useCallback(() => {
+    readAloud.stop();
+    const defaults = getDefaultAccessComfortPreferences();
+    setAccessPrefs(defaults);
+    saveAccessComfortPreferences(defaults);
+    applyAccessComfortToDocument(defaults);
+  }, [readAloud]);
+
+  // Apply Access & Comfort preferences to <html> on mount and change
+  useEffect(() => {
+    applyAccessComfortToDocument(accessPrefs);
+  }, [accessPrefs]);
+
+  // Stop screen read-aloud cleanly when navigating between screens or tabs
+  useEffect(() => {
+    readAloud.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, activePortal, activeTab]);
+
+  // Global Cmd+K / Ctrl+K and '/' App-Wide Search shortcuts (portal-aware: Builder stages stay hidden in Partner Console)
   useEffect(() => {
     const handleGlobalKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setIsCommandPaletteOpen((open) => !open);
+        return;
+      }
+      if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        const target = event.target as HTMLElement | null;
+        const tag = target?.tagName?.toLowerCase();
+        const isEditable =
+          tag === 'input' ||
+          tag === 'textarea' ||
+          tag === 'select' ||
+          Boolean(target?.isContentEditable);
+        if (!isEditable) {
+          event.preventDefault();
+          setIsCommandPaletteOpen(true);
+        }
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
+  // Close Command Palette cleanly when switching portals so state starts fresh in the new realm
+  useEffect(() => {
+    setIsCommandPaletteOpen(false);
+  }, [activePortal]);
+
   // Hydrate isolated Dual-Door HttpOnly cookie session on initial load
   useEffect(() => {
     let cancelled = false;
+    const savedStudioView =
+      typeof window !== 'undefined' && window.sessionStorage.getItem('vuka.viewMode') === 'studio';
+
     const hydrateDualDoorSession = async () => {
       try {
         const res = await fetch('/api/auth/session', { credentials: 'same-origin' });
@@ -370,36 +472,102 @@ export default function App() {
           claims?: ActiveAuthSession['claims'];
         };
         if (data.authenticated && data.realm && data.token && data.claims && !cancelled) {
-          const restored = {
-            realm: data.realm,
-            sessionCookieName: data.sessionCookieName,
-            token: data.token,
-            claims: data.claims,
-          } as ActiveAuthSession;
-          setActiveAuthSession(restored);
-          setActivePortal(data.realm);
-          if (data.realm === 'partner') {
-            setUnlockViewMode('partner');
+          const isValidTalent =
+            data.realm === 'talent' &&
+            (data.claims as TalentSessionClaims).twoFactorVerified === true;
+          const isValidPartner = data.realm === 'partner';
+
+          if (isValidTalent || isValidPartner) {
+            const shouldResumeStudio =
+              (isValidPartner && savedStudioView) ||
+              (isValidTalent && (savedStudioView || autostart || Boolean(incomingEndorseToken)));
+
+            if (shouldResumeStudio) {
+              const restored = {
+                realm: data.realm,
+                sessionCookieName: data.sessionCookieName,
+                token: data.token,
+                claims: data.claims,
+              } as ActiveAuthSession;
+              setActiveAuthSession(restored);
+              setActivePortal(data.realm);
+              if (isValidPartner) {
+                setUnlockViewMode('partner');
+              }
+              setViewMode('studio');
+              return;
+            }
+
+            // User is on the Landing Funnel (not resuming an active studio reload):
+            // enforce mandatory lock-out so re-entering requires fresh authentication.
+            try {
+              await fetch('/api/auth/logout', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-Requested-With': 'VukaNaAmana',
+                  Authorization: `Bearer ${data.token}`,
+                },
+              });
+            } catch {
+              // ignore network errors during landing lock-out
+            }
+            return;
           }
         }
+
+        // Unauthenticated deep-link/autostart attempts must complete 2FA / Dedicated PIN first
+        if (!cancelled && (autostart || Boolean(incomingEndorseToken))) {
+          setPendingRedirectTab('verify');
+          setDualDoorModal({
+            isOpen: true,
+            door: 'talent',
+            pendingPayload: landingDraftRef.current,
+            pendingTab: 'verify',
+          });
+        }
       } catch {
-        // Offline or preview cold boot — safe to remain guest local mode
+        // Offline or preview cold boot — remain protected on Landing Funnel
+      } finally {
+        if (!cancelled) {
+          setAuthSessionChecked(true);
+        }
       }
     };
     void hydrateDualDoorSession();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [autostart, incomingEndorseToken]);
 
-  // Persist active view/tab in sessionStorage and reset scroll on navigation
+  // Track live Landing Funnel draft (selected Age Stage & problem statement) for seamless Search -> Tab 5 handoff
+  const landingDraftRef = useRef<{ problemStatement: string; ageStage: AgeStage }>({
+    problemStatement: profile.problemStatement,
+    ageStage: profile.ageStage,
+  });
+
+  useEffect(() => {
+    landingDraftRef.current = {
+      problemStatement: profile.problemStatement,
+      ageStage: profile.ageStage,
+    };
+  }, [profile.problemStatement, profile.ageStage]);
+
+  // Persist active view/tab in sessionStorage (only after session hydration completes) and smoothly scroll to top
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.sessionStorage.setItem('vuka.activeTab', activeTab);
-      window.sessionStorage.setItem('vuka.viewMode', viewMode);
+      if (authSessionChecked) {
+        if (viewMode === 'studio') {
+          window.sessionStorage.setItem('vuka.viewMode', 'studio');
+        } else {
+          window.sessionStorage.removeItem('vuka.viewMode');
+        }
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
-  }, [activeTab, viewMode]);
+  }, [activeTab, viewMode, authSessionChecked]);
 
   // Apply theme & RTL/language attributes to <html>
   useEffect(() => {
@@ -428,7 +596,9 @@ export default function App() {
   const flushQueue = useCallback(
     async (user: User, queueSnapshot: OfflineMutation[], currentProfile: PractitionerProfile) => {
       if (!isOnline || !user.emailVerified) return;
+      const totalSteps = Math.max(1, queueSnapshot.length + 1);
       setIsSyncing(true);
+      setSyncProgress({ percent: 12, completed: 0, total: totalSteps });
       const maxAttempts = 3;
       let attempt = 0;
       let success = false;
@@ -437,6 +607,12 @@ export default function App() {
         attempt++;
         try {
           await ensureCloudProfile(user.uid, currentProfile, user.email || currentProfile.email);
+          let completedSteps = 1;
+          setSyncProgress({
+            percent: Math.round((completedSteps / totalSteps) * 100),
+            completed: completedSteps,
+            total: totalSteps,
+          });
 
           for (const item of queueSnapshot) {
             if (item.kind === 'upsert_profile') {
@@ -462,11 +638,18 @@ export default function App() {
             } else if (item.kind === 'upsert_mentor_message') {
               await upsertCloudMentorMessage(user.uid, item.payload);
             }
+            completedSteps += 1;
+            setSyncProgress({
+              percent: Math.round((completedSteps / totalSteps) * 100),
+              completed: completedSteps,
+              total: totalSteps,
+            });
           }
 
           success = true;
           const syncedCount = queueSnapshot.length;
           const nowIso = new Date().toISOString();
+          setSyncProgress({ percent: 100, completed: totalSteps, total: totalSteps });
           setOfflineQueue(saveOfflineQueue([]));
           setLastSyncedIso(nowIso);
           saveLastSyncedIso(nowIso);
@@ -488,6 +671,7 @@ export default function App() {
         } catch (err) {
           if (attempt >= maxAttempts) {
             setIsSyncing(false);
+            setSyncProgress({ percent: 0, completed: 0, total: 0 });
             setGlobalToast({
               id: `sync-retry-failed-${Date.now()}`,
               variant: 'offline',
@@ -749,6 +933,7 @@ export default function App() {
     const cleanName = targetDisplayName.trim() || profile.displayName || cleanEmail.split('@')[0];
 
     setIsSyncing(true);
+    setSyncProgress({ percent: 30, completed: 0, total: Math.max(1, offlineQueue.length) });
     try {
       const updatedProfile: PractitionerProfile = {
         ...profile,
@@ -806,6 +991,11 @@ export default function App() {
         window.localStorage.setItem('vuka.emailVaultStatus', JSON.stringify(statusRecord));
       }
 
+      setSyncProgress({
+        percent: 100,
+        completed: Math.max(1, offlineQueue.length),
+        total: Math.max(1, offlineQueue.length),
+      });
       setOfflineQueue(saveOfflineQueue([]));
       setLastSyncedIso(updatedAtIso);
       saveLastSyncedIso(updatedAtIso);
@@ -1009,12 +1199,177 @@ export default function App() {
     setViewMode('studio');
   };
 
+  const isBuilderTwoFactorVerified = Boolean(
+    activeAuthSession?.realm === 'talent' && activeAuthSession.claims.twoFactorVerified === true
+  );
+
+  // Mandatory session lock-out & termination whenever returning to the Landing Funnel
+  // from ANY exit point (logo, header, Command Palette, sign-out button, or #landing hash).
+  const handleLockAndExitToLanding = useCallback(
+    async (_source?: string) => {
+      const previousRealm = activeAuthSession?.realm ?? activePortal;
+      const hadActiveSession = Boolean(activeAuthSession) || viewMode === 'studio';
+      const tokenToRevoke = activeAuthSession?.token;
+
+      // Immediately terminate in-memory session state and navigate to Landing Funnel
+      setActiveAuthSession(null);
+      setPendingRedirectTab(null);
+      pendingPostAuthActionRef.current = null;
+      setIsCommandPaletteOpen(false);
+      setDualDoorModal((prev) => ({ ...prev, isOpen: false }));
+      setActivePortal('talent');
+      setUnlockViewMode('talent');
+      setViewMode('landing');
+
+      if (typeof window !== 'undefined') {
+        try {
+          window.sessionStorage.removeItem('vuka.viewMode');
+        } catch {
+          // ignore storage errors
+        }
+        if (window.location.hash) {
+          window.history.replaceState(
+            null,
+            '',
+            `${window.location.pathname}${window.location.search}`
+          );
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'VukaNaAmana',
+            ...(tokenToRevoke ? { Authorization: `Bearer ${tokenToRevoke}` } : {}),
+          },
+        });
+      } catch {
+        // Offline fallback: local session state is already completely wiped above
+      }
+
+      if (hadActiveSession) {
+        announcePolite('Session locked and ended. Returned to Landing Funnel.');
+        setGlobalToast({
+          id: `portal-locked-landing-${Date.now()}`,
+          variant: 'synced',
+          title: 'Session Locked & Ended',
+          message: `Your isolated ${previousRealm === 'partner' ? 'Partner Console' : 'Builder Studio'} session has been locked upon returning to the Landing Funnel. Re-authenticate to re-enter.`,
+        });
+      }
+    },
+    [activeAuthSession, activePortal, viewMode, announcePolite]
+  );
+
+  // Central security route guard for all 5 Builder stages (Tabs 1-5):
+  // Enforces twoFactorVerified before entering or switching between private Builder stages.
+  const navigateBuilderTab = useCallback(
+    (
+      tab: WorkspaceTab,
+      options?: {
+        fromLandingPayload?: { problemStatement: string; ageStage: AgeStage };
+        postAction?: () => void;
+      }
+    ) => {
+      if (!isBuilderTwoFactorVerified) {
+        setPendingRedirectTab(tab);
+        pendingPostAuthActionRef.current = options?.postAction ?? null;
+        setDualDoorModal({
+          isOpen: true,
+          door: 'talent',
+          pendingPayload: options?.fromLandingPayload ?? landingDraftRef.current,
+          pendingTab: tab,
+        });
+        return;
+      }
+
+      setPendingRedirectTab(null);
+      if (viewMode === 'landing' || options?.fromLandingPayload) {
+        handleLandingHandoff(
+          options?.fromLandingPayload ?? landingDraftRef.current,
+          tab,
+          'talent'
+        );
+      } else {
+        setActivePortal('talent');
+        setViewMode('studio');
+        setActiveTab(tab);
+      }
+      const tabAnnouncements: Record<WorkspaceTab, string> = {
+        verify: 'Stage 1 Verify opened.',
+        unlock: 'Stage 2 Unlock opened.',
+        solve: 'Stage 3 Solve opened.',
+        pulse: 'Stage 4 Pulse opened.',
+        cleared: 'Tab 5 Cleared opened.',
+      };
+      announcePolite(tabAnnouncements[tab]);
+      options?.postAction?.();
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isBuilderTwoFactorVerified, viewMode, profile, announcePolite]
+  );
+
+  // Guard direct URL hash attempts (e.g., #verify, #unlock, #solve, #pulse, #cleared, #landing)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const parseHashTab = (): WorkspaceTab | 'landing' | null => {
+      const h = window.location.hash.replace(/^#/, '').trim().toLowerCase();
+      if (h === 'landing') return 'landing';
+      if (h === 'verify' || h === 'unlock' || h === 'solve' || h === 'pulse' || h === 'cleared') {
+        return h;
+      }
+      return null;
+    };
+    const handleHashGuard = () => {
+      const target = parseHashTab();
+      if (!target) return;
+      if (target === 'landing') {
+        if (viewMode === 'studio' || activeAuthSession) {
+          void handleLockAndExitToLanding('hash-landing');
+        }
+        return;
+      }
+      navigateBuilderTab(target);
+    };
+    handleHashGuard();
+    window.addEventListener('hashchange', handleHashGuard);
+    return () => window.removeEventListener('hashchange', handleHashGuard);
+  }, [navigateBuilderTab, viewMode, activeAuthSession, handleLockAndExitToLanding]);
+
+  // Hard runtime auth invariant: block any unauthenticated entry into Builder Studio or Partner Console
+  useEffect(() => {
+    if (!authSessionChecked || viewMode !== 'studio') return;
+    if (activePortal === 'talent' && !isBuilderTwoFactorVerified) {
+      setViewMode('landing');
+      setPendingRedirectTab(activeTab);
+      setDualDoorModal({
+        isOpen: true,
+        door: 'talent',
+        pendingPayload: landingDraftRef.current,
+        pendingTab: activeTab,
+      });
+    } else if (activePortal === 'partner' && activeAuthSession?.realm !== 'partner') {
+      setViewMode('landing');
+      setDualDoorModal({
+        isOpen: true,
+        door: 'partner',
+        pendingTab: 'unlock',
+      });
+    }
+  }, [authSessionChecked, viewMode, activePortal, isBuilderTwoFactorVerified, activeAuthSession?.realm, activeTab]);
+
   const handleOpenDualDoorFromLanding = (
     door: PortalRealm,
     payload: { problemStatement: string; ageStage: AgeStage },
     targetTab: WorkspaceTab
   ) => {
-    if (door === 'talent' && activeAuthSession?.realm === 'talent') {
+    if (door === 'talent' && isBuilderTwoFactorVerified) {
       handleLandingHandoff(payload, targetTab, 'talent');
       return;
     }
@@ -1025,6 +1380,11 @@ export default function App() {
       setViewMode('studio');
       return;
     }
+    if (door === 'talent') {
+      setPendingRedirectTab(targetTab);
+    } else {
+      setPendingRedirectTab(null);
+    }
     setDualDoorModal({
       isOpen: true,
       door,
@@ -1033,35 +1393,52 @@ export default function App() {
     });
   };
 
-  const handleDualDoorAuthenticated = (session: ActiveAuthSession) => {
+  const handleDualDoorAuthenticated = (
+    session: ActiveAuthSession,
+    selectedAgeStage?: AgeStage
+  ) => {
     const pendingPayload = dualDoorModal.pendingPayload;
-    const pendingTab = dualDoorModal.pendingTab;
+    const resolvedTargetTab = pendingRedirectTab ?? dualDoorModal.pendingTab ?? 'verify';
+    const postAuthAction = pendingPostAuthActionRef.current;
+    pendingPostAuthActionRef.current = null;
 
     setActiveAuthSession(session);
     setActivePortal(session.realm);
+    setPendingRedirectTab(null);
     setDualDoorModal({ isOpen: false, door: session.realm });
 
     if (session.realm === 'talent') {
       const nextProfile: PractitionerProfile = {
         ...profile,
         displayName:
-          profile.displayName === 'Practitioner' || session.claims.isDemo
+          profile.displayName === 'Practitioner' ||
+          session.claims.isDemo ||
+          session.claims.authMethod === 'dedicated_pin'
             ? session.claims.displayName
             : profile.displayName,
         problemStatement: pendingPayload?.problemStatement?.trim() || profile.problemStatement,
-        ageStage: pendingPayload?.ageStage || profile.ageStage,
+        ageStage: selectedAgeStage || pendingPayload?.ageStage || profile.ageStage,
         onboarded: true,
         updatedAtIso: new Date().toISOString(),
       };
       updateProfileState(nextProfile);
       setUnlockViewMode('talent');
-      setActiveTab(pendingTab ?? 'verify');
+      setActiveTab(resolvedTargetTab);
       setViewMode('studio');
+      if (postAuthAction) {
+        window.setTimeout(() => postAuthAction(), 60);
+      }
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      const authLabel =
+        session.claims.authMethod === 'dedicated_pin' ? 'PIN Secured' : '2FA Verified';
+      const idSuffix = session.claims.builderId ? ` · ${session.claims.builderId}` : '';
       setGlobalToast({
         id: `talent-realm-${Date.now()}`,
         variant: 'synced',
-        title: 'Talent Studio Active · Isolated Builder Session',
-        message: `Signed in as ${session.claims.displayName} (vna_talent_sid · aud: vna-talent). Partner credentials strictly isolated.`,
+        title: `Talent Studio Active · ${authLabel}`,
+        message: `Signed in as ${session.claims.displayName}${idSuffix} (vna_talent_sid · aud: vna-talent). Partner credentials strictly isolated.`,
       });
     } else {
       setUnlockViewMode('partner');
@@ -1077,8 +1454,26 @@ export default function App() {
   };
 
   const handleWipePortalSession = async (nextDoorToOpen?: PortalRealm) => {
+    if (!nextDoorToOpen) {
+      await handleLockAndExitToLanding('wipe-portal-signout');
+      return;
+    }
+
     const previousRealm = activeAuthSession?.realm ?? activePortal;
     const tokenToRevoke = activeAuthSession?.token;
+    setActiveAuthSession(null);
+    setPendingRedirectTab(null);
+    pendingPostAuthActionRef.current = null;
+    setViewMode('landing');
+
+    if (typeof window !== 'undefined') {
+      try {
+        window.sessionStorage.removeItem('vuka.viewMode');
+      } catch {
+        // ignore
+      }
+    }
+
     try {
       await fetch('/api/auth/logout', {
         method: 'POST',
@@ -1090,10 +1485,8 @@ export default function App() {
         },
       });
     } catch {
-      // Even if offline, wipe local React-memory session cleanly
+      // Even if offline, local React-memory session is already wiped
     }
-
-    setActiveAuthSession(null);
 
     if (nextDoorToOpen === 'talent') {
       setDualDoorModal({
@@ -1101,78 +1494,31 @@ export default function App() {
         door: 'talent',
         pendingTab: 'verify',
       });
+      announcePolite('Partner session locked. Skilled Builder authorization required.');
       setGlobalToast({
         id: `portal-auth-talent-${Date.now()}`,
         variant: 'synced',
         title: 'Authorisation Required · Skilled Builder Door',
-        message: 'The Skilled Builder portal is the protected refugee & displaced talent section. Access is strictly granted by mutual consent.',
+        message: 'Previous session locked. The Skilled Builder portal requires fresh 2FA or Dedicated PIN verification.',
       });
-    } else if (nextDoorToOpen) {
+    } else {
       setDualDoorModal({
         isOpen: true,
         door: nextDoorToOpen,
         pendingTab: nextDoorToOpen === 'partner' ? 'unlock' : 'verify',
       });
+      announcePolite('Previous session locked before switching portals.');
       setGlobalToast({
         id: `portal-wiped-${Date.now()}`,
         variant: 'synced',
         title: 'Previous Realm Session Cleared',
-        message: `Cleared ${previousRealm === 'partner' ? 'vna_partner_sid' : 'vna_talent_sid'} before opening the ${nextDoorToOpen === 'partner' ? 'Hiring Partner' : 'Talent Builder'} door.`,
-      });
-    } else {
-      setActivePortal('talent');
-      setUnlockViewMode('talent');
-      setViewMode('landing');
-      setGlobalToast({
-        id: `portal-signout-${Date.now()}`,
-        variant: 'synced',
-        title: 'Signed Out & Session Wiped',
-        message: `Your isolated ${previousRealm === 'partner' ? 'Partner Console' : 'Talent Studio'} session has been cleanly revoked.`,
+        message: `Locked ${previousRealm === 'partner' ? 'vna_partner_sid' : 'vna_talent_sid'} before opening the ${nextDoorToOpen === 'partner' ? 'Hiring Partner' : 'Talent Builder'} door.`,
       });
     }
   };
 
   const handleSwitchToTalentDoor = async () => {
-    try {
-      const res = await fetch('/api/auth/talent/validate-switch', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'VukaNaAmana',
-          ...(activeAuthSession?.token ? { Authorization: `Bearer ${activeAuthSession.token}` } : {}),
-        },
-        body: JSON.stringify({ mutualConsent: false }),
-      });
-      const data = (await res.json()) as {
-        allowed?: boolean;
-        authenticated?: boolean;
-        token?: string;
-        claims?: TalentSessionClaims;
-      };
-      if (res.ok && data.allowed && data.token && data.claims) {
-        setActiveAuthSession({
-          realm: 'talent',
-          sessionCookieName: 'vna_talent_sid',
-          token: data.token,
-          claims: data.claims,
-        });
-        setActivePortal('talent');
-        setUnlockViewMode('talent');
-        setViewMode('studio');
-        setGlobalToast({
-          id: `portal-switched-talent-${Date.now()}`,
-          variant: 'synced',
-          title: 'Active Builder Session Verified',
-          message: 'Server validated your active builder session. Welcome to the Skilled Builder Studio.',
-        });
-        return;
-      }
-    } catch {
-      // Network/offline fallback: proceed to mutual consent flow
-    }
-
-    // Server-side check indicated not an active builder or requires mutual consent
+    // Always lock and terminate the active Partner session before opening the Skilled Builder door.
     await handleWipePortalSession('talent');
   };
 
@@ -1294,6 +1640,7 @@ export default function App() {
     };
     setPassport(ownedPassport);
     saveLocalPassport(ownedPassport);
+    announcePolite('Living Competency Passport generated.');
 
     if (authUser && isOnline) {
       void upsertCloudPassport(authUser.uid, ownedPassport);
@@ -1323,6 +1670,7 @@ export default function App() {
     };
     setVault(ownedVault);
     saveLocalVault(ownedVault);
+    announcePolite('SDG Impact Pulse updated.');
 
     if (authUser && isOnline) {
       void upsertCloudVault(authUser.uid, ownedVault);
@@ -1471,6 +1819,7 @@ export default function App() {
     saveLocalPayouts(nextList);
 
     if (updated) {
+      announcePolite('SDG Impact Pulse updated.');
       if (authUser && isOnline) {
         void upsertCloudPayout(authUser.uid, updated);
       } else {
@@ -1768,6 +2117,11 @@ export default function App() {
       appliedOpportunityIds: nextAppliedIds,
     });
 
+    const consentedWorkSetupPreferences =
+      vault.shareWorkSetupWithPartners && (vault.workSetupPreferences?.length ?? 0) > 0
+        ? vault.workSetupPreferences!.map((id) => getWorkSetupPreferenceLabel(id))
+        : undefined;
+
     try {
       void fetch('/api/consent/grant', {
         method: 'POST',
@@ -1782,6 +2136,9 @@ export default function App() {
           complianceShieldStatus: vault.identityPathway ? vault.identityPathway.toUpperCase() : 'Tier-2 KYC Cleared',
           grantedToOrgId: `org_${makeSafeId(opportunity.partnerOrg)}`,
           grantedToOrgName: opportunity.partnerOrg,
+          ...(consentedWorkSetupPreferences
+            ? { sharedWorkSetupPreferences: consentedWorkSetupPreferences }
+            : {}),
         }),
       });
     } catch {
@@ -1928,6 +2285,7 @@ export default function App() {
     if (updated) {
       const completedItem: BriefSubmission = updated;
       setRecentCompletedContribution(completedItem);
+      announcePolite('Solution submitted. SDG Impact Pulse updated.');
 
       const nextMilestonesMap: Record<string, SprintMilestoneKey[]> = {
         ...sprintMilestonesByBrief,
@@ -2103,38 +2461,150 @@ export default function App() {
     />
   );
 
+  const hasCompletedCoreTabs =
+    (verifiedCapabilitiesCount > 0 || Boolean(passport)) &&
+    isComplianceClearedForWork(vault) &&
+    (contributions.some((c) => c.status === 'completed') ||
+      proofPortfolio.images.length > 0 ||
+      Boolean(proofPortfolio.analysis));
+
   const commandPaletteElement = (
     <CommandPalette
       isOpen={isCommandPaletteOpen}
       activeTab={activeTab}
       theme={profile.themePreference}
+      activePortal={activePortal}
+      viewMode={viewMode}
+      hasCompletedCoreTabs={hasCompletedCoreTabs}
+      isBuilderVerified={isBuilderTwoFactorVerified}
+      isOnline={isOnline}
+      activePartnerTab={partnerConsoleTab}
+      sprints={postedSprints}
       onClose={() => setIsCommandPaletteOpen(false)}
       onNavigateTab={(tab) => {
-        setViewMode('studio');
-        setActiveTab(tab);
+        navigateBuilderTab(tab);
       }}
-      onGoHome={() => setViewMode('landing')}
+      onNavigatePartnerTab={(tab) => {
+        setPartnerConsoleTab(tab);
+        announcePolite(`Partner Console ${tab} tab opened.`);
+        if (typeof window !== 'undefined') {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }}
+      onSelectSprint={(briefId) => {
+        navigateBuilderTab('solve', {
+          postAction: () => setSelectedBriefId(briefId),
+        });
+      }}
+      onGoHome={() => {
+        if (viewMode === 'studio' || activeAuthSession) {
+          void handleLockAndExitToLanding('command-palette-home');
+        } else {
+          setViewMode('landing');
+        }
+      }}
       onTriggerVoiceToText={() => {
-        setViewMode('studio');
-        setActiveTab('verify');
-        setVoiceTriggerSignal((n) => n + 1);
+        navigateBuilderTab('verify', {
+          postAction: () => setVoiceTriggerSignal((n) => n + 1),
+        });
       }}
       onTriggerSharePassport={() => {
-        setViewMode('studio');
-        setActiveTab('verify');
-        setSharePassportSignal((n) => n + 1);
+        navigateBuilderTab('verify', {
+          postAction: () => setSharePassportSignal((n) => n + 1),
+        });
       }}
       onOpenComplianceCrossing={() => {
-        setViewMode('studio');
-        setActiveTab('unlock');
-        window.setTimeout(() => {
-          document
-            .getElementById('compliance-crossing-section')
-            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 80);
+        navigateBuilderTab('unlock', {
+          postAction: () => {
+            window.setTimeout(() => {
+              document
+                .getElementById('compliance-crossing-section')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 80);
+          },
+        });
       }}
       onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
+      onOpenGlossary={() => setIsGlossaryOpen(true)}
+      onOpenBibliography={() => setIsBibliographyOpen(true)}
+      onOpenAccessComfort={() => setIsAccessDrawerOpen(true)}
+      onOpenPdfPreview={(doc) => setActivePdfPreview(doc)}
       onToggleTheme={handleToggleTheme}
+    />
+  );
+
+  const srAnnouncerElement = (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      data-testid="vuka-sr-announcer"
+      className="sr-only"
+    >
+      {srAnnouncement}
+    </div>
+  );
+
+  const skipToMainLink = (
+    <a
+      href="#main-content"
+      data-testid="skip-to-main-link"
+      className="vuka-skip-link"
+    >
+      Skip to Main Content
+    </a>
+  );
+
+  const readAloudMiniBarElement = (
+    <ReadAloudMiniBar
+      readAloud={readAloud}
+      onOpenSettings={() => setIsAccessDrawerOpen(true)}
+    />
+  );
+
+  const accessComfortDrawerElement = (
+    <AccessComfortDrawer
+      isOpen={isAccessDrawerOpen}
+      preferences={accessPrefs}
+      readAloud={readAloud}
+      localeLabel={localeMeta.nativeLabel}
+      onUpdate={handleUpdateAccessPrefs}
+      onReset={handleResetAccessPrefs}
+      onClose={() => setIsAccessDrawerOpen(false)}
+    />
+  );
+
+  const glossaryModalElement = (
+    <GlossaryModal
+      isOpen={isGlossaryOpen}
+      activePortal={activePortal}
+      viewMode={viewMode}
+      onClose={() => setIsGlossaryOpen(false)}
+      onJumpBuilderTab={(tab) => {
+        navigateBuilderTab(tab);
+      }}
+      onJumpPartnerTab={(tab) => {
+        setPartnerConsoleTab(tab);
+        if (typeof window !== 'undefined') {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }}
+    />
+  );
+
+  const bibliographyModalElement = (
+    <BibliographyModal
+      isOpen={isBibliographyOpen}
+      onClose={() => setIsBibliographyOpen(false)}
+      onOpenPdfPreview={(doc) => setActivePdfPreview(doc)}
+    />
+  );
+
+  const judgeGuidePdfModalElement = (
+    <JudgeGuidePdfModal
+      isOpen={Boolean(activePdfPreview)}
+      document={activePdfPreview}
+      onClose={() => setActivePdfPreview(null)}
     />
   );
 
@@ -2250,7 +2720,10 @@ export default function App() {
 
   if (sharedPassportView) {
     return (
-      <>
+      <MotionConfig reducedMotion={accessPrefs.reducedMotion ? 'always' : 'user'}>
+        {srAnnouncerElement}
+        {skipToMainLink}
+        {readAloudMiniBarElement}
         <SharedPassportView
           payload={sharedPassportView}
           onExit={() => {
@@ -2258,10 +2731,14 @@ export default function App() {
             if (typeof window !== 'undefined' && window.location.search.includes('passport=')) {
               window.history.replaceState({}, '', window.location.pathname);
             }
+            if (viewMode === 'landing' && activeAuthSession) {
+              void handleLockAndExitToLanding('shared-passport-exit');
+            }
           }}
         />
+        {accessComfortDrawerElement}
         {globalToastElement}
-      </>
+      </MotionConfig>
     );
   }
 
@@ -2272,14 +2749,35 @@ export default function App() {
       ageStage={dualDoorModal.pendingPayload?.ageStage ?? profile.ageStage}
       defaultDisplayName={profile.displayName}
       activeSession={activeAuthSession}
-      onClose={() => setDualDoorModal((prev) => ({ ...prev, isOpen: false }))}
+      pendingRedirectTab={pendingRedirectTab}
+      onClose={() => {
+        setPendingRedirectTab(null);
+        pendingPostAuthActionRef.current = null;
+        setDualDoorModal((prev) => ({ ...prev, isOpen: false }));
+      }}
       onAuthenticated={handleDualDoorAuthenticated}
+    />
+  );
+
+  const topPwaSyncBar = (
+    <PwaSyncStatusBar
+      isOnline={isOnline}
+      isSyncing={isSyncing}
+      queuedCount={offlineQueue.length}
+      syncProgress={syncProgress.percent}
+      syncCompletedCount={syncProgress.completed}
+      syncTotalCount={syncProgress.total}
+      onSyncNow={handleSyncNow}
     />
   );
 
   if (viewMode === 'landing') {
     return (
-      <>
+      <MotionConfig reducedMotion={accessPrefs.reducedMotion ? 'always' : 'user'}>
+        {srAnnouncerElement}
+        {skipToMainLink}
+        {topPwaSyncBar}
+        {readAloudMiniBarElement}
         <LandingFunnel
           initialProblem={profile.problemStatement}
           initialStage={profile.ageStage}
@@ -2293,115 +2791,166 @@ export default function App() {
           onOpenHiringPartners={(payload) =>
             handleOpenDualDoorFromLanding('partner', payload, 'unlock')
           }
-          onEnterStudio={(payload) => handleLandingHandoff(payload, 'verify', 'talent')}
-          onPreviewCleared={(payload) => handleLandingHandoff(payload, 'cleared', 'talent')}
+          onEnterStudio={(payload) => handleOpenDualDoorFromLanding('talent', payload, 'verify')}
+          onPreviewCleared={(payload) =>
+            navigateBuilderTab('cleared', { fromLandingPayload: payload })
+          }
+          onDraftChange={(payload) => {
+            landingDraftRef.current = payload;
+          }}
+          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+          onOpenAccessComfort={() => setIsAccessDrawerOpen(true)}
+          hasCustomAccessComfort={isCustomAccessComfort}
           onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
           t={t}
         />
         {dualDoorModalElement}
         {scaleDrawerElement}
         {commandPaletteElement}
+        {accessComfortDrawerElement}
+        {glossaryModalElement}
+        {bibliographyModalElement}
+        {judgeGuidePdfModalElement}
         {globalToastElement}
-      </>
+      </MotionConfig>
     );
   }
 
   if (activePortal === 'partner') {
     return (
-      <MessagingProvider
-        messages={mentorMessages}
-        onSendMessage={handleSendMentorMessage}
-      >
-        <PartnerConsoleView
-          activeSession={activeAuthSession}
-          sprints={postedSprints}
-          onPostSprint={(newSprint) => {
-            const brief: ProblemBrief = {
-              id: `brief_${Date.now()}`,
-              ...newSprint,
-            };
-            setPostedSprints((prev) => [brief, ...prev]);
-          }}
-          consentedGrants={consentGrants}
-          onIssueContract={(grantId) => {
-            setGlobalToast({
-              id: `contract-issued-${Date.now()}`,
-              variant: 'synced',
-              title: 'Compliant Sprint Contract & Escrow Issued',
-              message: `Sprint agreement for consent grant ${grantId} has been successfully finalized and locked into escrow. SDGs 8, 16, and 17 incremented.`,
-            });
-          }}
-          telemetry={{
-            sdg4Count: 12,
-            sdg8Count: postedSprints.length + 5,
-            sdg10Count: 24,
-            sdg16Count: 18,
-            sdg17Count: 15,
-            totalStipendDisbursedUsd: 14500,
-            activeSprintsCount: postedSprints.length,
-            clearedTalentCount: Math.max(1, consentGrants.length),
-          }}
-          onSwitchToTalentDoor={() => void handleSwitchToTalentDoor()}
-          onBackToHome={() => setViewMode('landing')}
-          t={t}
-        />
-        {globalToastElement}
-      </MessagingProvider>
+      <MotionConfig reducedMotion={accessPrefs.reducedMotion ? 'always' : 'user'}>
+        <MessagingProvider
+          messages={mentorMessages}
+          onSendMessage={handleSendMentorMessage}
+        >
+          {srAnnouncerElement}
+          {skipToMainLink}
+          {topPwaSyncBar}
+          {readAloudMiniBarElement}
+          <PartnerConsoleView
+            activeSession={activeAuthSession}
+            sprints={postedSprints}
+            onPostSprint={(newSprint) => {
+              const brief: ProblemBrief = {
+                id: `brief_${Date.now()}`,
+                ...newSprint,
+              };
+              setPostedSprints((prev) => [brief, ...prev]);
+              announcePolite('New solution sprint posted.');
+            }}
+            consentedGrants={consentGrants}
+            onIssueContract={(grantId) => {
+              announcePolite('Compliant sprint contract issued. SDG Impact Pulse updated.');
+              setGlobalToast({
+                id: `contract-issued-${Date.now()}`,
+                variant: 'synced',
+                title: 'Compliant Sprint Contract & Escrow Issued',
+                message: `Sprint agreement for consent grant ${grantId} has been successfully finalized and locked into escrow. SDGs 8, 16, and 17 incremented.`,
+              });
+            }}
+            telemetry={{
+              sdg4Count: 12,
+              sdg8Count: postedSprints.length + 5,
+              sdg10Count: 24,
+              sdg16Count: 18,
+              sdg17Count: 15,
+              totalStipendDisbursedUsd: 14500,
+              activeSprintsCount: postedSprints.length,
+              clearedTalentCount: Math.max(1, consentGrants.length),
+            }}
+            activeTab={partnerConsoleTab}
+            onSelectTab={(tab) => {
+              setPartnerConsoleTab(tab);
+              announcePolite(`Partner Console ${tab} tab opened.`);
+            }}
+            onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+            onOpenAccessComfort={() => setIsAccessDrawerOpen(true)}
+            hasCustomAccessComfort={isCustomAccessComfort}
+            onSwitchToTalentDoor={() => void handleSwitchToTalentDoor()}
+            onBackToHome={() => void handleLockAndExitToLanding('partner-home')}
+            onEndSession={() => void handleLockAndExitToLanding('partner-end-session')}
+            theme={profile.themePreference}
+            onToggleTheme={handleToggleTheme}
+            t={t}
+          />
+          {dualDoorModalElement}
+          {scaleDrawerElement}
+          {commandPaletteElement}
+          {accessComfortDrawerElement}
+          {glossaryModalElement}
+          {bibliographyModalElement}
+          {judgeGuidePdfModalElement}
+          {globalToastElement}
+        </MessagingProvider>
+      </MotionConfig>
     );
   }
 
   return (
-    <MessagingProvider
-      messages={mentorMessages}
-      onSendMessage={handleSendMentorMessage}
-    >
-      <div className="min-h-screen bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] pb-24 md:pb-12 overflow-x-clip">
-        <TopNav
-          activeTab={activeTab}
-          onSelectTab={setActiveTab}
-          activePortal={activePortal}
-          activeSession={activeAuthSession}
-          userEmail={activeSyncedEmail}
-          userDisplayName={activeSyncedName}
-          isOnline={isOnline}
-          isSyncing={isSyncing}
-          queuedCount={offlineQueue.length}
-          lastSyncedIso={lastSyncedIso}
-          onSyncNow={handleSyncNow}
-          onSignIn={handleOpenAccountSync}
-          onSignOut={handleSignOut}
-          onSwitchPortal={(target) =>
-            target === 'talent'
-              ? void handleSwitchToTalentDoor()
-              : void handleWipePortalSession(target)
-          }
-          onSignOutPortal={() => void handleWipePortalSession()}
-          onBackToHome={() => setViewMode('landing')}
-          onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
-          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-          t={t}
-        />
+    <MotionConfig reducedMotion={accessPrefs.reducedMotion ? 'always' : 'user'}>
+      <MessagingProvider
+        messages={mentorMessages}
+        onSendMessage={handleSendMentorMessage}
+      >
+        <div className="min-h-screen bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] pb-24 md:pb-12 overflow-x-clip">
+          {srAnnouncerElement}
+          {skipToMainLink}
+          <TopNav
+            activeTab={activeTab}
+            onSelectTab={(tab) => navigateBuilderTab(tab)}
+            activePortal={activePortal}
+            activeSession={activeAuthSession}
+            userEmail={activeSyncedEmail}
+            userDisplayName={activeSyncedName}
+            isOnline={isOnline}
+            isSyncing={isSyncing}
+            queuedCount={offlineQueue.length}
+            syncProgress={syncProgress.percent}
+            syncCompletedCount={syncProgress.completed}
+            syncTotalCount={syncProgress.total}
+            lastSyncedIso={lastSyncedIso}
+            onSyncNow={handleSyncNow}
+            onSignIn={handleOpenAccountSync}
+            onSignOut={handleSignOut}
+            onSwitchPortal={(target) =>
+              target === 'talent'
+                ? void handleSwitchToTalentDoor()
+                : void handleWipePortalSession(target)
+            }
+            onSignOutPortal={() => void handleLockAndExitToLanding('topnav-signout')}
+            onBackToHome={() => void handleLockAndExitToLanding('topnav-home')}
+            onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
+            onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+            onOpenAccessComfort={() => setIsAccessDrawerOpen(true)}
+            hasCustomAccessComfort={isCustomAccessComfort}
+            t={t}
+          />
 
-        <WorkspaceUtilities
-          locale={profile.preferredLocale}
-          onChangeLocale={handleChangeLocale}
-          theme={profile.themePreference}
-          onToggleTheme={handleToggleTheme}
-          isOnline={isOnline}
-          queuedCount={offlineQueue.length}
-          isSignedIn={Boolean(authUser || activeSyncedEmail)}
-          isSyncing={isSyncing}
-          lastSyncedIso={lastSyncedIso}
-          userEmail={activeSyncedEmail}
-          userDisplayName={activeSyncedName}
-          activePortal={activePortal}
-          activeSession={activeAuthSession}
-          onSyncNow={handleSyncNow}
-          onOpenAccountSync={handleOpenAccountSync}
-          t={t}
-        />
+          {readAloudMiniBarElement}
 
-        <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10">
+          <WorkspaceUtilities
+            locale={profile.preferredLocale}
+            onChangeLocale={handleChangeLocale}
+            theme={profile.themePreference}
+            onToggleTheme={handleToggleTheme}
+            isOnline={isOnline}
+            queuedCount={offlineQueue.length}
+            isSignedIn={Boolean(authUser || activeSyncedEmail)}
+            isSyncing={isSyncing}
+            lastSyncedIso={lastSyncedIso}
+            userEmail={activeSyncedEmail}
+            userDisplayName={activeSyncedName}
+            activePortal={activePortal}
+            activeSession={activeAuthSession}
+            onSyncNow={handleSyncNow}
+            onOpenAccountSync={handleOpenAccountSync}
+            onOpenAccessComfort={() => setIsAccessDrawerOpen(true)}
+            hasCustomAccessComfort={isCustomAccessComfort}
+            onEndSession={() => void handleLockAndExitToLanding('builder-end-session')}
+            t={t}
+          />
+
+          <main id="main-content" tabIndex={-1} className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10">
           {incomingEndorseToken && !endorseBannerDismissed && (
             <div
               role="status"
@@ -2486,7 +3035,7 @@ export default function App() {
               onAcceptBrief={handleAcceptBrief}
               onOpenSolve={(briefId) => {
                 setSelectedBriefId(briefId);
-                setActiveTab('solve');
+                navigateBuilderTab('solve');
               }}
             />
           )}
@@ -2514,9 +3063,10 @@ export default function App() {
               onJoinSprintPod={handleJoinSprintPod}
               onSaveDraft={handleSaveDraft}
               onSubmitSolution={handleSubmitSolution}
-              onGoToUnlock={() => setActiveTab('unlock')}
-              onGoToVerify={() => setActiveTab('verify')}
-              onGoToPulse={() => setActiveTab('pulse')}
+              onGoToUnlock={() => navigateBuilderTab('unlock')}
+              onGoToVerify={() => navigateBuilderTab('verify')}
+              onGoToPulse={() => navigateBuilderTab('pulse')}
+              onUpdateVault={handleUpdateVault}
             />
           )}
 
@@ -2542,9 +3092,9 @@ export default function App() {
               onDismissCelebration={() => setRecentCompletedContribution(null)}
               onSignIn={handleOpenAccountSync}
               onSyncNow={handleSyncNow}
-              onGoToUnlock={() => setActiveTab('unlock')}
-              onGoToVerify={() => setActiveTab('verify')}
-              onGoToSolve={() => setActiveTab('solve')}
+              onGoToUnlock={() => navigateBuilderTab('unlock')}
+              onGoToVerify={() => navigateBuilderTab('verify')}
+              onGoToSolve={() => navigateBuilderTab('solve')}
               onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
             />
           )}
@@ -2558,7 +3108,8 @@ export default function App() {
               vault={vault}
               endorsements={endorsements}
               payouts={payouts}
-              onSelectTab={setActiveTab}
+              onSelectTab={(tab) => navigateBuilderTab(tab)}
+              onUpdateVault={handleUpdateVault}
               t={t}
             />
           )}
@@ -2566,6 +3117,10 @@ export default function App() {
         {dualDoorModalElement}
         {scaleDrawerElement}
         {commandPaletteElement}
+        {accessComfortDrawerElement}
+        {glossaryModalElement}
+        {bibliographyModalElement}
+        {judgeGuidePdfModalElement}
         {accountSyncModalElement}
         <MentorMessagingDrawer />
         <SyncLedger
@@ -2580,5 +3135,6 @@ export default function App() {
         {globalToastElement}
       </div>
     </MessagingProvider>
+    </MotionConfig>
   );
 }

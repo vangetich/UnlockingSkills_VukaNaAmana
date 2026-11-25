@@ -95,6 +95,19 @@ export interface PracticalScenario {
   placeholder: string;
 }
 
+export type WorkSetupPreferenceId =
+  | 'remote-home'
+  | 'captioned-text'
+  | 'screen-reader-keyboard'
+  | 'step-free-seated'
+  | 'flexible-hours'
+  | 'assistive-tech-stipend';
+
+export type WorkspaceReadinessTag =
+  | 'remote-flexible'
+  | 'written-captioned'
+  | 'step-free-accessible';
+
 export interface ProblemBrief {
   id: string;
   title: string;
@@ -109,6 +122,8 @@ export interface ProblemBrief {
   payoutUsd: number;
   recommendedStages: AgeStage[];
   requiredKeywords: string[];
+  workspaceReadiness?: WorkspaceReadinessTag[];
+  inclusiveReady?: boolean;
 }
 
 export type SprintMilestoneKey =
@@ -210,6 +225,8 @@ export interface WorkReadyVault {
   appliedOpportunityIds?: string[];
   upskillingBridgesCount?: number;
   lockedBridgeOpportunityIds?: string[];
+  workSetupPreferences?: WorkSetupPreferenceId[];
+  shareWorkSetupWithPartners?: boolean;
   updatedAtIso: string;
 }
 
@@ -264,6 +281,8 @@ export interface SolutionSprint {
   podLeadRole: string;
   podDeliveryRole: string;
   requiredKeywords: string[];
+  workspaceReadiness?: WorkspaceReadinessTag[];
+  inclusiveReady?: boolean;
 }
 
 export interface RankedSolutionSprint extends SolutionSprint {
@@ -365,6 +384,8 @@ export interface SdgPulseMetric {
   liveDeltaLabel: string;
   microStory: string;
   accent: 'emerald' | 'terracotta';
+  inclusivePathwaysPill?: string;
+  inclusivePathwaysCount?: number;
 }
 
 export interface KnowledgeFlowStage {
@@ -635,7 +656,7 @@ export interface LivingProofPortfolio {
   updatedAtIso: string;
 }
 
-export type MatchedWorkMode = 'all' | 'local' | 'remote' | 'fellowship';
+export type MatchedWorkMode = 'all' | 'local' | 'remote' | 'fellowship' | 'inclusive';
 
 export interface MatchedWorkOpportunity {
   id: string;
@@ -654,6 +675,8 @@ export interface MatchedWorkOpportunity {
   podLeadRole: string;
   podDeliveryRole: string;
   keywords: string[];
+  workspaceReadiness?: WorkspaceReadinessTag[];
+  inclusiveReady?: boolean;
 }
 
 export interface RankedMatchedWorkOpportunity extends MatchedWorkOpportunity {
@@ -722,15 +745,19 @@ export interface MatchedWorkApplication {
 // ============================================================================
 
 export type PortalRealm = 'talent' | 'partner';
-export type TalentAuthChannel = 'whatsapp' | 'phone' | 'email';
+export type TalentAuthChannel = 'whatsapp' | 'phone' | 'email' | 'dedicated_pin';
+export type TalentAuthMethod = 'otp_2fa' | 'dedicated_pin';
 export type PartnerMemberRole = 'partner_admin' | 'hiring_lead';
 
 export interface TalentAccount {
   id: string;
+  builderId?: string; // Short human-friendly ID e.g. VNA-B-4821
   displayName: string;
   contactChannel: TalentAuthChannel;
-  contactIdentifier: string; // Masked or normalized phone/email — never raw national ID
+  contactIdentifier: string; // Masked or normalized phone/email/builderId — never raw national ID
   ageStage: AgeStage;
+  authMethod?: TalentAuthMethod;
+  twoFactorVerified?: boolean;
   isDemo: boolean;
   createdAtIso: string;
   lastLoginAtIso: string;
@@ -765,8 +792,12 @@ export interface TalentSessionClaims {
   role: 'builder';
   aud: 'vna-talent';
   displayName: string;
+  builderId?: string;
   contactChannel: TalentAuthChannel;
   contactIdentifier: string;
+  twoFactorVerified: boolean;
+  authMethod: TalentAuthMethod;
+  trustedDevice?: boolean;
   isDemo: boolean;
   iat: number;
   exp: number;
@@ -810,6 +841,7 @@ export interface ConsentGrant {
   complianceShieldStatus: string;
   grantedToOrgId: string;
   grantedToOrgName: string;
+  sharedWorkSetupPreferences?: string[];
   status: 'active' | 'revoked';
   grantedAtIso: string;
   revokedAtIso?: string;

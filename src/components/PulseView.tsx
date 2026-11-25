@@ -43,6 +43,7 @@ import { Badges } from './Badges';
 import { RippleConstellationMotif, WovenBridgeArcsMotif } from './ResilienceMotifs';
 import { SprintPerformanceWidget } from './SprintPerformanceWidget';
 import { SprintFeedbackPanel } from './SprintFeedbackPanel';
+import { GlobalImpactDashboard } from './GlobalImpactDashboard';
 import solarEngineerImg from '../assets/images/community_solar_engineer_1795539856588.jpg';
 import healthCoordImg from '../assets/images/community_health_coordinator_1795539856635.jpg';
 import craftMentorsImg from '../assets/images/community_craft_mentors_1795539857588.jpg';
@@ -296,6 +297,61 @@ export const PulseView: React.FC<PulseViewProps> = ({
     () => computeAnalyticsSummary(capabilities, contributions),
     [capabilities, contributions]
   );
+
+  // Real-time Impact Telemetry Board metrics reactive to live user actions + cohort baselines
+  const impactTelemetry = useMemo(() => {
+    const userActiveSprints = contributions.filter((c) => c.status === 'in-progress').length;
+    const userCompletedSprints = contributions.filter((c) => c.status === 'completed').length;
+    const activeSprintsTotal = SEED_BRIEFS.length + userActiveSprints;
+
+    const fieldVerifiedSkills = capabilities.filter(
+      (c) => c.verificationStatus === 'field-verified'
+    ).length;
+    const stage1Verified = 148 + (passport ? 1 : 0) + fieldVerifiedSkills;
+    const stage2Unlocked =
+      112 + (vault.identityCompleted || vault.contractCompleted || vault.payoutCompleted ? 1 : 0);
+    const stage3Solving = 89 + contributions.length;
+    const stage4Pulsing = 74 + userCompletedSprints + sprintFeedback.length;
+    const stage5Cleared =
+      41 + (passport && vault.identityCompleted && userCompletedSprints > 0 ? 1 : 0);
+
+    const stageBreakdown = [
+      { stage: '1. Verify', shortLabel: 'Verify', count: stage1Verified, sdg: 'SDG 4' },
+      { stage: '2. Unlock', shortLabel: 'Unlock', count: stage2Unlocked, sdg: 'SDG 16' },
+      { stage: '3. Solve', shortLabel: 'Solve', count: stage3Solving, sdg: 'SDG 8' },
+      { stage: '4. Pulse', shortLabel: 'Pulse', count: stage4Pulsing, sdg: 'SDG 17' },
+      { stage: '5. Cleared', shortLabel: 'Cleared', count: stage5Cleared, sdg: 'SDG 10' },
+    ];
+    const totalBuildersVerified5Stages = stageBreakdown.reduce((sum, item) => sum + item.count, 0);
+
+    const userDisbursedPayouts = payouts
+      .filter((p) => p.status === 'released' || p.status === 'processing')
+      .reduce((sum, p) => sum + (Number(p.amountUsd) || 0), 0);
+    const userCompletedSprintUsd = contributions
+      .filter((c) => c.status === 'completed')
+      .reduce((sum, c) => sum + (Number(c.payoutUsd) || 0), 0);
+    const userTotalDisbursedUsd = Math.max(userDisbursedPayouts, userCompletedSprintUsd);
+    const totalDisbursedStipendsUsd = 14500 + userTotalDisbursedUsd;
+
+    const userEscrowUsd = payouts
+      .filter((p) => p.status !== 'released' && p.status !== 'processing')
+      .reduce((sum, p) => sum + (Number(p.amountUsd) || 0), 0);
+    const userInProgressSprintUsd = contributions
+      .filter((c) => c.status === 'in-progress')
+      .reduce((sum, c) => sum + (Number(c.payoutUsd) || 0), 0);
+    const escrowPipelineUsd = 4800 + Math.max(userEscrowUsd, userInProgressSprintUsd);
+
+    return {
+      activeSprintsTotal,
+      userActiveSprints,
+      userCompletedSprints,
+      totalBuildersVerified5Stages,
+      stageBreakdown,
+      totalDisbursedStipendsUsd,
+      userTotalDisbursedUsd,
+      escrowPipelineUsd,
+    };
+  }, [capabilities, contributions, passport, vault, payouts, sprintFeedback]);
 
   const recentActivities = useMemo(() => {
     const items: Array<{
@@ -859,6 +915,19 @@ export const PulseView: React.FC<PulseViewProps> = ({
         </button>
       </div>
 
+      {/* D3-Powered Global Impact Telemetry Dashboard */}
+      <GlobalImpactDashboard
+        activeSprintsTotal={impactTelemetry.activeSprintsTotal}
+        userActiveSprints={impactTelemetry.userActiveSprints}
+        userCompletedSprints={impactTelemetry.userCompletedSprints}
+        totalBuildersVerified5Stages={impactTelemetry.totalBuildersVerified5Stages}
+        stageBreakdown={impactTelemetry.stageBreakdown}
+        totalDisbursedStipendsUsd={impactTelemetry.totalDisbursedStipendsUsd}
+        userTotalDisbursedUsd={impactTelemetry.userTotalDisbursedUsd}
+        escrowPipelineUsd={impactTelemetry.escrowPipelineUsd}
+        isOnline={isOnline}
+      />
+
       {/* TOP ROW: 5 Crisp SDG Pulse Cards (Exact UN Target Tag + Live Reactive Counter + 1-Line Human Outcome) */}
       <div className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-2">
@@ -941,6 +1010,15 @@ export const PulseView: React.FC<PulseViewProps> = ({
                       {metric.metricCaption}
                     </p>
                   </div>
+                  {metric.inclusivePathwaysPill && (
+                    <div
+                      data-testid={`sdg-inclusive-pill-${metric.sdgNumber}`}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#E7F3EE]/85 dark:bg-[#142B24]/85 border border-[#146C53]/25 dark:border-[#2EB88B]/30 text-[10px] font-semibold text-[#146C53] dark:text-[#5EEAD4]"
+                    >
+                      <ShieldCheck className="w-3 h-3 shrink-0" aria-hidden="true" />
+                      <span>{metric.inclusivePathwaysPill}</span>
+                    </div>
+                  )}
                 </div>
 
                 <p className="pt-3 border-t border-[#E8E3DB] dark:border-[#2C3037] text-xs leading-relaxed text-[#43484E] dark:text-[#C4C9D0]">

@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Clock,
   FileCheck2,
   FileText,
   HelpCircle,
@@ -573,7 +574,11 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                         : 'bg-[#F9ECE5] dark:bg-[#2D1E17] border-[#C4622D]/25 dark:border-[#E07B46]/30 text-[#C4622D] dark:text-[#E07B46]'
                     }`}
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {readiness.isFullyReady ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    ) : (
+                      <Clock className="w-3.5 h-3.5 shrink-0" />
+                    )}
                     <span>
                       {readiness.isFullyReady
                         ? 'Pre-Cleared · Ready to Contract'
@@ -588,13 +593,18 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                     <dt className="flex items-center justify-between gap-2 text-xs text-[#575B62] dark:text-[#A3A7AE]">
                       <span>Work-Auth Pathway</span>
                       <span
-                        className={`font-semibold ${
+                        className={`inline-flex items-center gap-1 font-semibold ${
                           vault.identityCompleted
                             ? 'text-[#146C53] dark:text-[#2EB88B]'
                             : 'text-[#C4622D] dark:text-[#E07B46]'
                         }`}
                       >
-                        {vault.identityCompleted ? 'Verified' : 'Pending'}
+                        {vault.identityCompleted ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        ) : (
+                          <Clock className="w-3.5 h-3.5 shrink-0" />
+                        )}
+                        <span>{vault.identityCompleted ? 'Verified' : 'Pending'}</span>
                       </span>
                     </dt>
                     <dd className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
@@ -606,13 +616,18 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                     <dt className="flex items-center justify-between gap-2 text-xs text-[#575B62] dark:text-[#A3A7AE]">
                       <span>Contract Template</span>
                       <span
-                        className={`font-semibold ${
+                        className={`inline-flex items-center gap-1 font-semibold ${
                           vault.contractCompleted
                             ? 'text-[#146C53] dark:text-[#2EB88B]'
                             : 'text-[#C4622D] dark:text-[#E07B46]'
                         }`}
                       >
-                        {vault.contractCompleted ? 'Verified' : 'Pending'}
+                        {vault.contractCompleted ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        ) : (
+                          <Clock className="w-3.5 h-3.5 shrink-0" />
+                        )}
+                        <span>{vault.contractCompleted ? 'Verified' : 'Pending'}</span>
                       </span>
                     </dt>
                     <dd className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
@@ -624,13 +639,18 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                     <dt className="flex items-center justify-between gap-2 text-xs text-[#575B62] dark:text-[#A3A7AE]">
                       <span>Compliant Payout Rail</span>
                       <span
-                        className={`font-semibold ${
+                        className={`inline-flex items-center gap-1 font-semibold ${
                           vault.payoutCompleted
                             ? 'text-[#146C53] dark:text-[#2EB88B]'
                             : 'text-[#C4622D] dark:text-[#E07B46]'
                         }`}
                       >
-                        {vault.payoutCompleted ? 'Verified' : 'Pending'}
+                        {vault.payoutCompleted ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        ) : (
+                          <Clock className="w-3.5 h-3.5 shrink-0" />
+                        )}
+                        <span>{vault.payoutCompleted ? 'Verified' : 'Pending'}</span>
                       </span>
                     </dt>
                     <dd className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">

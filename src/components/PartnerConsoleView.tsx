@@ -10,10 +10,15 @@ import {
   Globe,
   Layers,
   Lock,
+  LogOut,
+  Moon,
   Plus,
   RefreshCw,
+  Search,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
+  Sun,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -26,8 +31,14 @@ import type {
   ProblemBrief,
   SprintPartnerType,
   StudioDomain,
+  ThemeMode,
+  WorkspaceReadinessTag,
 } from '../types/kora';
 import type { TranslationDictionary } from '../utils/i18n';
+import {
+  WORKSPACE_READINESS_OPTIONS,
+  getWorkspaceReadinessLabel,
+} from '../utils/talentEngine';
 import { WovenBridgeArcsMotif } from './ResilienceMotifs';
 import { useAutoSave } from '../hooks/useAutoSave';
 
@@ -49,10 +60,18 @@ interface PartnerConsoleViewProps {
   };
   onSwitchToTalentDoor: () => void;
   onBackToHome?: () => void;
+  onEndSession?: () => void;
+  theme?: ThemeMode;
+  onToggleTheme?: () => void;
+  onOpenCommandPalette?: () => void;
+  onOpenAccessComfort?: () => void;
+  hasCustomAccessComfort?: boolean;
+  activeTab?: PartnerTab;
+  onSelectTab?: (tab: PartnerTab) => void;
   t: TranslationDictionary;
 }
 
-type PartnerTab = 'sprints' | 'talent' | 'compliance' | 'impact';
+export type PartnerTab = 'sprints' | 'talent' | 'compliance' | 'impact';
 
 export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
   activeSession,
@@ -63,9 +82,22 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
   telemetry,
   onSwitchToTalentDoor,
   onBackToHome,
+  onEndSession,
+  theme = 'light',
+  onToggleTheme,
+  onOpenCommandPalette,
+  onOpenAccessComfort,
+  hasCustomAccessComfort = false,
+  activeTab: controlledTab,
+  onSelectTab,
   t,
 }) => {
-  const [activeTab, setActiveTab] = useState<PartnerTab>('sprints');
+  const [internalTab, setInternalTab] = useState<PartnerTab>('sprints');
+  const activeTab = controlledTab ?? internalTab;
+  const setActiveTab = (next: PartnerTab) => {
+    setInternalTab(next);
+    onSelectTab?.(next);
+  };
   const [newSprintTitle, setNewSprintTitle] = useState(() => {
     try {
       const saved = typeof window !== 'undefined' ? window.localStorage.getItem('vna_autosave_partner_console_draft') : null;
@@ -91,6 +123,18 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
     return '';
   });
   const [postSuccessBanner, setPostSuccessBanner] = useState<string | null>(null);
+  const [newSprintReadiness, setNewSprintReadiness] = useState<WorkspaceReadinessTag[]>([
+    'remote-flexible',
+    'written-captioned',
+  ]);
+  const [inclusiveChecklistOpen, setInclusiveChecklistOpen] = useState(false);
+  const [agreementStatusBanner, setAgreementStatusBanner] = useState<string | null>(null);
+
+  const toggleSprintReadiness = (tag: WorkspaceReadinessTag) => {
+    setNewSprintReadiness((prev) =>
+      prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]
+    );
+  };
 
   const orgName = activeSession?.realm === 'partner' ? activeSession.claims.orgName : 'Hiring Partner';
   const workEmail = activeSession?.realm === 'partner' ? activeSession.claims.workEmail : 'partner@org.org';
@@ -126,6 +170,8 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
       payoutUsd: Number(newSprintPayout) || 350,
       recommendedStages: ['18-29', '30-45', '46+'],
       requiredKeywords: [newSprintDomain.toLowerCase(), 'problem-solving', 'verification'],
+      workspaceReadiness: newSprintReadiness,
+      inclusiveReady: newSprintReadiness.length > 0,
     });
 
     setPostSuccessBanner(`Successfully posted "${newSprintTitle.trim()}" live to Builder Studio Tab 3 [Solve].`);
@@ -149,10 +195,10 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                 e.preventDefault();
                 onBackToHome?.();
               }}
-              aria-label="Return to Funnel / Landing Page"
-              title="Return to Funnel / Landing Page"
+              aria-label="Lock Session & Return to Landing Page"
+              title="Lock Session & Return to Landing Page"
               data-testid="featured-logo-button"
-              className="w-10 h-10 rounded-xl overflow-hidden border border-[#146C53]/40 dark:border-[#2EB88B]/45 shrink-0 shadow-xs bg-[#E7F3EE] dark:bg-[#142B24] flex items-center justify-center cursor-pointer hover:scale-105 hover:border-[#146C53] dark:hover:border-[#2EB88B] hover:shadow-md transition-all group"
+              className="w-8 h-8 rounded-lg overflow-hidden border border-[#146C53]/40 dark:border-[#2EB88B]/45 shrink-0 shadow-xs bg-[#E7F3EE] dark:bg-[#142B24] flex items-center justify-center cursor-pointer hover:scale-105 hover:border-[#146C53] dark:hover:border-[#2EB88B] hover:shadow-md transition-all group"
             >
               <img
                 src="/bridge.jpeg"
@@ -180,10 +226,64 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
+            {onOpenCommandPalette && (
+              <button
+                type="button"
+                onClick={onOpenCommandPalette}
+                aria-label="Search console tabs, guides, glossary (press / or Cmd+K)"
+                title="Search console tabs, guides, glossary (/ or ⌘K)"
+                data-testid="partner-open-command-palette-btn"
+                className="min-h-[40px] min-w-[40px] px-3 lg:min-w-[238px] rounded-full border border-[#D8D1C5] dark:border-[#343A44] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] focus-visible:outline-none focus-visible:border-[#146C53] dark:focus-visible:border-[#2EB88B] inline-flex items-center justify-center lg:justify-between gap-2 transition-colors shrink-0 cursor-pointer"
+              >
+                <span className="inline-flex items-center gap-2 min-w-0">
+                  <Search className="w-4 h-4 text-[#17191C] dark:text-[#F4F2EE] shrink-0" />
+                  <span className="hidden md:inline text-xs font-normal text-[#525866] dark:text-[#A3A7AE] truncate">
+                    Search tabs, guides, glossary…
+                  </span>
+                </span>
+                <span className="hidden lg:inline-flex items-center gap-1 shrink-0">
+                  <kbd className="px-1.5 py-0.5 rounded border border-[#E2DCD2] dark:border-[#2F343D] bg-[#FAF8F5] dark:bg-[#121315] text-[10px] font-mono-tabular text-[#525866] dark:text-[#A3A7AE]">
+                    /
+                  </kbd>
+                  <kbd className="px-1.5 py-0.5 rounded border border-[#E2DCD2] dark:border-[#2F343D] bg-[#FAF8F5] dark:bg-[#121315] text-[10px] font-mono-tabular text-[#525866] dark:text-[#A3A7AE]">
+                    ⌘K
+                  </kbd>
+                </span>
+              </button>
+            )}
+            {onOpenAccessComfort && (
+              <button
+                type="button"
+                onClick={onOpenAccessComfort}
+                aria-label="Access & Comfort Settings"
+                title="Access & Comfort Settings (WCAG 2.2)"
+                data-testid="partner-open-access-comfort-btn"
+                className={`min-h-[44px] min-w-[44px] px-3 rounded-xl border inline-flex items-center justify-center gap-1.5 text-xs font-medium transition-colors shrink-0 cursor-pointer ${
+                  hasCustomAccessComfort
+                    ? 'border-[#146C53] dark:border-[#2EB88B] bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+                    : 'border-[#D8D1C5] dark:border-[#343A44] bg-white dark:bg-[#1A1C20] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] dark:hover:border-[#2EB88B]'
+                }`}
+              >
+                <SlidersHorizontal className="w-4 h-4 shrink-0" />
+                <span className="hidden md:inline">Access</span>
+              </button>
+            )}
+            {onBackToHome && (
+              <button
+                type="button"
+                onClick={onBackToHome}
+                data-testid="partner-lock-signout-btn"
+                title="Lock Partner Console & Return to Landing Page"
+                className="min-h-[44px] px-3 py-1.5 rounded-xl border border-[#D8D1C5] dark:border-[#343A44] bg-white dark:bg-[#1A1C20] hover:border-[#C4622D]/50 dark:hover:border-[#E07B46]/50 hover:text-[#C4622D] dark:hover:text-[#F59E6C] text-xs font-semibold text-[#575B62] dark:text-[#A3A7AE] inline-flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer"
+              >
+                <Lock className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden lg:inline">Lock &amp; Sign Out</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onSwitchToTalentDoor}
-              className="min-h-[38px] px-3.5 py-1.5 rounded-xl border border-[#146C53]/40 dark:border-[#2EB88B]/40 bg-[#E7F3EE]/80 dark:bg-[#142B24]/80 hover:bg-[#D5EBE2] dark:hover:bg-[#1C3B31] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="min-h-[44px] px-3.5 py-1.5 rounded-xl border border-[#146C53]/40 dark:border-[#2EB88B]/40 bg-[#E7F3EE]/80 dark:bg-[#142B24]/80 hover:bg-[#D5EBE2] dark:hover:bg-[#1C3B31] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <span>Switch to Skilled Builder Door</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -223,8 +323,54 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
         </div>
       </header>
 
+      {/* Sub-Menu Utility Bar (matching Builder WorkspaceUtilities) */}
+      <div
+        data-testid="partner-submenu-bar"
+        className="border-b border-[#E8E3DB] dark:border-[#2C3037] bg-[#F3EFE9]/65 dark:bg-[#1A1C20]/70"
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-8 py-2 flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[#575B62] dark:text-[#A3A7AE]">
+            <Building2 className="w-3.5 h-3.5 text-[#C4622D] dark:text-[#E07B46] shrink-0" />
+            <span className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">{orgName}</span>
+            <span aria-hidden="true">·</span>
+            <span className="text-[#146C53] dark:text-[#2EB88B] font-medium">Verified Partner Session</span>
+            <span aria-hidden="true" className="hidden sm:inline">·</span>
+            <span className="hidden sm:inline font-mono-tabular text-[11px]">{workEmail}</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {onToggleTheme && (
+              <button
+                type="button"
+                onClick={onToggleTheme}
+                aria-label={theme === 'dark' ? t.themeLight : t.themeDark}
+                data-testid="partner-theme-toggle-btn"
+                className="min-h-[36px] px-3 py-1 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] hover:bg-[#F3EFE9] dark:hover:bg-[#23262B] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+                <span>{theme === 'dark' ? t.themeLight : t.themeDark}</span>
+              </button>
+            )}
+
+            {(onEndSession || onBackToHome) && (
+              <button
+                type="button"
+                onClick={onEndSession ?? onBackToHome}
+                aria-label="End Session and lock Partner Console"
+                title="End Session — lock Partner Console and return to landing page"
+                data-testid="partner-end-session-btn"
+                className="min-h-[36px] px-3 py-1 rounded-lg border border-[#C4622D]/35 dark:border-[#E07B46]/40 bg-[#FFF7F3] dark:bg-[#2A1B14] hover:bg-[#F9ECE5] dark:hover:bg-[#3A241B] text-xs font-semibold text-[#B44E1E] dark:text-[#F59E6C] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5 shrink-0" />
+                <span>End Session</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Main Content Area */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-8 py-8">
+      <main id="main-content" tabIndex={-1} className="max-w-7xl mx-auto px-4 sm:px-8 py-8">
         {postSuccessBanner && (
           <div
             role="status"
@@ -349,6 +495,50 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                   />
                 </div>
 
+                {/* Built-In Workspace Readiness (ILO Reasonable Accommodation Readiness) */}
+                <fieldset
+                  data-testid="partner-workspace-readiness-fieldset"
+                  className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-4 space-y-3"
+                >
+                  <legend className="px-1 text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                    Built-In Workspace Readiness (Optional · ILO Inclusive Employment)
+                  </legend>
+                  <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                    Flag zero-cost inclusive practices already supported by your team so skilled builders can match with clarity.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {WORKSPACE_READINESS_OPTIONS.map((opt) => {
+                      const checked = newSprintReadiness.includes(opt.id);
+                      return (
+                        <label
+                          key={opt.id}
+                          data-testid={`partner-readiness-option-${opt.id}`}
+                          className={`min-h-[44px] rounded-xl border p-3 flex items-start gap-2.5 cursor-pointer transition-colors ${
+                            checked
+                              ? 'bg-[#E7F3EE]/70 dark:bg-[#142B24]/70 border-[#146C53]/45 dark:border-[#2EB88B]/45'
+                              : 'bg-white dark:bg-[#1A1C20] border-[#E8E3DB] dark:border-[#2C3037]'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleSprintReadiness(opt.id)}
+                            className="mt-0.5 rounded border-[#146C53] text-[#146C53] focus:ring-[#146C53] shrink-0 cursor-pointer"
+                          />
+                          <span className="min-w-0">
+                            <span className="block text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                              {opt.label}
+                            </span>
+                            <span className="block text-[10px] text-[#575B62] dark:text-[#A3A7AE] mt-0.5">
+                              {opt.helperText}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+
                 <div className="flex justify-end">
                   <button
                     type="submit"
@@ -373,7 +563,7 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                     key={sprint.id}
                     className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                   >
-                    <div className="space-y-1 min-w-0">
+                    <div className="space-y-1.5 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#146C53] dark:text-[#2EB88B]">
                           {sprint.studioDomain} · {sprint.organization}
@@ -388,6 +578,18 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                       <p className="text-xs text-[#575B62] dark:text-[#A3A7AE] line-clamp-1">
                         {sprint.summary}
                       </p>
+                      {sprint.workspaceReadiness && sprint.workspaceReadiness.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                          {sprint.workspaceReadiness.map((tag) => (
+                            <span
+                              key={tag}
+                              className="inline-flex items-center px-2 py-0.5 rounded-md bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-[10px] font-medium text-[#146C53] dark:text-[#5EEAD4]"
+                            >
+                              {getWorkspaceReadinessLabel(tag)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
@@ -490,6 +692,39 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                         </div>
                       </div>
 
+                      {/* Consented Practical Work Setup Chips — Strictly gated by Builder VNA-GRANT consent */}
+                      {grant.sharedWorkSetupPreferences && grant.sharedWorkSetupPreferences.length > 0 ? (
+                        <div
+                          data-testid={`partner-consented-work-setup-${grant.consentId}`}
+                          className="rounded-xl bg-white dark:bg-[#1A1C20] border border-[#146C53]/30 dark:border-[#2EB88B]/35 p-4 space-y-2 text-xs"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5">
+                              <SlidersHorizontal className="w-3.5 h-3.5" aria-hidden="true" />
+                              <span>How This Builder Works Best (Consented via {grant.consentId})</span>
+                            </span>
+                            <span className="text-[10px] text-[#575B62] dark:text-[#A3A7AE]">
+                              Practical work conditions only · Zero personal or medical disclosures
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {grant.sharedWorkSetupPreferences.map((prefLabel, idx) => (
+                              <span
+                                key={`${grant.consentId}-pref-${idx}`}
+                                className="inline-flex items-center px-2.5 py-1 rounded-lg bg-[#E7F3EE]/80 dark:bg-[#142B24]/80 border border-[#146C53]/25 dark:border-[#2EB88B]/30 text-[11px] font-medium text-[#146C53] dark:text-[#5EEAD4]"
+                              >
+                                {prefLabel}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE] inline-flex items-center gap-1.5">
+                          <Lock className="w-3 h-3 shrink-0" aria-hidden="true" />
+                          <span>No optional work-setup preferences shared in this Consent Grant.</span>
+                        </p>
+                      )}
+
                       <div className="flex justify-end pt-2">
                         <button
                           type="button"
@@ -569,12 +804,109 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={() => alert('Compliant Agreement Package generated and ready for secure digital signature.')}
+                  onClick={() =>
+                    setAgreementStatusBanner(
+                      `Compliant Agreement Package prepared for ${orgName} and ready for secure digital signature.`
+                    )
+                  }
                   className="min-h-[38px] px-4 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Download Agreement Package</span>
                 </button>
+              </div>
+
+              {agreementStatusBanner && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="rounded-xl bg-[#E7F3EE] dark:bg-[#142B24] border border-[#146C53]/35 px-4 py-3 text-xs font-medium text-[#146C53] dark:text-[#5EEAD4] flex items-center justify-between gap-3"
+                >
+                  <span>{agreementStatusBanner}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAgreementStatusBanner(null)}
+                    className="underline font-semibold cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              {/* 1-Click Inclusive Onboarding Checklist (ILO Decent Work & Reasonable Accommodation) */}
+              <div
+                data-testid="partner-inclusive-onboarding-card"
+                className="rounded-2xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-5 space-y-4"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#146C53] dark:text-[#2EB88B]">
+                      ILO DECENT WORK &amp; REASONABLE ACCOMMODATION GUIDE
+                    </span>
+                    <h3 className="font-display text-base sm:text-lg font-medium text-[#17191C] dark:text-[#F4F2EE]">
+                      Inclusive Onboarding Checklist ($0 High-Impact Practices)
+                    </h3>
+                    <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                      Most practical accommodations—written briefs, auto-captions, and flexible milestone hours—cost $0 and unlock exceptional displaced talent.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="partner-inclusive-onboarding-checklist-btn"
+                    aria-expanded={inclusiveChecklistOpen}
+                    onClick={() => setInclusiveChecklistOpen((prev) => !prev)}
+                    className="min-h-[40px] px-4 py-2 rounded-xl border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-white dark:bg-[#1A1C20] hover:bg-[#E7F3EE]/60 dark:hover:bg-[#142B24]/60 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-2 shrink-0 cursor-pointer transition-colors"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>
+                      {inclusiveChecklistOpen
+                        ? 'Hide Inclusive Onboarding Checklist'
+                        : 'Open 1-Click Inclusive Onboarding Checklist'}
+                    </span>
+                  </button>
+                </div>
+
+                {inclusiveChecklistOpen && (
+                  <div
+                    data-testid="partner-inclusive-onboarding-panel"
+                    className="pt-3 border-t border-[#E8E3DB] dark:border-[#2C3037] grid grid-cols-1 md:grid-cols-2 gap-3 text-xs"
+                  >
+                    {[
+                      {
+                        title: '1. Written & Captioned Sprint Briefs ($0)',
+                        detail:
+                          'Share clear written deliverables and enable live captions on kickoff calls so every builder can review instructions asynchronously.',
+                      },
+                      {
+                        title: '2. Outcome-Based Flexible Milestone Hours ($0)',
+                        detail:
+                          'Measure 1–2 week sprint success on verified deliverables rather than rigid online-clock attendance.',
+                      },
+                      {
+                        title: '3. Keyboard & Screen-Reader Friendly Tools ($0)',
+                        detail:
+                          'Use structured headings, plain-text specs, and accessible shared docs so assistive tech works seamlessly.',
+                      },
+                      {
+                        title: '4. Co-Funded Assistive-Tech & Data Stipend Pool',
+                        detail:
+                          'When a builder needs a screen-reader license, ergonomic gear, or data bundle, route it through the Partner Enablement Pool—never ask for medical proof.',
+                      },
+                    ].map((item) => (
+                      <div
+                        key={item.title}
+                        className="rounded-xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5 space-y-1"
+                      >
+                        <p className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                          {item.title}
+                        </p>
+                        <p className="text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
+                          {item.detail}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>

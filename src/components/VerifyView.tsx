@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   Award,
+  Camera,
   Check,
   CheckCircle2,
   Compass,
@@ -12,6 +13,7 @@ import {
   GraduationCap,
   Hammer,
   ImagePlus,
+  Keyboard,
   Loader2,
   Mic,
   MicOff,
@@ -177,10 +179,25 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
   const [routeAResponseText, setRouteAResponseText] = useState(
     profile.problemStatement || FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.responseText
   );
+  const lastCarriedProblemRef = useRef<string>(profile.problemStatement || '');
   const [routeADocumentLabel, setRouteADocumentLabel] = useState<string>(
     'Partial Transcript (Semesters 1–7) · Civil & Structural Engineering'
   );
   const routeAFileInputRef = useRef<HTMLInputElement | null>(null);
+  const routeATextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // WCAG 3.3.7 Redundant Entry prevention: auto-carry forward Landing Funnel focus into Verify Studio
+  useEffect(() => {
+    const incoming = (profile.problemStatement || '').trim();
+    if (incoming && incoming !== lastCarriedProblemRef.current) {
+      lastCarriedProblemRef.current = incoming;
+      setRouteAResponseText((prev) =>
+        !prev.trim() || prev === FOREIGN_CIVIL_TRANSCRIPT_SAMPLE.responseText
+          ? incoming
+          : prev
+      );
+    }
+  }, [profile.problemStatement]);
 
   // Route B State: Missing or Lost Paperwork (UNESCO UQP Structured Track — 3-part guided flow)
   const [uqpStep, setUqpStep] = useState<1 | 2 | 3>(1);
@@ -202,6 +219,8 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
   const [uqpContextNotes, setUqpContextNotes] = useState(
     UQP_STRUCTURED_RECONSTRUCTION_SAMPLE.alternativeContextNotes
   );
+  const uqpDefense1Ref = useRef<HTMLTextAreaElement | null>(null);
+  const uqpDefense2Ref = useRef<HTMLTextAreaElement | null>(null);
 
   // Route C State: Hands-On / Informal Craft (ILO & KNQA RPL Portfolio Track)
   const [rplCraftTitle, setRplCraftTitle] = useState(
@@ -220,6 +239,7 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
     '48V Hybrid Inverter & DC Breaker Board Assembly'
   );
   const rplFileInputRef = useRef<HTMLInputElement | null>(null);
+  const rplWalkthroughRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -859,6 +879,29 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
             </span>
           </div>
 
+          {/* WCAG 3.3.7 Carry-Forward Summary: avoids redundant entry of Landing Funnel selections */}
+          <div
+            data-testid="verify-carried-forward-strip"
+            className="relative z-10 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-[#5A6068] dark:text-[#A3A9B3]"
+          >
+            <span>
+              <strong className="text-[#17191C] dark:text-[#F4F2EE]">Carried forward automatically:</strong>{' '}
+              Age Stage <strong className="text-[#146C53] dark:text-[#5EEAD4]">{profile.ageStage}</strong>
+              {profile.problemStatement?.trim() ? (
+                <>
+                  {' · '}
+                  <span className="text-[#17191C] dark:text-[#F4F2EE]">
+                    “{profile.problemStatement.trim().slice(0, 72)}
+                    {profile.problemStatement.trim().length > 72 ? '…' : ''}”
+                  </span>
+                </>
+              ) : null}
+            </span>
+            <span className="text-[11px] font-medium text-[#146C53] dark:text-[#5EEAD4]">
+              No re-typing needed
+            </span>
+          </div>
+
           {/* Domain Pill Selector */}
           <div className="relative z-10">
             <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3] mb-2">
@@ -946,8 +989,8 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
                 />
               </div>
 
-              {/* Photo / Scan Upload of Foreign Degree or Partial Transcript */}
-              <div className="rounded-xl border border-dashed border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-3 flex items-center justify-between gap-3">
+              {/* Photo / Scan Upload of Foreign Degree or Partial Transcript — WCAG 2.5.7 non-drag parity */}
+              <div className="rounded-xl border border-dashed border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <FileText className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B] shrink-0" />
                   <div className="truncate">
@@ -955,7 +998,7 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
                       {routeADocumentLabel}
                     </p>
                     <p className="text-[11px] text-[#5A6068] dark:text-[#A3A9B3]">
-                      Partial transcript photo, student ID, or professional license copy (zero raw PII stored)
+                      Partial transcript photo, student ID, or license copy · Tap button below or drag &amp; drop (zero raw PII stored)
                     </p>
                   </div>
                 </div>
@@ -969,46 +1012,78 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
                 <button
                   type="button"
                   onClick={() => routeAFileInputRef.current?.click()}
-                  className="px-3 py-1.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] shrink-0 cursor-pointer"
+                  data-testid="route-a-choose-file-btn"
+                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#146C53]/40 dark:border-[#2EB88B]/40 bg-white dark:bg-[#1A1C20] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
                 >
-                  Upload Photo / Copy
+                  <Camera className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B]" />
+                  Choose File / Take Photo
                 </button>
               </div>
 
               <div>
-                <div className="flex items-center justify-between gap-2 mb-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                   <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3]">
-                    Coursework & Practical Engineering / Technical Summary
+                    Coursework &amp; Practical Engineering / Technical Summary (Type, Quick-Pick, or Voice)
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleVoiceNote('route-a')}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-                      isListening && voiceTargetField === 'route-a'
-                        ? 'border-[#C4622D] bg-[#F9E9DF] text-[#C4622D] animate-pulse'
-                        : 'border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53]'
-                    }`}
-                  >
-                    {isListening && voiceTargetField === 'route-a' ? (
-                      <>
-                        <MicOff className="w-3.5 h-3.5" />
-                        {t.voiceStopLabel}
-                      </>
-                    ) : (
-                      <>
-                        <Mic className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
-                        {t.voiceStartLabel}
-                      </>
-                    )}
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => routeATextareaRef.current?.focus()}
+                      data-testid="route-a-type-instead-btn"
+                      className="min-h-[44px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] transition-colors cursor-pointer"
+                    >
+                      <Keyboard className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                      Type / Quick-Pick
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleVoiceNote('route-a')}
+                      className={`min-h-[44px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                        isListening && voiceTargetField === 'route-a'
+                          ? 'border-[#C4622D] bg-[#F9E9DF] text-[#C4622D]'
+                          : 'border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53]'
+                      }`}
+                    >
+                      {isListening && voiceTargetField === 'route-a' ? (
+                        <>
+                          <MicOff className="w-3.5 h-3.5" />
+                          {t.voiceStopLabel}
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                          {t.voiceStartLabel}
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <textarea
+                  ref={routeATextareaRef}
                   rows={4}
                   value={routeAResponseText}
                   onChange={(e) => setRouteAResponseText(e.target.value)}
                   placeholder="Describe your completed modules, technical thesis, and real-world projects supervised..."
                   className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3.5 py-2.5 text-sm text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus:border-[#146C53]"
                 />
+                <div className="mt-2 flex flex-wrap gap-1.5" data-testid="route-a-quick-picks">
+                  {[
+                    'Completed 7 semesters of core engineering coursework, CAD structural modeling, and supervised field QA.',
+                    'Completed accredited clinical nursing & public health rotations with triage, cold-chain, and patient records training.',
+                  ].map((starter, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setRouteAResponseText(starter);
+                        routeATextareaRef.current?.focus();
+                      }}
+                      className="min-h-[36px] px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] text-[11px] font-medium text-[#5A6068] dark:text-[#A3A9B3] hover:text-[#17191C] dark:hover:text-[#F4F2EE] cursor-pointer text-left"
+                    >
+                      + Quick-pick: {starter.slice(0, 48)}…
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -1038,7 +1113,7 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { step: 1 as const, label: '1. Background' },
-                  { step: 2 as const, label: '2. Oral Defense' },
+                  { step: 2 as const, label: '2. Skill Defense (Type or Voice)' },
                   { step: 3 as const, label: '3. Context Notes' },
                 ].map((item) => (
                   <button
@@ -1046,7 +1121,7 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
                     type="button"
                     onClick={() => setUqpStep(item.step)}
                     data-testid={`uqp-step-${item.step}-btn`}
-                    className={`px-2.5 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+                    className={`min-h-[44px] px-2.5 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
                       uqpStep === item.step
                         ? 'border-[#146C53] bg-[#146C53] text-white'
                         : 'border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#5A6068] dark:text-[#A3A9B3]'
@@ -1100,7 +1175,7 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
                       onClick={() => setUqpStep(2)}
                       className="text-xs font-semibold text-[#146C53] dark:text-[#5EEAD4] hover:underline cursor-pointer"
                     >
-                      Continue to Part 2: Technical / Oral Defense →
+                      Continue to Part 2: Skill Defense (Type or Voice) →
                     </button>
                   </div>
                 </div>
@@ -1108,47 +1183,110 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
 
               {uqpStep === 2 && (
                 <div className="space-y-3" data-testid="uqp-part-2">
+                  <p className="text-[11px] text-[#5A6068] dark:text-[#A3A9B3]">
+                    Complete both defenses by typing, tapping a quick-pick starter, or using optional voice dictation — audio is never required to advance.
+                  </p>
                   <div>
-                    <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                       <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3]">
                         Defense Prompt 1 · {currentScenario.title}
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleVoiceNote('uqp-1')}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] cursor-pointer"
-                      >
-                        <Mic className="w-3 h-3 text-[#146C53]" />
-                        Voice Defense 1
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => uqpDefense1Ref.current?.focus()}
+                          data-testid="uqp-defense-1-type-btn"
+                          className="min-h-[40px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
+                        >
+                          <Keyboard className="w-3 h-3 text-[#146C53] dark:text-[#2EB88B]" />
+                          Type / Quick-Pick
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleVoiceNote('uqp-1')}
+                          className="min-h-[40px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
+                        >
+                          <Mic className="w-3 h-3 text-[#146C53]" />
+                          Voice Defense 1
+                        </button>
+                      </div>
                     </div>
                     <textarea
+                      ref={uqpDefense1Ref}
                       rows={3}
                       value={uqpDefense1}
                       onChange={(e) => setUqpDefense1(e.target.value)}
                       className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
                     />
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {[
+                        'First isolate the fault using step-by-step load diagnostics, verify tolerances against manufacturer specs, and document every measurement.',
+                        'Triage priority risk first, apply standardized diagnostic checklist, and verify recovery metrics before handover.',
+                      ].map((starter, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setUqpDefense1(starter);
+                            uqpDefense1Ref.current?.focus();
+                          }}
+                          className="min-h-[34px] px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] text-[11px] font-medium text-[#5A6068] dark:text-[#A3A9B3] cursor-pointer text-left"
+                        >
+                          + Quick-pick: {starter.slice(0, 44)}…
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div>
-                    <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                       <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3]">
-                        Defense Prompt 2 · Field Safety, Lockout-Tagout & QA Verification
+                        Defense Prompt 2 · Field Safety, Lockout-Tagout &amp; QA Verification
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleVoiceNote('uqp-2')}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] cursor-pointer"
-                      >
-                        <Mic className="w-3 h-3 text-[#146C53]" />
-                        Voice Defense 2
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => uqpDefense2Ref.current?.focus()}
+                          data-testid="uqp-defense-2-type-btn"
+                          className="min-h-[40px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
+                        >
+                          <Keyboard className="w-3 h-3 text-[#146C53] dark:text-[#2EB88B]" />
+                          Type / Quick-Pick
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleVoiceNote('uqp-2')}
+                          className="min-h-[40px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
+                        >
+                          <Mic className="w-3 h-3 text-[#146C53]" />
+                          Voice Defense 2
+                        </button>
+                      </div>
                     </div>
                     <textarea
+                      ref={uqpDefense2Ref}
                       rows={3}
                       value={uqpDefense2}
                       onChange={(e) => setUqpDefense2(e.target.value)}
                       className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
                     />
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {[
+                        'Enforce lockout-tagout and PPE before work, test zero-energy state, run post-work QA inspection, and sign off checklist.',
+                        'Verify safety clearance, isolate hazards, log peer sign-off and photo evidence prior to site commissioning.',
+                      ].map((starter, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setUqpDefense2(starter);
+                            uqpDefense2Ref.current?.focus();
+                          }}
+                          className="min-h-[34px] px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] text-[11px] font-medium text-[#5A6068] dark:text-[#A3A9B3] cursor-pointer text-left"
+                        >
+                          + Quick-pick: {starter.slice(0, 44)}…
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div className="flex items-center justify-between">
                     <button
@@ -1188,7 +1326,7 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
                       onClick={() => setUqpStep(2)}
                       className="text-xs text-[#5A6068] hover:underline cursor-pointer"
                     >
-                      ← Back to Part 2: Oral Defense
+                      ← Back to Part 2: Skill Defense
                     </button>
                   </div>
                 </div>
@@ -1241,10 +1379,11 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
                   <button
                     type="button"
                     onClick={() => rplFileInputRef.current?.click()}
-                    className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[11px] font-medium text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
+                    data-testid="route-c-choose-file-btn"
+                    className="mt-2 min-h-[44px] inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-[#146C53]/40 dark:border-[#2EB88B]/40 bg-white dark:bg-[#1A1C20] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
                   >
-                    <ImagePlus className="w-3.5 h-3.5 text-[#146C53]" />
-                    Upload Your Work Photo
+                    <ImagePlus className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B]" />
+                    Choose File / Take Photo
                   </button>
                 </div>
               </div>
@@ -1262,25 +1401,56 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
               </div>
 
               <div>
-                <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                   <label className="block text-xs font-medium text-[#5A6068] dark:text-[#A3A9B3]">
-                    30-Second "How I Built / Fixed This" Walkthrough
+                    30-Second “How I Built / Fixed This” Walkthrough (Type, Quick-Pick, or Voice)
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleVoiceNote('rpl')}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
-                  >
-                    <Mic className="w-3.5 h-3.5 text-[#146C53]" />
-                    {t.voiceStartLabel}
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => rplWalkthroughRef.current?.focus()}
+                      data-testid="route-c-type-instead-btn"
+                      className="min-h-[44px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
+                    >
+                      <Keyboard className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                      Type / Quick-Pick
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleVoiceNote('rpl')}
+                      className="min-h-[44px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
+                    >
+                      <Mic className="w-3.5 h-3.5 text-[#146C53]" />
+                      {t.voiceStartLabel}
+                    </button>
+                  </div>
                 </div>
                 <textarea
+                  ref={rplWalkthroughRef}
                   rows={3}
                   value={rplWalkthrough}
                   onChange={(e) => setRplWalkthrough(e.target.value)}
                   className="w-full rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] px-3 py-2 text-xs text-[#17191C] dark:text-[#F4F2EE]"
                 />
+                <div className="mt-1.5 flex flex-wrap gap-1.5" data-testid="route-c-quick-picks">
+                  {[
+                    'Measured load and voltage, wired DC breaker and surge protection cleanly, then ran a full load test before handover.',
+                    'Measured, fabricated, and aligned components to spec, inspected joints and tolerances, and verified safety with the client.',
+                    'Built digital tracking workflow, verified data accuracy against real inventory, and trained staff on daily operations.',
+                  ].map((starter, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setRplWalkthrough(starter);
+                        rplWalkthroughRef.current?.focus();
+                      }}
+                      className="min-h-[34px] px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] text-[11px] font-medium text-[#5A6068] dark:text-[#A3A9B3] cursor-pointer text-left"
+                    >
+                      + Quick-pick: {starter.slice(0, 44)}…
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div>
@@ -1299,7 +1469,12 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
           )}
 
           {voiceStatusNote && (
-            <p className="relative z-10 text-xs text-[#146C53] dark:text-[#5EEAD4]">
+            <p
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className="relative z-10 text-xs text-[#146C53] dark:text-[#5EEAD4]"
+            >
               {voiceStatusNote}
             </p>
           )}
