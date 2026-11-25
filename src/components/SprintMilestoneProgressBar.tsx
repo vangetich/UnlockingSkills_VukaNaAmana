@@ -71,7 +71,9 @@ export const SprintMilestoneProgressBar: React.FC<SprintMilestoneProgressBarProp
               role="checkbox"
               aria-checked={checked}
               aria-pressed={checked}
+              aria-label={`Milestone: ${step.label}`}
               data-checked={checked ? 'true' : 'false'}
+              data-milestone-checkbox="true"
               data-testid={`milestone-step-${sprintId}-${step.key}`}
               onClick={() => onToggleMilestone(sprintId, step.key)}
               whileHover={{ scale: 1.02 }}

@@ -1021,6 +1021,8 @@ export const SolveView: React.FC<SolveViewProps> = ({
                               disabled={isCompleted}
                               aria-checked={checked}
                               role="checkbox"
+                              aria-label={`Milestone deliverable: ${line}`}
+                              data-milestone-checkbox="true"
                               data-testid={`deliverable-checkbox-${line}`}
                               onClick={() => toggleDeliverable(activeSubmission.briefId, line)}
                               whileHover={{ scale: 1.08 }}

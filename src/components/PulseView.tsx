@@ -984,7 +984,7 @@ export const PulseView: React.FC<PulseViewProps> = ({
               id="recent-activity-heading"
               className="font-serif text-xl sm:text-2xl font-semibold text-[#17191C] dark:text-[#F4F2EE] mt-0.5"
             >
-              Recent Activity Feed
+              Recent Activity
             </h3>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -1051,6 +1051,8 @@ export const PulseView: React.FC<PulseViewProps> = ({
               return (
                 <div
                   key={act.id}
+                  data-testid="recent-activity-item"
+                  data-activity-id={act.id}
                   className="rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-4 flex items-start gap-3.5 transition-colors"
                 >
                   <div
