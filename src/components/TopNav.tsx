@@ -78,19 +78,28 @@ export const TopNav: React.FC<TopNavProps> = ({
         <div className="max-w-6xl mx-auto h-16 px-3 sm:px-6 flex items-center justify-between gap-4 overflow-x-auto no-scrollbar touch-pan-x whitespace-nowrap">
           {/* Zone 1: Clickable Official Bridge Logo + Vuka na Amana lockup + Active Portal Pill */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink-0">
-            <button
-              type="button"
-              onClick={onBackToHome}
+            <a
+              href="#landing"
+              onClick={(e) => {
+                e.preventDefault();
+                onBackToHome();
+              }}
               aria-label={`${t.brandName} — ${t.backToHome}`}
               title={t.backToHome}
               data-testid="topnav-brand-home-btn"
-              className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink-0 text-start group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] rounded-md py-1"
+              className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink-0 text-start group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] rounded-md py-1 cursor-pointer"
             >
-              <img
-                src="/bridge.jpeg"
-                alt="Vuka na Amana Bridge Logo"
-                className="h-8 max-w-[96px] sm:h-9 sm:max-w-[128px] w-auto object-contain rounded-md shrink-0"
-              />
+              <div
+                data-testid="featured-logo-button"
+                className="p-1 rounded-xl bg-white dark:bg-[#1A1C20] border border-[#146C53]/35 dark:border-[#2EB88B]/40 shadow-xs group-hover:border-[#146C53] dark:group-hover:border-[#2EB88B] group-hover:shadow-sm group-hover:scale-105 transition-all shrink-0 flex items-center justify-center cursor-pointer"
+                title="Return to Funnel / Landing Page"
+              >
+                <img
+                  src="/bridge.jpeg"
+                  alt="Vuka na Amana Bridge Logo"
+                  className="h-7 sm:h-8 max-w-[96px] sm:max-w-[128px] w-auto object-contain rounded-lg shrink-0"
+                />
+              </div>
               <div className="leading-tight min-w-0">
                 <span className="block font-display text-sm sm:text-base font-semibold tracking-tight text-[#17191C] dark:text-[#F4F2EE] group-hover:text-[#146C53] dark:group-hover:text-[#2EB88B] transition-colors whitespace-nowrap">
                   {t.brandName}
@@ -99,7 +108,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                   Crossing Over
                 </span>
               </div>
-            </button>
+            </a>
 
             {/* Refined Active Portal Pill */}
             <span

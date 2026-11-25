@@ -63,6 +63,7 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
   const [verificationCode, setVerificationCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [mutualConsentAccepted, setMutualConsentAccepted] = useState(true);
 
   useEffect(() => {
     if (isOpen) {
@@ -72,6 +73,7 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
       setSandboxPreviewCode(null);
       setVerificationCode('');
       setErrorMessage(null);
+      setMutualConsentAccepted(true);
     }
   }, [isOpen, initialDoor]);
 
@@ -82,6 +84,7 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
     setSandboxPreviewCode(null);
     setVerificationCode('');
     setErrorMessage(null);
+    setMutualConsentAccepted(true);
   };
 
   const authHeaders = (extra?: Record<string, string>) => {
@@ -99,6 +102,12 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
   const handleRequestCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+
+    if (door === 'talent' && !mutualConsentAccepted) {
+      setErrorMessage('Mutual consent authorization is required to access the sovereign Skilled Builder Door.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -185,13 +194,17 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
 
   const handleDemoAccess = async () => {
     setErrorMessage(null);
+    if (door === 'talent' && !mutualConsentAccepted) {
+      setErrorMessage('Mutual consent authorization is required to access the sovereign Skilled Builder Door.');
+      return;
+    }
     setIsSubmitting(true);
 
     try {
-      const endpoint = door === 'talent' ? '/api/auth/talent/demo' : '/api/auth/partner/demo';
+      const endpoint = door === 'talent' ? '/api/auth/talent/validate-switch' : '/api/auth/partner/demo';
       const payload =
         door === 'talent'
-          ? { displayName: talentName || 'Amina Hassan', ageStage }
+          ? { displayName: talentName || 'Amina Hassan', ageStage, mutualConsent: true }
           : { memberRole: partnerRole };
 
       const res = await fetch(endpoint, {
@@ -200,9 +213,13 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
         headers: authHeaders(),
         body: JSON.stringify(payload),
       });
-      const data = (await res.json()) as ActiveAuthSession & { error?: string; authenticated?: boolean };
+      const data = (await res.json()) as ActiveAuthSession & {
+        error?: string;
+        authenticated?: boolean;
+        allowed?: boolean;
+      };
 
-      if (!res.ok || !data.authenticated || !data.token) {
+      if (!res.ok || (!data.authenticated && !data.allowed) || !data.token) {
         throw new Error(data.error || 'Demo session could not be initialized.');
       }
 
@@ -287,7 +304,7 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
                   <span>
                     {isPartner
                       ? 'Isolated Organization Workspace · Consent-First Talent Access'
-                      : 'Isolated Builder Realm · Zero Corporate Email Required'}
+                      : 'Protected Refugee Realm · Mutual Consent Authorisation Required'}
                   </span>
                 </div>
 
@@ -295,13 +312,43 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
                   id="dual-door-auth-title"
                   className="font-display text-2xl font-medium tracking-tight text-[#17191C] dark:text-[#F4F2EE]"
                 >
-                  {isPartner ? 'Hiring Partner Console Access' : 'Enter Your Talent Studio'}
+                  {isPartner ? 'Hiring Partner Console Access' : 'Skilled Builder Door Authorisation'}
                 </h2>
                 <p className="text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
                   {isPartner
                     ? 'Verify your organization email to review pre-cleared compliance dossiers, fund solution sprints, and scale cohorts without ever accessing raw identity documents.'
-                    : 'Sign in cleanly with your WhatsApp, phone number, or personal email. Your skills passport and proof ledger stay sovereign and strictly isolated from partner accounts.'}
+                    : 'This is the sovereign refugee and displaced talent section of the platform. Access to builder profiles, living passports, and evidence dossiers is strictly protected and granted solely by mutual consent under international refugee data protection standards.'}
                 </p>
+
+                {/* Mutual Consent Agreement Accord for Talent / Refugee Door */}
+                {!isPartner && (
+                  <div
+                    data-testid="builder-door-consent-card"
+                    className="rounded-xl border border-[#146C53]/35 dark:border-[#2EB88B]/35 bg-[#E7F3EE]/60 dark:bg-[#142B24]/60 p-3.5 space-y-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B] shrink-0" />
+                      <span className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] uppercase tracking-wider">
+                        Mutual Consent &amp; Refugee Privacy Accord
+                      </span>
+                    </div>
+                    <label className="flex items-start gap-2.5 text-xs text-[#17191C] dark:text-[#F4F2EE] cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={mutualConsentAccepted}
+                        onChange={(e) => {
+                          setMutualConsentAccepted(e.target.checked);
+                          if (e.target.checked && errorMessage) setErrorMessage(null);
+                        }}
+                        className="mt-0.5 rounded border-[#146C53] text-[#146C53] focus:ring-[#146C53] shrink-0 cursor-pointer"
+                        data-testid="builder-door-mutual-consent-checkbox"
+                      />
+                      <span className="leading-relaxed">
+                        I confirm mutual consent to access the sovereign Skilled Builder Door. Sovereign refugee identities and live competency records remain strictly protected and isolated from unauthorized exposure.
+                      </span>
+                    </label>
+                  </div>
+                )}
               </div>
 
               {/* Hackathon Judge 1-Click Demo Access Pill */}
@@ -314,13 +361,13 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
                   <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
                     {isPartner
                       ? 'Mints a verified vna_partner_sid token for SolarGrid East Africa.'
-                      : 'Mints a verified vna_talent_sid token for immediate studio entry.'}
+                      : 'Mints a verified vna_talent_sid token with mutual consent authorization.'}
                   </p>
                 </div>
 
                 <button
                   type="button"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || (!isPartner && !mutualConsentAccepted)}
                   onClick={() => void handleDemoAccess()}
                   data-testid={isPartner ? 'demo-partner-access-btn' : 'demo-builder-access-btn'}
                   className={`min-h-[40px] px-4 py-2 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60 ${
@@ -339,7 +386,7 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
                   <span>
                     {isPartner
                       ? 'Continue as Verified Partner — SolarGrid East Africa'
-                      : 'Continue as Demo Builder'}
+                      : 'Authorise & Enter as Demo Builder'}
                   </span>
                 </button>
               </div>

@@ -71,7 +71,11 @@ export const SprintMilestoneProgressBar: React.FC<SprintMilestoneProgressBarProp
               role="checkbox"
               aria-checked={checked}
               aria-pressed={checked}
-              aria-label={`Milestone: ${step.label}`}
+              aria-label={
+                checked
+                  ? `Milestone ${step.label} completed`
+                  : `Mark milestone ${step.label} as completed`
+              }
               data-checked={checked ? 'true' : 'false'}
               data-milestone-checkbox="true"
               data-testid={`milestone-step-${sprintId}-${step.key}`}

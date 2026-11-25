@@ -63,6 +63,7 @@ import type {
   WorkspaceTab,
   ConsentGrant,
   AccessAuditLogEntry,
+  TalentSessionClaims,
 } from './types/kora';
 import { TRANSLATIONS, getLocaleMeta } from './utils/i18n';
 import {
@@ -1094,14 +1095,16 @@ export default function App() {
     setActiveAuthSession(null);
 
     if (nextDoorToOpen === 'talent') {
-      setActivePortal('talent');
-      setUnlockViewMode('talent');
-      setViewMode('studio');
+      setDualDoorModal({
+        isOpen: true,
+        door: 'talent',
+        pendingTab: 'verify',
+      });
       setGlobalToast({
-        id: `portal-switched-talent-${Date.now()}`,
+        id: `portal-auth-talent-${Date.now()}`,
         variant: 'synced',
-        title: 'Switched to Skilled Builder Studio',
-        message: 'Successfully crossed over to the Skilled Builder portal.',
+        title: 'Authorisation Required · Skilled Builder Door',
+        message: 'The Skilled Builder portal is the protected refugee & displaced talent section. Access is strictly granted by mutual consent.',
       });
     } else if (nextDoorToOpen) {
       setDualDoorModal({
@@ -1126,6 +1129,50 @@ export default function App() {
         message: `Your isolated ${previousRealm === 'partner' ? 'Partner Console' : 'Talent Studio'} session has been cleanly revoked.`,
       });
     }
+  };
+
+  const handleSwitchToTalentDoor = async () => {
+    try {
+      const res = await fetch('/api/auth/talent/validate-switch', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'VukaNaAmana',
+          ...(activeAuthSession?.token ? { Authorization: `Bearer ${activeAuthSession.token}` } : {}),
+        },
+        body: JSON.stringify({ mutualConsent: false }),
+      });
+      const data = (await res.json()) as {
+        allowed?: boolean;
+        authenticated?: boolean;
+        token?: string;
+        claims?: TalentSessionClaims;
+      };
+      if (res.ok && data.allowed && data.token && data.claims) {
+        setActiveAuthSession({
+          realm: 'talent',
+          sessionCookieName: 'vna_talent_sid',
+          token: data.token,
+          claims: data.claims,
+        });
+        setActivePortal('talent');
+        setUnlockViewMode('talent');
+        setViewMode('studio');
+        setGlobalToast({
+          id: `portal-switched-talent-${Date.now()}`,
+          variant: 'synced',
+          title: 'Active Builder Session Verified',
+          message: 'Server validated your active builder session. Welcome to the Skilled Builder Studio.',
+        });
+        return;
+      }
+    } catch {
+      // Network/offline fallback: proceed to mutual consent flow
+    }
+
+    // Server-side check indicated not an active builder or requires mutual consent
+    await handleWipePortalSession('talent');
   };
 
   const handleChangeLocale = (preferredLocale: LocaleCode) => {
@@ -2278,7 +2325,8 @@ export default function App() {
             activeSprintsCount: postedSprints.length,
             clearedTalentCount: Math.max(1, consentGrants.length),
           }}
-          onSwitchToTalentDoor={() => void handleWipePortalSession('talent')}
+          onSwitchToTalentDoor={() => void handleSwitchToTalentDoor()}
+          onBackToHome={() => setViewMode('landing')}
           t={t}
         />
         {globalToastElement}
@@ -2306,7 +2354,11 @@ export default function App() {
           onSyncNow={handleSyncNow}
           onSignIn={handleOpenAccountSync}
           onSignOut={handleSignOut}
-          onSwitchPortal={(target) => void handleWipePortalSession(target)}
+          onSwitchPortal={(target) =>
+            target === 'talent'
+              ? void handleSwitchToTalentDoor()
+              : void handleWipePortalSession(target)
+          }
           onSignOutPortal={() => void handleWipePortalSession()}
           onBackToHome={() => setViewMode('landing')}
           onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}

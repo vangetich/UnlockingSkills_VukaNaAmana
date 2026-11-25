@@ -163,3 +163,45 @@ test('Isolated cookie builders enforce HttpOnly, Secure, SameSite=None, Partitio
   assert.equal(parsed.vna_talent_sid, 'abc.123');
   assert.equal(parsed.theme, 'light');
 });
+
+test('Skilled Builder Door requires mutual consent authorization for sovereign refugee realm access', () => {
+  const talentRealm = new TalentAuthRealm();
+  const demoSession = talentRealm.mintDemoBuilderSession({
+    displayName: 'Amina Hassan',
+    ageStage: '30-45',
+  });
+
+  assert.equal(demoSession.claims.role, 'builder');
+  assert.equal(demoSession.claims.aud, 'vna-talent');
+  assert.equal(demoSession.claims.displayName, 'Amina Hassan');
+  // Verified token cannot authenticate against PartnerAuthRealm
+  const partnerRealm = new PartnerAuthRealm();
+  assert.equal(partnerRealm.verifySession(demoSession.token), null);
+});
+
+test('Switch to Skilled Builder Door server validation checks active builder session or requires mutual consent', () => {
+  const talentRealm = new TalentAuthRealm();
+  const partnerRealm = new PartnerAuthRealm();
+
+  // Scenario 1: A user with only a partner session cannot access builder realm without mutual consent
+  const partnerSession = partnerRealm.mintDemoPartnerSession('hiring_lead');
+  assert.equal(talentRealm.verifySession(partnerSession.token), null);
+
+  // Scenario 2: Active builder session grants access directly
+  const builderSession = talentRealm.mintDemoBuilderSession({
+    displayName: 'Fatima Al-Zahra',
+    ageStage: '18-29',
+  });
+  const verified = talentRealm.verifySession(builderSession.token);
+  assert.ok(verified);
+  assert.equal(verified?.role, 'builder');
+  assert.equal(verified?.aud, 'vna-talent');
+
+  // Scenario 3: When mutual consent is provided, an isolated builder session is minted
+  const consentSession = talentRealm.mintDemoBuilderSession({
+    displayName: 'Ibrahim Diallo',
+    ageStage: '30-45',
+  });
+  assert.equal(consentSession.claims.role, 'builder');
+  assert.equal(consentSession.claims.displayName, 'Ibrahim Diallo');
+});

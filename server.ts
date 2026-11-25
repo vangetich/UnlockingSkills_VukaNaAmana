@@ -2060,6 +2060,70 @@ async function startServer() {
     });
   });
 
+  app.post('/api/auth/talent/validate-switch', (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const bearer = extractBearerToken(req);
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const talentToken = bearer || cookies[TALENT_SESSION_COOKIE];
+    const partnerToken = cookies[PARTNER_SESSION_COOKIE];
+    const body = (req.body ?? {}) as {
+      mutualConsent?: boolean;
+      displayName?: string;
+      ageStage?: '15-17' | '18-29' | '30-45' | '46+';
+    };
+
+    // 1. If user already has an active, valid builder session and no partner session, grant entry
+    if (talentToken && !partnerToken) {
+      const talentClaims = talentAuthRealm.verifySession(talentToken);
+      if (talentClaims && talentClaims.role === 'builder') {
+        res.status(200).json({
+          allowed: true,
+          authenticated: true,
+          realm: 'talent',
+          sessionCookieName: TALENT_SESSION_COOKIE,
+          token: talentToken,
+          claims: talentClaims,
+        });
+        return;
+      }
+    }
+
+    // 2. If user provides explicit mutual consent for entry to refugee talent studio:
+    if (body.mutualConsent === true) {
+      revokeOppositeRealm(req, 'talent');
+      const result = talentAuthRealm.mintDemoBuilderSession({
+        displayName: body.displayName || 'Amina Hassan',
+        ageStage: body.ageStage,
+      });
+      res.setHeader('Set-Cookie', [
+        buildIsolatedCookieHeader(TALENT_SESSION_COOKIE, result.token, SESSION_MAX_AGE_SECONDS),
+        buildClearCookieHeader(PARTNER_SESSION_COOKIE),
+      ]);
+      res.status(200).json({
+        allowed: true,
+        authenticated: true,
+        mutualConsentVerified: true,
+        realm: 'talent',
+        sessionCookieName: TALENT_SESSION_COOKIE,
+        token: result.token,
+        claims: result.claims,
+      });
+      return;
+    }
+
+    // 3. Otherwise, deny entry and require mutual consent
+    res.status(403).json({
+      allowed: false,
+      authenticated: false,
+      requiresMutualConsent: true,
+      realm: 'talent',
+      error: 'Access to the sovereign refugee talent studio requires verified mutual consent authorization.',
+    });
+  });
+
   app.post('/api/auth/partner/request-code', (req, res) => {
     if (!isAllowedSameOriginPost(req)) {
       res.status(403).json({ error: 'Cross-origin request rejected.' });

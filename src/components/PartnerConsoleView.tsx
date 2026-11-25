@@ -47,6 +47,7 @@ interface PartnerConsoleViewProps {
     clearedTalentCount: number;
   };
   onSwitchToTalentDoor: () => void;
+  onBackToHome?: () => void;
   t: TranslationDictionary;
 }
 
@@ -60,6 +61,7 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
   onIssueContract,
   telemetry,
   onSwitchToTalentDoor,
+  onBackToHome,
   t,
 }) => {
   const [activeTab, setActiveTab] = useState<PartnerTab>('sprints');
@@ -110,16 +112,26 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
       <header className="sticky top-0 z-40 border-b border-[#E8E3DB] dark:border-[#2C3037] bg-white/90 dark:bg-[#1A1C20]/90 backdrop-blur-md px-4 sm:px-8 py-3.5">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl overflow-hidden border border-[#146C53]/30 shrink-0 shadow-xs bg-[#E7F3EE] flex items-center justify-center">
+            <a
+              href="#landing"
+              onClick={(e) => {
+                e.preventDefault();
+                onBackToHome?.();
+              }}
+              aria-label="Return to Funnel / Landing Page"
+              title="Return to Funnel / Landing Page"
+              data-testid="featured-logo-button"
+              className="w-10 h-10 rounded-xl overflow-hidden border border-[#146C53]/40 dark:border-[#2EB88B]/45 shrink-0 shadow-xs bg-[#E7F3EE] dark:bg-[#142B24] flex items-center justify-center cursor-pointer hover:scale-105 hover:border-[#146C53] dark:hover:border-[#2EB88B] hover:shadow-md transition-all group"
+            >
               <img
                 src="/bridge.jpeg"
-                alt="Vuka na Amana Bridge"
-                className="w-full h-full object-cover"
+                alt="Vuka na Amana Bridge Logo"
+                className="w-full h-full object-cover group-hover:opacity-90 transition-opacity"
                 onError={(e) => {
                   (e.currentTarget as HTMLElement).style.display = 'none';
                 }}
               />
-            </div>
+            </a>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-display font-medium text-base sm:text-lg tracking-tight text-[#17191C] dark:text-[#F4F2EE]">

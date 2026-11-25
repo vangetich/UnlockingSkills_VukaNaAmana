@@ -48,7 +48,7 @@ import { PayoutTransactionLedger } from './PayoutTransactionLedger';
 import { PeerEndorsementPanel } from './PeerEndorsementPanel';
 import { ComplianceCrossingSection } from './ComplianceCrossingSection';
 import { ComplianceGuidedTour } from './ComplianceGuidedTour';
-import { FaqsAndPlatformGuide } from './FaqsAndPlatformGuide';
+import { PlatformFAQs } from './PlatformFAQs';
 import { VoiceInput } from './VoiceField';
 
 interface UnlockViewProps {
@@ -935,8 +935,8 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
         )}
       </div>
 
-      {/* Collapsible FAQs and Platform Guide Accordion */}
-      <FaqsAndPlatformGuide variant="unlock" />
+      {/* How Vuka Works: Platform FAQs & Guide */}
+      <PlatformFAQs variant="unlock" />
 
       {/* 1-Click Generate Compliant Sprint Agreement Modal */}
       <SprintAgreementModal

@@ -42,7 +42,7 @@ import { TopographicAscentMotif } from './ResilienceMotifs';
 import { LivingProofPortfolioSection } from './LivingProofPortfolioSection';
 import { MatchedWorkSection } from './MatchedWorkSection';
 import { SprintMilestoneProgressBar } from './SprintMilestoneProgressBar';
-import { FaqsAndPlatformGuide } from './FaqsAndPlatformGuide';
+import { PlatformFAQs } from './PlatformFAQs';
 import { VoiceTextarea } from './VoiceField';
 import { VoiceRecorder } from './VoiceRecorder';
 import { useMessaging } from '../contexts/MessagingContext';
@@ -84,9 +84,9 @@ export const SolveView: React.FC<SolveViewProps> = ({
   passport,
   vault,
   proofPortfolio,
-  contributions,
-  sprintMilestonesByBrief,
-  matchedApplications,
+  contributions = [],
+  sprintMilestonesByBrief = {},
+  matchedApplications = [],
   lockedBridges,
   selectedBriefId,
   isOnline,
@@ -714,7 +714,7 @@ export const SolveView: React.FC<SolveViewProps> = ({
                   {/* Interactive Multi-Step Delivery Progress Bar */}
                   <SprintMilestoneProgressBar
                     sprintId={sprint.id}
-                    milestonesDone={existing?.milestonesDone ?? sprintMilestonesByBrief[sprint.id]}
+                    milestonesDone={existing?.milestonesDone ?? sprintMilestonesByBrief?.[sprint.id]}
                     isCompleted={Boolean(sprintCompleted)}
                     onToggleMilestone={onToggleSprintMilestone}
                     compact
@@ -912,7 +912,7 @@ export const SolveView: React.FC<SolveViewProps> = ({
                 sprintId={`workbench-${activeSubmission.briefId}`}
                 milestonesDone={
                   activeSubmission.milestonesDone ??
-                  sprintMilestonesByBrief[activeSubmission.briefId]
+                  sprintMilestonesByBrief?.[activeSubmission.briefId]
                 }
                 isCompleted={isCompleted}
                 onToggleMilestone={(_id, milestone) =>
@@ -1021,7 +1021,11 @@ export const SolveView: React.FC<SolveViewProps> = ({
                               disabled={isCompleted}
                               aria-checked={checked}
                               role="checkbox"
-                              aria-label={`Milestone deliverable: ${line}`}
+                              aria-label={
+                                checked
+                                  ? `Milestone deliverable ${line} completed`
+                                  : `Mark milestone deliverable ${line} as completed`
+                              }
                               data-milestone-checkbox="true"
                               data-testid={`deliverable-checkbox-${line}`}
                               onClick={() => toggleDeliverable(activeSubmission.briefId, line)}
@@ -1175,8 +1179,8 @@ export const SolveView: React.FC<SolveViewProps> = ({
         </div>
       )}
 
-      {/* Collapsible FAQs and Platform Guide Accordion */}
-      <FaqsAndPlatformGuide variant="solve" />
+      {/* How Vuka Works: Platform FAQs & Guide */}
+      <PlatformFAQs variant="solve" />
     </section>
   );
 };
