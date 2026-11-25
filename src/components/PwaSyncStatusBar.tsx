@@ -76,12 +76,14 @@ export const PwaSyncStatusBar: React.FC<PwaSyncStatusBarProps> = ({
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-          className={`relative w-full border-b ${
+          className={`relative w-full border-b transition-colors duration-200 ${
             !isOnline
-              ? 'border-[#C4622D]/30 dark:border-[#E07B46]/35 bg-[#F9ECE5] dark:bg-[#261B15] text-[#8D4119] dark:text-[#F0A47A]'
-              : showProgressBar
-                ? 'border-[#146C53]/30 dark:border-[#2EB88B]/35 bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4]'
-                : 'border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#16181C] text-[#575B62] dark:text-[#A3A7AE]'
+              ? 'pwa-sync-bar--waiting'
+              : isSyncing
+                ? 'pwa-sync-bar--syncing'
+                : recentlySynced
+                  ? 'pwa-sync-bar--synced'
+                  : 'pwa-sync-bar--queued'
           }`}
         >
           <div className="max-w-6xl mx-auto px-4 sm:px-6 py-2 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 text-[11px] sm:text-xs">
@@ -153,21 +155,12 @@ export const PwaSyncStatusBar: React.FC<PwaSyncStatusBarProps> = ({
                       initial={{ width: '8%' }}
                       animate={{ width: `${clampedPercent}%` }}
                       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                      className="relative h-full rounded-full bg-[#146C53] dark:bg-[#2EB88B] overflow-hidden"
-                    >
-                      {isSyncing && (
-                        <motion.div
-                          initial={{ x: '-100%' }}
-                          animate={{ x: '220%' }}
-                          transition={{
-                            repeat: Infinity,
-                            duration: 1.1,
-                            ease: 'linear',
-                          }}
-                          className="absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-white/50 dark:via-white/35 to-transparent"
-                        />
-                      )}
-                    </motion.div>
+                      className={`relative h-full rounded-full overflow-hidden ${
+                        isSyncing
+                          ? 'pwa-sync-progress-fill--active'
+                          : 'bg-[#146C53] dark:bg-[#2EB88B]'
+                      }`}
+                    />
                   </div>
 
                   <span
@@ -198,7 +191,7 @@ export const PwaSyncStatusBar: React.FC<PwaSyncStatusBarProps> = ({
             </div>
           </div>
 
-          {/* Full-Width Accessible Progress Bar during active Firebase queue flush */}
+          {/* Full-Width Accessible Animated Progress Bar during active Firebase queue flush */}
           {showProgressBar && (
             <div
               role="progressbar"
@@ -214,22 +207,12 @@ export const PwaSyncStatusBar: React.FC<PwaSyncStatusBarProps> = ({
                 initial={{ width: '8%' }}
                 animate={{ width: `${clampedPercent}%` }}
                 transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                className="relative h-full bg-[#146C53] dark:bg-[#2EB88B] overflow-hidden"
-              >
-                {isSyncing && (
-                  <motion.div
-                    aria-hidden="true"
-                    initial={{ x: '-100%' }}
-                    animate={{ x: '250%' }}
-                    transition={{
-                      repeat: Infinity,
-                      duration: 1.15,
-                      ease: 'linear',
-                    }}
-                    className="absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-white/45 dark:via-white/35 to-transparent"
-                  />
-                )}
-              </motion.div>
+                className={`relative h-full overflow-hidden ${
+                  isSyncing
+                    ? 'pwa-sync-progress-fill--active'
+                    : 'bg-[#146C53] dark:bg-[#2EB88B]'
+                }`}
+              />
             </div>
           )}
 
@@ -238,7 +221,7 @@ export const PwaSyncStatusBar: React.FC<PwaSyncStatusBarProps> = ({
             <div
               aria-hidden="true"
               data-testid="pwa-waiting-network-bar"
-              className="h-1 w-full bg-[repeating-linear-gradient(90deg,rgba(196,98,45,0.42)_0_10px,transparent_10px_18px)] dark:bg-[repeating-linear-gradient(90deg,rgba(224,123,70,0.48)_0_10px,transparent_10px_18px)]"
+              className="h-1.5 w-full pwa-sync-track--waiting"
             />
           )}
         </motion.div>
