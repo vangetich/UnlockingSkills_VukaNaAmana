@@ -31,6 +31,12 @@ import type {
   TalentAuthChannel,
   WorkspaceTab,
 } from '../types/kora';
+import { CountryPhoneInput } from './CountryPhoneInput';
+import {
+  DEFAULT_COUNTRY_DIAL_CODE,
+  getCountryPhoneSystem,
+  validateCountryMobileNumber,
+} from '../utils/phoneValidation';
 
 interface DualDoorAuthModalProps {
   isOpen: boolean;
@@ -267,6 +273,9 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
 
   // Path A: Standard 2FA (Phone / WhatsApp / Email)
   const [talentChannel, setTalentChannel] = useState<TalentAuthChannel>('whatsapp');
+  const [talentCountryDialCode, setTalentCountryDialCode] = useState<string>(
+    DEFAULT_COUNTRY_DIAL_CODE
+  );
   const [talentIdentifier, setTalentIdentifier] = useState('');
   const [talentName, setTalentName] = useState(
     defaultDisplayName && defaultDisplayName !== 'Practitioner' ? defaultDisplayName : ''
@@ -399,14 +408,14 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
       return;
     }
 
+    let resolvedTalentIdentifier = talentIdentifier.trim();
     if (door === 'talent' && (talentChannel === 'whatsapp' || talentChannel === 'phone')) {
-      const trimmedPhone = talentIdentifier.trim();
-      if (!/^\d{8,15}$/.test(trimmedPhone)) {
-        setErrorMessage(
-          'Please enter numerals only (8–15 digits including country code, e.g., 254712345678) — no +, spaces, letters, or symbols.'
-        );
+      const phoneCheck = validateCountryMobileNumber(talentCountryDialCode, talentIdentifier);
+      if (!phoneCheck.valid) {
+        setErrorMessage(phoneCheck.advisory);
         return;
       }
+      resolvedTalentIdentifier = phoneCheck.fullNumber;
     }
 
     setIsSubmitting(true);
@@ -418,10 +427,9 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
         door === 'talent'
           ? {
               channel: talentChannel,
-              identifier:
-                talentChannel === 'email'
-                  ? talentIdentifier.trim()
-                  : talentIdentifier.replace(/\D/g, '').slice(0, 15),
+              identifier: resolvedTalentIdentifier,
+              countryDialCode:
+                talentChannel === 'email' ? undefined : talentCountryDialCode,
               displayName: talentName,
               ageStage: selectedAgeStage,
             }
@@ -885,9 +893,17 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
                               key={opt.id}
                               type="button"
                               onClick={() => {
+                                const prevChannel = talentChannel;
                                 setTalentChannel(opt.id);
                                 if (opt.id === 'whatsapp' || opt.id === 'phone') {
-                                  setTalentIdentifier((prev) => prev.replace(/\D/g, '').slice(0, 15));
+                                  const sys = getCountryPhoneSystem(talentCountryDialCode);
+                                  setTalentIdentifier((prev) =>
+                                    prev.replace(/\D/g, '').slice(0, sys.maxLocalDigits)
+                                  );
+                                } else if (prevChannel !== 'email') {
+                                  setTalentIdentifier((prev) =>
+                                    /^\d+$/.test(prev.trim()) ? '' : prev
+                                  );
                                 }
                                 setErrorMessage(null);
                               }}
@@ -907,72 +923,49 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
 
                       <div className="space-y-3">
                         <div>
-                          <label
-                            htmlFor="talent-auth-identifier"
-                            className="block text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] mb-1.5"
-                          >
-                            {talentChannel === 'email'
-                              ? 'Email Address'
-                              : talentChannel === 'whatsapp'
-                                ? 'WhatsApp Number (numerals only, with country code)'
-                                : 'Phone Number (numerals only, with country code)'}
-                          </label>
-                          <input
-                            id="talent-auth-identifier"
-                            type={talentChannel === 'email' ? 'email' : 'tel'}
-                            inputMode={talentChannel === 'email' ? 'email' : 'numeric'}
-                            pattern={talentChannel === 'email' ? undefined : '[0-9]*'}
-                            maxLength={talentChannel === 'email' ? 120 : 15}
-                            autoComplete={talentChannel === 'email' ? 'email' : 'tel-national'}
-                            required
-                            value={talentIdentifier}
-                            onChange={(e) => {
-                              if (talentChannel === 'email') {
-                                setTalentIdentifier(e.target.value);
-                              } else {
-                                setTalentIdentifier(e.target.value.replace(/\D/g, '').slice(0, 15));
+                          {talentChannel === 'email' ? (
+                            <>
+                              <label
+                                htmlFor="talent-auth-identifier"
+                                className="block text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] mb-1.5"
+                              >
+                                Email Address
+                              </label>
+                              <input
+                                id="talent-auth-identifier"
+                                type="email"
+                                inputMode="email"
+                                maxLength={120}
+                                autoComplete="email"
+                                required
+                                value={talentIdentifier}
+                                onChange={(e) => {
+                                  setTalentIdentifier(e.target.value);
+                                  setErrorMessage(null);
+                                }}
+                                placeholder="amina.hassan@example.org"
+                                className="w-full min-h-[44px] rounded-xl bg-white dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] px-3.5 py-2.5 text-sm font-mono-tabular text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53]"
+                              />
+                            </>
+                          ) : (
+                            <CountryPhoneInput
+                              id="talent-auth-identifier"
+                              label={
+                                talentChannel === 'whatsapp'
+                                  ? 'WhatsApp Mobile Number (0–9 digits only)'
+                                  : 'Phone SMS Number (0–9 digits only)'
                               }
-                            }}
-                            onKeyDown={(e) => {
-                              if (talentChannel === 'email') return;
-                              if (e.ctrlKey || e.metaKey || e.altKey) return;
-                              if (
-                                e.key === 'Backspace' ||
-                                e.key === 'Delete' ||
-                                e.key === 'Tab' ||
-                                e.key === 'Enter' ||
-                                e.key === 'ArrowLeft' ||
-                                e.key === 'ArrowRight' ||
-                                e.key === 'Home' ||
-                                e.key === 'End' ||
-                                /^[0-9]$/.test(e.key)
-                              ) {
-                                return;
-                              }
-                              if (e.key.length === 1) {
-                                e.preventDefault();
-                              }
-                            }}
-                            onPaste={(e) => {
-                              if (talentChannel === 'email') return;
-                              e.preventDefault();
-                              const digitsOnly = e.clipboardData
-                                .getData('text')
-                                .replace(/\D/g, '')
-                                .slice(0, 15);
-                              setTalentIdentifier(digitsOnly);
-                            }}
-                            placeholder={
-                              talentChannel === 'email'
-                                ? 'amina.hassan@example.org'
-                                : '254712345678'
-                            }
-                            className="w-full min-h-[44px] rounded-xl bg-white dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] px-3.5 py-2.5 text-sm font-mono-tabular text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53]"
-                          />
-                          {talentChannel !== 'email' && (
-                            <p className="mt-1 text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
-                              Digits 0–9 only — include country code without +, spaces, letters, or symbols (e.g., 254712345678).
-                            </p>
+                              dialCode={talentCountryDialCode}
+                              localDigits={talentIdentifier}
+                              onChangeDialCode={(nextDial) => {
+                                setTalentCountryDialCode(nextDial);
+                                setErrorMessage(null);
+                              }}
+                              onChangeLocalDigits={(nextLocal) => {
+                                setTalentIdentifier(nextLocal);
+                                setErrorMessage(null);
+                              }}
+                            />
                           )}
 
                           {/* Prominent, reassuring No-Phone Dedicated PIN toggle directly beneath phone field */}

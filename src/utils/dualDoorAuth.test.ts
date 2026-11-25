@@ -10,6 +10,10 @@ import {
   buildIsolatedCookieHeader,
   parseCookieHeader,
 } from './dualDoorAuth.ts';
+import {
+  validateCountryMobileNumber,
+  validateFullInternationalMobile,
+} from './phoneValidation.ts';
 
 test('TalentAuthRealm issues scoped builder sessions via WhatsApp/Phone OTP or Email Magic Code', () => {
   const realm = new TalentAuthRealm();
@@ -395,5 +399,95 @@ test('Strict numerals-only enforcement rejects letters, +, -, spaces, and symbol
     /numerals only/i
   );
 });
+
+test('Country-aware mobile validation enforces 0-9 bounds per phone system (Kenya 254 = 9 digits, advises <9, >9, leading 0, and supports international systems)', () => {
+  const talentRealm = new TalentAuthRealm();
+
+  // Kenya (254): strictly 9 local digits after 254
+  const keValid = validateCountryMobileNumber('254', '712345678');
+  assert.equal(keValid.valid, true);
+  assert.equal(keValid.fullNumber, '254712345678');
+
+  // Kenya < 9 digits advises clearly
+  const keShort = validateCountryMobileNumber('254', '71234567');
+  assert.equal(keShort.valid, false);
+  assert.equal(keShort.status, 'too_short');
+  assert.match(keShort.advisory, /Too short for Kenya \(254\)/i);
+  assert.match(keShort.advisory, /9 digits/i);
+
+  // Kenya > 9 digits advises clearly
+  const keLong = validateCountryMobileNumber('254', '7123456789');
+  assert.equal(keLong.valid, false);
+  assert.equal(keLong.status, 'too_long');
+  assert.match(keLong.advisory, /Too many digits for Kenya \(254\)/i);
+  assert.match(keLong.advisory, /maximum 9/i);
+
+  // Kenya leading 0 advises clearly
+  const keLeadingZero = validateCountryMobileNumber('254', '071234567');
+  assert.equal(keLeadingZero.valid, false);
+  assert.equal(keLeadingZero.status, 'leading_zero');
+  assert.match(keLeadingZero.advisory, /Drop the leading 0/i);
+
+  // Server-side TalentAuthRealm enforces Kenya 254 bounds (<9, >9, leading 0)
+  assert.throws(
+    () =>
+      talentRealm.requestChallenge({
+        channel: 'whatsapp',
+        identifier: '2547123456',
+        countryDialCode: '254',
+      }),
+    /Too short for Kenya \(254\)/i
+  );
+  assert.throws(
+    () =>
+      talentRealm.requestChallenge({
+        channel: 'phone',
+        identifier: '2547123456789',
+        countryDialCode: '254',
+      }),
+    /Too many digits for Kenya \(254\)/i
+  );
+  assert.throws(
+    () =>
+      talentRealm.requestChallenge({
+        channel: 'whatsapp',
+        identifier: '2540712345678',
+      }),
+    /Drop the leading 0/i
+  );
+
+  // Uganda (256): 9 digits
+  assert.equal(validateFullInternationalMobile('256772123456').valid, true);
+  assert.equal(validateFullInternationalMobile('25677212345').status, 'too_short');
+  assert.equal(validateFullInternationalMobile('2567721234567').status, 'too_long');
+
+  // Burundi (257): exactly 8 local digits (rejects 9 digits)
+  assert.equal(validateFullInternationalMobile('25779123456').valid, true);
+  const biTooLong = validateFullInternationalMobile('257791234567');
+  assert.equal(biTooLong.valid, false);
+  assert.equal(biTooLong.status, 'too_long');
+  assert.match(biTooLong.advisory, /Burundi \(257\)/i);
+
+  // Nigeria (234): exactly 10 local digits (rejects 9 digits)
+  assert.equal(validateFullInternationalMobile('2348031234567').valid, true);
+  const ngTooShort = validateFullInternationalMobile('234803123456');
+  assert.equal(ngTooShort.valid, false);
+  assert.equal(ngTooShort.status, 'too_short');
+  assert.match(ngTooShort.advisory, /Nigeria \(234\)/i);
+
+  // UK (44) and US (1): 10 local digits
+  assert.equal(validateFullInternationalMobile('447700900123').valid, true);
+  assert.equal(validateFullInternationalMobile('14155550192').valid, true);
+  assert.equal(validateFullInternationalMobile('1415555019').status, 'too_short');
+
+  // Server accepts valid non-Kenya international systems too
+  const nigeriaChal = talentRealm.requestChallenge({
+    channel: 'phone',
+    identifier: '2348031234567',
+    countryDialCode: '234',
+  });
+  assert.ok(nigeriaChal.challengeId.startsWith('tchal_'));
+});
+
 
 

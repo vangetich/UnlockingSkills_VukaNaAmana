@@ -284,6 +284,243 @@ export function buildPlainTextPdfBytes(params: {
   return buildSinglePagePdfFromLines(lines);
 }
 
+export interface SdgImpactSummaryPdfInput {
+  practitionerName: string;
+  ageStage?: string;
+  verifiablePassportId?: string;
+  generatedAtIso?: string;
+  totalVerifiedBuilders: number;
+  stageBreakdown: Array<{ stage: string; count: number; sdg: string }>;
+  activeSprintsTotal: number;
+  userActiveSprints: number;
+  userCompletedSprints: number;
+  stipendsEarnedUsd: number;
+  totalDisbursedStipendsUsd: number;
+  escrowPipelineUsd?: number;
+  verifiedCapabilitiesCount: number;
+  verifiedHoursLogged?: number;
+  pulseStory?: string | null;
+  sdgMetrics: Array<{
+    sdgLabel: string;
+    unTargetTag: string;
+    title: string;
+    primaryValue: string;
+    metricCaption: string;
+  }>;
+}
+
+export function formatSdgImpactReportId(
+  practitionerName: string,
+  isoDate?: string
+): string {
+  const datePart = (isoDate || new Date().toISOString()).slice(0, 10).replace(/-/g, '');
+  const nameTag =
+    normalizePdfAscii(practitionerName)
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, 6) || 'BUILD';
+  return `VNA-SDG-${datePart}-${nameTag}`;
+}
+
+export function buildSdgImpactSummaryPdfBytes(
+  params: SdgImpactSummaryPdfInput
+): Uint8Array {
+  const issuedIso = params.generatedAtIso || new Date().toISOString();
+  const issuedDate = issuedIso.slice(0, 10);
+  const reportId = formatSdgImpactReportId(params.practitionerName, issuedIso);
+  const stageLine = params.stageBreakdown
+    .map((s) => `${s.stage}: ${s.count.toLocaleString()} (${s.sdg})`)
+    .join(' | ');
+
+  const lines: PdfLineSpec[] = [
+    {
+      text: 'VUKA NA AMANA - CROSSING OVER',
+      font: 'F2',
+      size: 10.5,
+      gapAfter: 15,
+      colorRgb: [0.078, 0.424, 0.325],
+    },
+    {
+      text: 'SDG IMPACT SUMMARY REPORT',
+      font: 'F2',
+      size: 16,
+      gapAfter: 18,
+      colorRgb: [0.09, 0.1, 0.11],
+    },
+    {
+      text: `Report Reference: ${reportId}   |   Issued: ${issuedDate}`,
+      font: 'F3',
+      size: 9.2,
+      gapAfter: 13,
+      colorRgb: [0.34, 0.36, 0.38],
+    },
+    {
+      text: `Practitioner: ${params.practitionerName || 'Skilled Builder'}${
+        params.ageStage ? `  |  Track: ${params.ageStage}` : ''
+      }${params.verifiablePassportId ? `  |  Passport: ${params.verifiablePassportId}` : ''}`,
+      font: 'F1',
+      size: 9.5,
+      gapAfter: 15,
+      colorRgb: [0.22, 0.24, 0.27],
+    },
+    {
+      text: '--------------------------------------------------------------------------',
+      font: 'F3',
+      size: 9,
+      gapAfter: 14,
+      colorRgb: [0.54, 0.52, 0.48],
+    },
+    {
+      text: '1. HEADLINE PLATFORM & BUILDER IMPACT METRICS',
+      font: 'F2',
+      size: 10.5,
+      gapAfter: 15,
+      colorRgb: [0.078, 0.424, 0.325],
+    },
+    {
+      text: `Total Verified Builders (5 Crossing Stages): ${params.totalVerifiedBuilders.toLocaleString()}`,
+      font: 'F2',
+      size: 11,
+      gapAfter: 14,
+      colorRgb: [0.09, 0.1, 0.11],
+    },
+    {
+      text: `Stipends Earned (Builder): $${Math.max(0, Math.round(params.stipendsEarnedUsd)).toLocaleString()} USD`,
+      font: 'F2',
+      size: 11,
+      gapAfter: 14,
+      colorRgb: [0.769, 0.384, 0.176],
+    },
+    {
+      text: `Total Disbursed Stipends (Platform): $${Math.max(0, Math.round(params.totalDisbursedStipendsUsd)).toLocaleString()} USD${
+        typeof params.escrowPipelineUsd === 'number'
+          ? `  |  Active Escrow: $${Math.max(0, Math.round(params.escrowPipelineUsd)).toLocaleString()} USD`
+          : ''
+      }`,
+      font: 'F1',
+      size: 9.8,
+      gapAfter: 14,
+      colorRgb: [0.15, 0.17, 0.19],
+    },
+    {
+      text: `Active Solution Sprints: ${params.activeSprintsTotal}  |  Your Active: ${params.userActiveSprints}  |  Completed: ${params.userCompletedSprints}`,
+      font: 'F1',
+      size: 9.8,
+      gapAfter: 13,
+      colorRgb: [0.15, 0.17, 0.19],
+    },
+    {
+      text: `Verified Capabilities: ${params.verifiedCapabilitiesCount}${
+        typeof params.verifiedHoursLogged === 'number'
+          ? `  |  Verified Hours Logged: ${params.verifiedHoursLogged}h`
+          : ''
+      }`,
+      font: 'F1',
+      size: 9.8,
+      gapAfter: 14,
+      colorRgb: [0.15, 0.17, 0.19],
+    },
+    ...wrapLine(`5-Stage Pipeline: ${stageLine}`, 84).map((line) => ({
+      text: line,
+      font: 'F3' as const,
+      size: 8.5,
+      gapAfter: 12,
+      colorRgb: [0.32, 0.34, 0.37] as [number, number, number],
+    })),
+    {
+      text: ' ',
+      font: 'F1',
+      size: 8,
+      gapAfter: 8,
+    },
+    {
+      text: '2. UN 2030 AGENDA SDG TARGET BREAKDOWN',
+      font: 'F2',
+      size: 10.5,
+      gapAfter: 14,
+      colorRgb: [0.078, 0.424, 0.325],
+    },
+  ];
+
+  for (const metric of params.sdgMetrics) {
+    lines.push({
+      text: `${metric.sdgLabel} (${metric.unTargetTag}) - ${metric.primaryValue}`,
+      font: 'F2',
+      size: 9.5,
+      gapAfter: 11.5,
+      colorRgb: [0.09, 0.1, 0.11],
+    });
+    for (const wrapped of wrapLine(`${metric.title}: ${metric.metricCaption}`, 86)) {
+      lines.push({
+        text: wrapped,
+        font: 'F1',
+        size: 8.8,
+        x: 62,
+        gapAfter: 11,
+        colorRgb: [0.3, 0.32, 0.36],
+      });
+    }
+  }
+
+  if (params.pulseStory && params.pulseStory.trim()) {
+    lines.push(
+      { text: ' ', font: 'F1', size: 8, gapAfter: 6 },
+      {
+        text: '3. LIVE IMPACT NARRATIVE',
+        font: 'F2',
+        size: 10.5,
+        gapAfter: 13,
+        colorRgb: [0.078, 0.424, 0.325],
+      },
+      ...wrapLine(params.pulseStory, 86).map((line) => ({
+        text: line,
+        font: 'F1' as const,
+        size: 9.2,
+        gapAfter: 12,
+        colorRgb: [0.16, 0.18, 0.21] as [number, number, number],
+      }))
+    );
+  }
+
+  lines.push(
+    {
+      text: '--------------------------------------------------------------------------',
+      font: 'F3',
+      size: 9,
+      gapAfter: 12,
+      colorRgb: [0.54, 0.52, 0.48],
+    },
+    ...wrapLine(
+      'Aligned with UN 2030 Agenda, UNESCO Qualifications Passport (UQP), and ILO PROSPECTS. Zero raw identity numbers or medical disclosures are included in this summary.',
+      88
+    ).map((line) => ({
+      text: line,
+      font: 'F1' as const,
+      size: 8.5,
+      gapAfter: 11,
+      colorRgb: [0.4, 0.42, 0.45] as [number, number, number],
+    }))
+  );
+
+  return buildSinglePagePdfFromLines(lines);
+}
+
+export function exportSdgImpactSummaryPdf(params: SdgImpactSummaryPdfInput): {
+  filename: string;
+  reportId: string;
+  byteLength: number;
+} {
+  const issuedIso = params.generatedAtIso || new Date().toISOString();
+  const reportId = formatSdgImpactReportId(params.practitionerName, issuedIso);
+  const filename = `vuka-na-amana-sdg-impact-summary-${issuedIso.slice(0, 10)}.pdf`;
+  const bytes = buildSdgImpactSummaryPdfBytes({
+    ...params,
+    generatedAtIso: issuedIso,
+  });
+  downloadPdfBlob(bytes, filename);
+  return { filename, reportId, byteLength: bytes.byteLength };
+}
+
 export function downloadPdfBlob(bytes: Uint8Array, filename: string): void {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);

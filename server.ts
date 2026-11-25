@@ -1983,12 +1983,17 @@ async function startServer() {
       const body = (req.body ?? {}) as {
         channel?: 'whatsapp' | 'phone' | 'email';
         identifier?: string;
+        countryDialCode?: string;
         displayName?: string;
         ageStage?: '15-17' | '18-29' | '30-45' | '46+';
       };
       const challenge = talentAuthRealm.requestChallenge({
         channel: body.channel || 'whatsapp',
         identifier: String(body.identifier || ''),
+        countryDialCode:
+          typeof body.countryDialCode === 'string'
+            ? body.countryDialCode.trim().slice(0, 10)
+            : undefined,
         displayName: body.displayName,
         ageStage: body.ageStage,
       });

@@ -10,6 +10,7 @@ import type {
   TalentAuthMethod,
   TalentSessionClaims,
 } from '../types/kora.ts';
+import { validateFullInternationalMobile } from './phoneValidation.ts';
 
 export const TALENT_SESSION_COOKIE = 'vna_talent_sid' as const;
 export const PARTNER_SESSION_COOKIE = 'vna_partner_sid' as const;
@@ -263,23 +264,27 @@ export class TalentAuthRealm {
   public requestChallenge(input: {
     channel: TalentAuthChannel;
     identifier: string;
+    countryDialCode?: string;
     displayName?: string;
     ageStage?: AgeStage;
   }): { challengeId: string; maskedTarget: string; previewCode: string; expiresInSeconds: number } {
     const channel: TalentAuthChannel =
       input.channel === 'whatsapp' || input.channel === 'phone' ? input.channel : 'email';
-    const rawIdentifier = String(input.identifier || '').trim();
+    let normalizedIdentifier = String(input.identifier || '').trim();
 
     if (channel === 'email') {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawIdentifier) || rawIdentifier.length > 120) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedIdentifier) || normalizedIdentifier.length > 120) {
         throw new Error('Please enter a valid email address for your 6-digit verification code.');
       }
     } else {
-      if (!/^\d{8,15}$/.test(rawIdentifier)) {
-        throw new Error(
-          'Please enter numerals only (8–15 digits including country code, e.g., 254712345678) — no +, spaces, letters, or symbols.'
-        );
+      const phoneCheck = validateFullInternationalMobile(
+        normalizedIdentifier,
+        input.countryDialCode
+      );
+      if (!phoneCheck.valid) {
+        throw new Error(phoneCheck.advisory);
       }
+      normalizedIdentifier = phoneCheck.fullNumber;
     }
 
     const challengeId = `tchal_${crypto.randomBytes(12).toString('hex')}`;
@@ -293,7 +298,7 @@ export class TalentAuthRealm {
       attempts: 0,
       meta: {
         channel,
-        identifier: rawIdentifier.toLowerCase(),
+        identifier: normalizedIdentifier.toLowerCase(),
         displayName: String(input.displayName || '').trim().slice(0, 80),
         ageStage: input.ageStage || '30-45',
       },
@@ -301,8 +306,8 @@ export class TalentAuthRealm {
 
     const maskedTarget =
       channel === 'email'
-        ? rawIdentifier.replace(/^(.{2}).+(@.+)$/, '$1•••$2')
-        : rawIdentifier.replace(/^(.{4}).+(.{3})$/, '$1 ••• $2');
+        ? normalizedIdentifier.replace(/^(.{2}).+(@.+)$/, '$1•••$2')
+        : normalizedIdentifier.replace(/^(.{4}).+(.{3})$/, '$1 ••• $2');
 
     return {
       challengeId,

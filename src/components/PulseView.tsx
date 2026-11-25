@@ -2,10 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowRight,
-  Award,
   CheckCircle2,
   Clock,
   Download,
+  FileText,
   Loader2,
   RefreshCw,
   ShieldCheck,
@@ -28,7 +28,6 @@ import type {
 import type { TranslationDictionary } from '../utils/i18n';
 import {
   SEED_BRIEFS,
-  SPRINT_MILESTONE_STEPS,
   buildLedgerCsv,
   computeAgeAndCohesionBreakdown,
   computeAnalyticsSummary,
@@ -37,13 +36,14 @@ import {
   computeSprintDueAlerts,
   computeSprintPerformanceSeries,
   filterAndRankBriefs,
-  normalizeSprintMilestones,
 } from '../utils/talentEngine';
 import { Badges } from './Badges';
 import { RippleConstellationMotif, WovenBridgeArcsMotif } from './ResilienceMotifs';
 import { SprintPerformanceWidget } from './SprintPerformanceWidget';
 import { SprintFeedbackPanel } from './SprintFeedbackPanel';
 import { GlobalImpactDashboard } from './GlobalImpactDashboard';
+import { RecentActivityFeed } from './RecentActivityFeed';
+import { exportSdgImpactSummaryPdf } from '../utils/pdfReceipt';
 import solarEngineerImg from '../assets/images/community_solar_engineer_1795539856588.jpg';
 import healthCoordImg from '../assets/images/community_health_coordinator_1795539856635.jpg';
 import craftMentorsImg from '../assets/images/community_craft_mentors_1795539857588.jpg';
@@ -171,7 +171,6 @@ export const PulseView: React.FC<PulseViewProps> = ({
   onOpenScaleDrawer,
 }) => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'in-progress'>('all');
-  const [activityFilter, setActivityFilter] = useState<'all' | 'milestones' | 'verifications' | 'financial'>('all');
   const [liveCompleted, setLiveCompleted] = useState<BriefSubmission | null>(null);
   const previousStatusRef = useRef<Map<string, ContributionStatus>>(
     new Map(contributions.map((c) => [c.id, c.status]))
@@ -353,132 +352,6 @@ export const PulseView: React.FC<PulseViewProps> = ({
     };
   }, [capabilities, contributions, passport, vault, payouts, sprintFeedback]);
 
-  const recentActivities = useMemo(() => {
-    const items: Array<{
-      id: string;
-      title: string;
-      description: string;
-      timestamp: string;
-      category: 'verify' | 'unlock' | 'solve' | 'cleared';
-      eventType: 'milestone' | 'verification' | 'sprint' | 'payout' | 'skill';
-    }> = [];
-
-    // 1. Verification Event: Living Competency Passport
-    if (passport) {
-      items.push({
-        id: 'act-passport',
-        title: 'Verification Event: Living Competency Passport Issued',
-        description: `Verifiable ID: ${passport.verifiableId ?? 'VNA-2026-8412'} (${passport.studioDomain}) · Tier ${passport.trustTier ?? 3} Trust Badge`,
-        timestamp: passport.generatedAtIso || new Date().toISOString(),
-        category: 'verify',
-        eventType: 'verification',
-      });
-    }
-
-    // 2. Verification Events: Skills & Credentials
-    for (const cap of capabilities ?? []) {
-      const isVerified = cap.verificationStatus === 'field-verified';
-      items.push({
-        id: `act-cap-${cap.id}`,
-        title: isVerified ? `Verification Event: ${cap.title} Verified` : `Skill Logged: ${cap.title}`,
-        description: isVerified
-          ? `Field-verified competency in ${cap.domain} · ${cap.proofSummary || 'Verified by Guild Lead'}`
-          : `Self-attested capability in ${cap.domain} (${cap.verificationStatus})`,
-        timestamp: cap.updatedAtIso || cap.createdAtIso || new Date().toISOString(),
-        category: 'verify',
-        eventType: isVerified ? 'verification' : 'skill',
-      });
-    }
-
-    // 3. Sprint Delivery Milestone Events & Sprint Status
-    for (const contrib of contributions ?? []) {
-      const isSprintCompleted = contrib.status === 'completed';
-      const doneKeys = normalizeSprintMilestones(
-        contrib.milestonesDone ?? sprintMilestonesByBrief?.[contrib.briefId],
-        isSprintCompleted
-      );
-
-      // Add each individual completed delivery milestone event
-      for (const mKey of doneKeys) {
-        const step = SPRINT_MILESTONE_STEPS.find((s) => s.key === mKey);
-        const stepLabel = step ? step.label : mKey;
-        items.push({
-          id: `act-milestone-${contrib.id}-${mKey}`,
-          title: `Milestone Completed: ${stepLabel}`,
-          description: `${contrib.briefTitle || 'Solution Sprint'} · Pod delivery milestone verified`,
-          timestamp: contrib.updatedAtIso || contrib.createdAtIso || new Date().toISOString(),
-          category: 'solve',
-          eventType: 'milestone',
-        });
-      }
-
-      // Add the overall sprint event
-      items.push({
-        id: `act-contrib-${contrib.id}`,
-        title: isSprintCompleted ? 'Sprint Completed & Delivered' : 'Solution Sprint In Progress',
-        description: `${contrib.briefTitle || 'Sprint'} — $${contrib.payoutUsd} USD · ${contrib.hoursLogged}h logged`,
-        timestamp: contrib.updatedAtIso || contrib.createdAtIso || new Date().toISOString(),
-        category: 'solve',
-        eventType: isSprintCompleted ? 'milestone' : 'sprint',
-      });
-    }
-
-    // 4. Verification Event: Compliance Readiness Vault
-    if (vault && (vault.identityCompleted || vault.contractCompleted || vault.payoutCompleted)) {
-      items.push({
-        id: 'act-vault',
-        title: 'Verification Event: Work-Ready Vault Cleared',
-        description: `Pre-cleared to contract & pay · Pathway: ${vault.identityPathway || 'Compliant Identity'} · Rail: ${vault.payoutRail || 'Selected'}`,
-        timestamp: vault.updatedAtIso || new Date().toISOString(),
-        category: 'unlock',
-        eventType: 'verification',
-      });
-    }
-
-    // 5. Escrow & Contract Payout Events
-    for (const payout of payouts ?? []) {
-      items.push({
-        id: `act-payout-${payout.id}`,
-        title: payout.status === 'released' ? 'Payout Released Successfully' : 'Escrow Held for Sprint',
-        description: `${payout.sprintTitle} ($${payout.amountUsd} USD)`,
-        timestamp: payout.updatedAtIso || payout.createdAtIso || new Date().toISOString(),
-        category: 'solve',
-        eventType: 'payout',
-      });
-    }
-
-    // 6. Verification Event: Peer Endorsement
-    for (const end of endorsements ?? []) {
-      if (end.status === 'verified') {
-        items.push({
-          id: `act-end-${end.id}`,
-          title: 'Verification Event: Peer Endorsement Confirmed',
-          description: `${end.collaboratorName} (${end.organization}) endorsed ${end.capabilityTitle}`,
-          timestamp: end.updatedAtIso || end.createdAtIso || new Date().toISOString(),
-          category: 'verify',
-          eventType: 'verification',
-        });
-      }
-    }
-
-    return items
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, 25);
-  }, [capabilities, contributions, passport, vault, endorsements, payouts, sprintMilestonesByBrief]);
-
-  const filteredActivities = useMemo(() => {
-    if (activityFilter === 'all') return recentActivities;
-    if (activityFilter === 'milestones')
-      return recentActivities.filter((a) => a.eventType === 'milestone');
-    if (activityFilter === 'verifications')
-      return recentActivities.filter((a) => a.eventType === 'verification');
-    if (activityFilter === 'financial')
-      return recentActivities.filter(
-        (a) => a.eventType === 'payout' || a.category === 'unlock'
-      );
-    return recentActivities;
-  }, [recentActivities, activityFilter]);
-
   // Pulse Story (Gemini one-sentence human-centric summary)
   const completedContributionsList = useMemo(
     () => contributions.filter((c) => c.status === 'completed'),
@@ -637,6 +510,40 @@ export const PulseView: React.FC<PulseViewProps> = ({
       .slice(0, 2);
   }, [contributions, profile.problemStatement, profile.ageStage, capabilities, passport]);
 
+  const [pdfExportedNotice, setPdfExportedNotice] = useState<string | null>(null);
+
+  const handleExportSdgPdf = () => {
+    const stipendsEarnedUsd = Math.max(
+      analytics.totalEarnedUsd,
+      impactTelemetry.userTotalDisbursedUsd
+    );
+    const result = exportSdgImpactSummaryPdf({
+      practitionerName: profile.displayName || 'Skilled Builder',
+      ageStage: profile.ageStage,
+      verifiablePassportId: passport?.verifiableId,
+      totalVerifiedBuilders: impactTelemetry.totalBuildersVerified5Stages,
+      stageBreakdown: impactTelemetry.stageBreakdown,
+      activeSprintsTotal: impactTelemetry.activeSprintsTotal,
+      userActiveSprints: impactTelemetry.userActiveSprints,
+      userCompletedSprints: impactTelemetry.userCompletedSprints,
+      stipendsEarnedUsd,
+      totalDisbursedStipendsUsd: impactTelemetry.totalDisbursedStipendsUsd,
+      escrowPipelineUsd: impactTelemetry.escrowPipelineUsd,
+      verifiedCapabilitiesCount,
+      verifiedHoursLogged: analytics.totalHoursApplied,
+      pulseStory: activePulseStory,
+      sdgMetrics: sdgMetrics.map((m) => ({
+        sdgLabel: m.sdgLabel,
+        unTargetTag: m.unTargetTag,
+        title: m.title,
+        primaryValue: m.primaryValue,
+        metricCaption: m.metricCaption,
+      })),
+    });
+    setPdfExportedNotice(result.reportId);
+    window.setTimeout(() => setPdfExportedNotice(null), 3200);
+  };
+
   const handleExportCsv = () => {
     const csv = buildLedgerCsv(contributions);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -718,17 +625,27 @@ export const PulseView: React.FC<PulseViewProps> = ({
             <button
               type="button"
               onClick={onGoToSolve}
-              className="min-h-[42px] px-4 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
             >
               <span>Join Next Sprint Pod</span>
               <ArrowRight className="w-3.5 h-3.5 rtl:rotate-180" />
             </button>
             <button
               type="button"
-              onClick={handleExportCsv}
-              className="min-h-[42px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              onClick={handleExportSdgPdf}
+              data-testid="export-sdg-pdf-btn"
+              aria-label="Export SDG Impact Summary as PDF Report"
+              className="min-h-[42px] px-4 py-2 rounded-xl border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-[#E7F3EE]/80 dark:bg-[#142B24]/80 hover:bg-[#D5EBE2] dark:hover:bg-[#1C3B31] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5" />
+              <FileText className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <span>{pdfExportedNotice ? 'SDG PDF Exported' : 'Export SDG PDF'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="min-h-[42px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:bg-[#F2EEE8] dark:hover:bg-[#22252A] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
               <span>{t.exportCsvCta}</span>
             </button>
           </div>
@@ -1047,154 +964,19 @@ export const PulseView: React.FC<PulseViewProps> = ({
         </div>
       </div>
 
-      {/* RECENT ACTIVITY WIDGET */}
-      <section
-        aria-labelledby="recent-activity-heading"
-        data-testid="recent-activity-widget"
-        className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 space-y-4 shadow-sm"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#E8E3DB] dark:border-[#2C3037]">
-          <div>
-            <span className="text-xs uppercase tracking-widest font-semibold text-[#146C53] dark:text-[#2EB88B]">
-              Audit Trail &amp; Milestones
-            </span>
-            <h3
-              id="recent-activity-heading"
-              className="font-serif text-xl sm:text-2xl font-semibold text-[#17191C] dark:text-[#F4F2EE] mt-0.5"
-            >
-              Recent Activity
-            </h3>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {[
-              { key: 'all', label: 'All', count: recentActivities.length },
-              {
-                key: 'milestones',
-                label: 'Milestones',
-                count: recentActivities.filter((a) => a.eventType === 'milestone').length,
-              },
-              {
-                key: 'verifications',
-                label: 'Verifications',
-                count: recentActivities.filter((a) => a.eventType === 'verification').length,
-              },
-              {
-                key: 'financial',
-                label: 'Financial & Vault',
-                count: recentActivities.filter(
-                  (a) => a.eventType === 'payout' || a.category === 'unlock'
-                ).length,
-              },
-            ].map((tab) => {
-              const active = activityFilter === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() =>
-                    setActivityFilter(
-                      tab.key as 'all' | 'milestones' | 'verifications' | 'financial'
-                    )
-                  }
-                  className={`min-h-[30px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1.5 ${
-                    active
-                      ? 'bg-[#146C53] dark:bg-[#2EB88B] text-white dark:text-[#121315] font-semibold'
-                      : 'bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  <span className="font-mono-tabular tabular-nums opacity-75 text-[10px]">
-                    {tab.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div
-          data-testid="recent-activity-scroll-list"
-          className="max-h-96 overflow-y-auto space-y-3 pr-1 no-scrollbar"
-        >
-          {filteredActivities.length === 0 ? (
-            <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] py-6 text-center">
-              No events match the selected filter. Complete verifications, compliance steps, or solution sprints in Tabs 1–3 to populate your live audit trail.
-            </p>
-          ) : (
-            filteredActivities.map((act) => {
-              const isMilestone = act.eventType === 'milestone';
-              const isVerification = act.eventType === 'verification';
-              const isPayout = act.eventType === 'payout';
-
-              return (
-                <div
-                  key={act.id}
-                  data-testid="recent-activity-item"
-                  data-activity-id={act.id}
-                  className="rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] p-4 flex items-start gap-3.5 transition-colors"
-                >
-                  <div
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                      isMilestone
-                        ? 'bg-[#F9ECE5] dark:bg-[#2D1E17] text-[#C4622D] dark:text-[#E07B46]'
-                        : isVerification
-                          ? 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
-                          : 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#5EEAD4]'
-                    }`}
-                  >
-                    {isMilestone ? (
-                      <Award className="w-4 h-4" />
-                    ) : isVerification ? (
-                      <ShieldCheck className="w-4 h-4" />
-                    ) : (
-                      <CheckCircle2 className="w-4 h-4" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <p className="text-xs sm:text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE] truncate">
-                          {act.title}
-                        </p>
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 uppercase tracking-wider ${
-                            isMilestone
-                              ? 'bg-[#F9ECE5] dark:bg-[#2D1E17] text-[#C4622D] dark:text-[#E07B46]'
-                              : isVerification
-                                ? 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
-                                : isPayout
-                                  ? 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
-                                  : 'bg-[#FAF8F5] dark:bg-[#1A1C20] text-[#575B62] dark:text-[#A3A7AE] border border-[#E8E3DB] dark:border-[#2C3037]'
-                          }`}
-                        >
-                          {isMilestone
-                            ? 'Milestone'
-                            : isVerification
-                              ? 'Verification'
-                              : isPayout
-                                ? 'Payout'
-                                : 'Ledger'}
-                        </span>
-                      </div>
-                      <span className="text-[11px] font-mono-tabular text-[#5A6068] dark:text-[#A3A9B3] shrink-0">
-                        {new Date(act.timestamp).toLocaleDateString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                    <p className="text-xs text-[#5A6068] dark:text-[#A3A9B3] mt-1 leading-relaxed">
-                      {act.description}
-                    </p>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </section>
+      {/* CHRONOLOGICAL RECENT ACTIVITY FEED */}
+      <RecentActivityFeed
+        capabilities={capabilities}
+        contributions={contributions}
+        passport={passport}
+        vault={vault}
+        endorsements={endorsements}
+        payouts={payouts}
+        sprintMilestonesByBrief={sprintMilestonesByBrief}
+        onGoToVerify={onGoToVerify}
+        onGoToUnlock={onGoToUnlock}
+        onGoToSolve={onGoToSolve}
+      />
 
       {/* MIDDLE SECTION: Interactive "Knowledge-to-Work Flow" Conversion Funnel + Age & Cohesion Breakdown Strip */}
       <section

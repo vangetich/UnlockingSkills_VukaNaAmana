@@ -83,8 +83,11 @@ import type {
 import {
   buildComplianceReceiptPdfBytes,
   buildPlainTextPdfBytes,
+  buildSdgImpactSummaryPdfBytes,
   formatPayoutReceiptId,
+  formatSdgImpactReportId,
 } from './pdfReceipt';
+import { buildRecentActivityTimeline } from '../components/RecentActivityFeed';
 
 const sampleCap: SkillCapability = {
   id: 'cap-1',
@@ -1530,6 +1533,131 @@ test('Tab 1 [Verify] Adaptive 3-Route Verification Router, 4-Tier Trust Indicato
   assert.equal(sdgAfterStipend.numericValue - sdgBeforeStipend.numericValue, 1);
   assert.ok(sdgAfterStipend.microStory.includes('Stipend Pre-Approved'));
 });
+
+test('SDG Impact Summary PDF exporter emits valid %PDF-1.4 bytes with verified builders and stipends earned', () => {
+  const reportId = formatSdgImpactReportId('Amira Hassan', '2026-11-25T10:00:00Z');
+  assert.equal(reportId, 'VNA-SDG-20261125-AMIRAH');
+
+  const pdfBytes = buildSdgImpactSummaryPdfBytes({
+    practitionerName: 'Amira Hassan',
+    ageStage: '30-45',
+    verifiablePassportId: 'VNA-2026-8412',
+    generatedAtIso: '2026-11-25T10:00:00Z',
+    totalVerifiedBuilders: 468,
+    stageBreakdown: [
+      { stage: '1. Verify', count: 150, sdg: 'SDG 4' },
+      { stage: '2. Unlock', count: 113, sdg: 'SDG 16' },
+      { stage: '3. Solve', count: 90, sdg: 'SDG 8' },
+      { stage: '4. Pulse', count: 74, sdg: 'SDG 17' },
+      { stage: '5. Cleared', count: 41, sdg: 'SDG 10' },
+    ],
+    activeSprintsTotal: 6,
+    userActiveSprints: 1,
+    userCompletedSprints: 2,
+    stipendsEarnedUsd: 820,
+    totalDisbursedStipendsUsd: 15320,
+    escrowPipelineUsd: 5150,
+    verifiedCapabilitiesCount: 4,
+    verifiedHoursLogged: 28,
+    pulseStory: 'Amira verified four solar engineering competencies and delivered two clinic microgrid sprints.',
+    sdgMetrics: [
+      {
+        sdgLabel: 'SDG 4',
+        unTargetTag: 'Targets 4.4 & 4.5 - Quality Upskilling',
+        title: 'Verified Skills & Learning',
+        primaryValue: '150',
+        metricCaption: 'Field-verified skills',
+      },
+      {
+        sdgLabel: 'SDG 8',
+        unTargetTag: 'Targets 8.5, 8.8 & 8.10 - Decent Work',
+        title: 'Paid Solution Sprints',
+        primaryValue: '$820',
+        metricCaption: 'Released stipends earned',
+      },
+    ],
+  });
+
+  const pdfText = new TextDecoder().decode(pdfBytes);
+  assert.ok(pdfText.startsWith('%PDF-1.4\n'));
+  assert.ok(pdfText.includes('%%EOF'));
+  assert.ok(pdfText.includes('SDG IMPACT SUMMARY REPORT'));
+  assert.ok(pdfText.includes('VNA-SDG-20261125-AMIRAH'));
+  assert.ok(pdfText.includes('Total Verified Builders \\(5 Crossing Stages\\): 468'));
+  assert.ok(pdfText.includes('Stipends Earned \\(Builder\\): $820 USD'));
+  assert.ok(pdfText.includes('Total Disbursed Stipends \\(Platform\\): $15,320 USD'));
+  assert.ok(pdfText.includes('SDG 4'));
+  assert.ok(pdfText.includes('SDG 8'));
+});
+
+test('RecentActivityFeed timeline chronologically orders sprint completions, capability updates, and endorsement receipts', () => {
+  const timeline = buildRecentActivityTimeline({
+    capabilities: [
+      {
+        ...sampleCap,
+        id: 'cap-recent',
+        title: '48V Microgrid Inverter Repair',
+        verificationStatus: 'field-verified',
+        updatedAtIso: '2026-11-24T12:00:00Z',
+      },
+    ],
+    contributions: [
+      {
+        id: 'sub-done',
+        ownerUid: 'u1',
+        briefId: 'brief-solar-01',
+        briefTitle: 'Rural Clinic Cold-Chain Audit',
+        domain: 'Green Energy',
+        status: 'completed',
+        solutionNotes: 'Completed clinic cold-chain load calibration and handover brief.',
+        hoursLogged: 14,
+        payoutUsd: 420,
+        createdAtIso: '2026-11-20T09:00:00Z',
+        updatedAtIso: '2026-11-25T08:00:00Z',
+        milestonesDone: ['analysis-complete', 'final-submission'],
+      },
+    ],
+    passport: null,
+    vault: {
+      ...createInitialVault('u1'),
+      identityCompleted: false,
+      contractCompleted: false,
+      payoutCompleted: false,
+      updatedAtIso: '2026-11-20T08:00:00Z',
+    },
+    endorsements: [
+      {
+        id: 'end-1',
+        ownerUid: 'u1',
+        capabilityTitle: '48V Microgrid Inverter Repair',
+        collaboratorName: 'Dr. Samuel Ochieng',
+        collaboratorRole: 'Senior Energy Assessor',
+        organization: 'Rift Valley Energy Guild',
+        endorsementText: 'Calibrated three inverter banks under load.',
+        status: 'verified',
+        shareToken: 'vna-end-1',
+        sourceTab: 'verify',
+        createdAtIso: '2026-11-24T18:00:00Z',
+        updatedAtIso: '2026-11-24T18:00:00Z',
+      },
+    ],
+    payouts: [],
+  });
+
+  const kinds = new Set(timeline.map((item) => item.kind));
+  assert.ok(kinds.has('sprint'));
+  assert.ok(kinds.has('capability'));
+  assert.ok(kinds.has('endorsement'));
+
+  // Most recent event (Nov 25 08:00) must appear first, followed by Nov 24 18:00 endorsement, then Nov 24 12:00 capability
+  assert.equal(timeline[0].kind, 'sprint');
+  assert.ok(timeline[0].title.includes('Sprint Completed'));
+  const endorsementIdx = timeline.findIndex((i) => i.kind === 'endorsement');
+  const capabilityIdx = timeline.findIndex((i) => i.kind === 'capability');
+  assert.ok(endorsementIdx > 0 && capabilityIdx > endorsementIdx);
+});
+
+
 
 
 
