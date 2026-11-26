@@ -369,6 +369,121 @@ export type OfflineMutation =
       kind: 'delete_collaboration_note';
       noteId: string;
       queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_sprint_discussion';
+      payload: SprintDiscussionPost;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'delete_sprint_discussion';
+      sprintId: string;
+      postId: string;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_mentorship_session';
+      payload: MentorshipSession;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'delete_mentorship_session';
+      sessionId: string;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_mentor_pairing';
+      payload: MentorPairingRequest;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'delete_mentor_pairing';
+      pairingId: string;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_mentor_rating';
+      payload: MentorRating;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'delete_mentor_rating';
+      ratingId: string;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_track_progress';
+      payload: MentorshipTrackProgressRecord;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_mentorship_journal';
+      payload: MentorshipJournalEntry;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'delete_mentorship_journal';
+      entryId: string;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_mentee_badge';
+      payload: MenteeCompetencyBadge;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'delete_mentee_badge';
+      badgeId: string;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_milestone_feedback';
+      payload: MentorMilestoneFeedback;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'delete_milestone_feedback';
+      feedbackId: string;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_session_agenda';
+      payload: MentorshipSessionAgendaRecord;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'delete_session_agenda';
+      agendaId: string;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_mentor_peer_review';
+      payload: MentorPeerReviewRecord;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'delete_mentor_peer_review';
+      reviewId: string;
+      queuedAtIso: string;
     };
 
 export interface MilestoneBadge {
@@ -554,6 +669,22 @@ export interface SprintCollaborationNote {
   updatedAtIso: string;
 }
 
+export interface SprintDiscussionPost {
+  id: string;
+  sprintId: string;
+  parentId?: string | null;
+  authorUid: string;
+  authorName: string;
+  authorRole: string;
+  deliverableTag: string;
+  body: string;
+  resourceUrl?: string;
+  resourceLabel?: string;
+  isSeeded?: boolean;
+  createdAtIso: string;
+  updatedAtIso: string;
+}
+
 export type MentorAvailabilityStatus = 'available' | 'in-review' | 'away';
 
 export interface PodMentorProfile {
@@ -580,6 +711,193 @@ export interface MentorMessage {
   mentorName: string;
   sender: 'practitioner' | 'mentor';
   body: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+}
+
+export type MentorshipSessionFocus =
+  | 'qa-architecture'
+  | 'technical-unblocker'
+  | 'handover-rubric'
+  | 'career-rpl';
+
+export interface MentorshipSession {
+  id: string;
+  ownerUid: string;
+  sprintId: string;
+  sprintTitle: string;
+  mentorId: string;
+  mentorName: string;
+  focusTopic: MentorshipSessionFocus;
+  durationMinutes: 15 | 30 | 45 | 60;
+  status: 'attended' | 'scheduled';
+  takeawayNote: string;
+  attendedAtIso: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+}
+
+export type MentorPairingCadence = 'weekly-check-in' | 'milestone-gates' | 'async-review';
+
+export type MentorPairingStatus = 'requested' | 'matched' | 'active';
+
+export interface MentorshipTrackSpec {
+  id: string;
+  domain: StudioDomain;
+  title: string;
+  subtitle: string;
+  mentorId: string;
+  recommendedCadence: MentorPairingCadence;
+  cadenceLabel: string;
+  keyMilestones: string[];
+  expectedOutcomes: string[];
+}
+
+export interface MentorPairingRequest {
+  id: string;
+  ownerUid: string;
+  trackId: string;
+  trackTitle: string;
+  domain: StudioDomain;
+  mentorId: string;
+  mentorName: string;
+  sprintId?: string;
+  sprintTitle?: string;
+  preferredCadence: MentorPairingCadence;
+  sprintGoals: string;
+  status: MentorPairingStatus;
+  createdAtIso: string;
+  updatedAtIso: string;
+}
+
+export type MentorRatingScore = 1 | 2 | 3 | 4 | 5;
+
+export interface MentorRating {
+  id: string;
+  ownerUid: string;
+  trackId: string;
+  trackTitle: string;
+  domain: StudioDomain;
+  mentorId: string;
+  mentorName: string;
+  rating: MentorRatingScore;
+  comment: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+}
+
+export interface MentorshipTrackProgressRecord {
+  id: string;
+  ownerUid: string;
+  trackId: string;
+  completedObjectiveIds: string[];
+  createdAtIso: string;
+  updatedAtIso: string;
+}
+
+export interface MentorshipJournalEntry {
+  id: string;
+  ownerUid: string;
+  contributionId: string;
+  briefId: string;
+  briefTitle: string;
+  mentorId: string;
+  mentorName: string;
+  sessionDateIso: string;
+  focusTopic: MentorshipSessionFocus;
+  reflectionTitle: string;
+  reflectionBody: string;
+  nextActionStep: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+}
+
+export type MenteeReadinessRecommendation =
+  | 'lead-ready'
+  | 'independent-cleared'
+  | 'guided-contributor'
+  | 'foundational-coaching';
+
+export interface MenteeRubricEvaluation {
+  id: string;
+  sprintId: string;
+  sprintTitle: string;
+  mentorId: string;
+  mentorName: string;
+  menteeName: string;
+  problemFramingScore: MentorRatingScore;
+  technicalExecutionScore: MentorRatingScore;
+  podCollaborationScore: MentorRatingScore;
+  handoverRigorScore: MentorRatingScore;
+  compositeScore: number;
+  recommendation: MenteeReadinessRecommendation;
+  endorsementNote: string;
+  evaluatedAtIso: string;
+}
+
+export type MenteeBadgeCompetencyLevel =
+  | 'field-ready'
+  | 'specialist-verified'
+  | 'pod-lead-endorsed';
+
+export interface MenteeCompetencyBadge {
+  id: string;
+  ownerUid: string;
+  sprintId: string;
+  sprintTitle: string;
+  domain: StudioDomain;
+  mentorId: string;
+  mentorName: string;
+  mentorRole: string;
+  badgeTitle: string;
+  skillCategory: string;
+  competencyLevel: MenteeBadgeCompetencyLevel;
+  performanceRating?: MentorRatingScore;
+  evaluatedCompetencies?: string[];
+  citationNote: string;
+  verificationCode: string;
+  awardedAtIso: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+}
+
+export type MilestoneFeedbackReadiness =
+  | 'approved'
+  | 'needs-revision'
+  | 'exemplary';
+
+export interface MentorMilestoneFeedback {
+  id: string;
+  ownerUid: string;
+  sprintId: string;
+  sprintTitle: string;
+  milestoneKey: SprintMilestoneKey;
+  mentorId: string;
+  mentorName: string;
+  rating: MentorRatingScore;
+  readinessStatus: MilestoneFeedbackReadiness;
+  strengthsNote: string;
+  constructiveFeedback: string;
+  nextMilestoneAction: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+}
+
+export interface MentorshipSessionAgendaRecord {
+  id: string;
+  ownerUid: string;
+  sprintId: string;
+  sprintTitle: string;
+  mentorId: string;
+  mentorName: string;
+  sessionId?: string;
+  sessionDateIso: string;
+  focusTopic: MentorshipSessionFocus;
+  agendaTitle: string;
+  desiredOutcome: string;
+  agendaItems: string[];
+  completedItemIndices: number[];
+  sharedWithMentor: boolean;
   createdAtIso: string;
   updatedAtIso: string;
 }
@@ -879,10 +1197,31 @@ export interface AccessAuditLogEntry {
     | 'CONSENT_GRANTED'
     | 'CONSENT_REVOKED'
     | 'PARTNER_DOSSIER_VIEWED'
+    | 'PARTNER_SPRINT_PUBLISHED'
     | 'COMPLIANT_CONTRACT_ISSUED'
+    | 'PARTNER_STEP_VERIFIED'
+    | 'PARTNER_FEEDBACK_SENT'
     | 'PORTAL_BOUNDARY_GUARD_TRIGGERED';
   targetOrgId?: string;
   details: string;
+}
+
+export interface MentorPeerReviewRecord {
+  id: string;
+  ownerUid: string;
+  sprintId: string;
+  sprintTitle: string;
+  mentorId: string;
+  mentorName: string;
+  mentorRole: string;
+  reviewedDate: string; // YYYY-MM-DD
+  cohesionScore: SprintRatingScore;
+  framingScore: SprintRatingScore;
+  communicationScore: SprintRatingScore;
+  feedbackText: string;
+  recommendedAction: string;
+  createdAtIso: string;
+  updatedAtIso: string;
 }
 
 

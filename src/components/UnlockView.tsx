@@ -1,14 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AlertCircle,
   ArrowRight,
-  Building2,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
+  Compass,
+  Eye,
   FileCheck2,
   FileText,
   HelpCircle,
+  Lock,
+  MessageSquare,
   ShieldCheck,
   UserCheck,
   Wallet,
@@ -18,6 +22,7 @@ import type {
   BriefComplexity,
   BriefSubmission,
   CompetencyPassport,
+  ConsentGrant,
   ContractPayout,
   ContractTemplateOption,
   PayoutRailOption,
@@ -27,7 +32,15 @@ import type {
   SkillCapability,
   UnlockViewMode,
   WorkReadyVault,
+  WorkspaceTab,
 } from '../types/kora';
+import {
+  PARTNER_PRE_CONTRACTING_STEPS,
+  computePartnerPreContractingProgress,
+  getFeedbackStageMeta,
+  type PartnerApplicantFeedbackItem,
+  type PartnerPreContractingRecord,
+} from '../utils/partnerVerification';
 import type { TranslationDictionary } from '../utils/i18n';
 import {
   AUTH_PATHWAY_OPTIONS,
@@ -65,7 +78,7 @@ interface UnlockViewProps {
   t: TranslationDictionary;
   onChangeVaultViewMode: (mode: UnlockViewMode) => void;
   onUpdateVault: (next: WorkReadyVault) => void;
-  onAdvancePayout: (payoutId: string) => void;
+  onAdvancePayout?: (payoutId: string) => void;
   onRequestEndorsement: (input: {
     collaboratorName: string;
     collaboratorRole: string;
@@ -74,10 +87,14 @@ interface UnlockViewProps {
     endorsementText?: string;
     sourceTab: 'verify' | 'unlock';
   }) => PeerEndorsement;
-  onCompleteEndorsement: (endorsementId: string, endorsementText: string) => void;
+  onCompleteEndorsement?: (endorsementId: string, endorsementText: string) => void;
   onDeleteEndorsement: (endorsementId: string) => void;
   onAcceptBrief: (brief: ProblemBrief) => void;
   onOpenSolve: (briefId: string) => void;
+  activeGrants?: ConsentGrant[];
+  partnerVerifications?: Record<string, PartnerPreContractingRecord>;
+  partnerFeedback?: PartnerApplicantFeedbackItem[];
+  onNavigateStage?: (tab: WorkspaceTab) => void;
 }
 
 type ChecklistStepId = 'identity' | 'contract' | 'payout';
@@ -95,12 +112,14 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
   t,
   onChangeVaultViewMode,
   onUpdateVault,
-  onAdvancePayout,
   onRequestEndorsement,
-  onCompleteEndorsement,
   onDeleteEndorsement,
   onAcceptBrief,
   onOpenSolve,
+  activeGrants = [],
+  partnerVerifications = {},
+  partnerFeedback = [],
+  onNavigateStage,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [domainFilter, setDomainFilter] = useState('ALL');
@@ -231,6 +250,97 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
 
   return (
     <section aria-labelledby="unlock-heading" className="space-y-10">
+      {/* Persistent, Non-Dismissible Sequential-Stage Disclaimer inside 2. Unlock */}
+      <aside
+        role="note"
+        aria-label="Sequential stage guidance for accurate document processing"
+        data-testid="unlock-sequential-stage-disclaimer"
+        className="rounded-2xl border border-[#C4622D]/35 dark:border-[#E07B46]/40 bg-[#F9ECE5]/75 dark:bg-[#231914]/90 p-5 sm:p-6 space-y-3"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-white dark:bg-[#1A1C20] border border-[#C4622D]/30 dark:border-[#E07B46]/35 text-[#C4622D] dark:text-[#E07B46] flex items-center justify-center shrink-0 mt-0.5">
+              <Compass className="w-4 h-4" aria-hidden="true" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#A95021] dark:text-[#F59E6C]">
+                Important Guidance · Follow All Platform Stages in Sequence
+              </p>
+              <h2 className="text-sm sm:text-base font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                Complete Stages 1 → 5 in order to avoid rushing, confusion, or incomplete document assembly
+              </h2>
+              <p className="text-xs sm:text-sm text-[#43484E] dark:text-[#C8CDD4] leading-relaxed">
+                Take your time completing{' '}
+                <strong className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                  1. Verify
+                </strong>{' '}
+                (Competency Passport &amp; proof) before finalizing{' '}
+                <strong className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                  2. Unlock
+                </strong>{' '}
+                (work-auth, contracting, and payout readiness), then apply in{' '}
+                <strong className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                  3. Solve
+                </strong>
+                . Following each stage in order ensures every hiring partner receives a complete, accurate document package and prevents avoidable verification delays.
+              </p>
+            </div>
+          </div>
+
+          {onNavigateStage && verifiedSkillsCount === 0 && !passport && (
+            <button
+              type="button"
+              onClick={() => onNavigateStage('verify')}
+              className="min-h-[38px] px-3.5 py-2 rounded-xl bg-white dark:bg-[#1A1C20] border border-[#C4622D]/40 dark:border-[#E07B46]/45 text-xs font-semibold text-[#A95021] dark:text-[#F59E6C] hover:bg-[#FAF8F5] dark:hover:bg-[#23262B] inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 self-start cursor-pointer transition-colors"
+            >
+              <span>Complete Stage 1 · Verify First</span>
+              <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+
+        <ol
+          aria-label="Recommended sequential platform stages"
+          className="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-medium"
+        >
+          {(
+            [
+              {
+                id: 'verify',
+                label: '1. Verify Skills',
+                done: Boolean(passport) || verifiedSkillsCount > 0,
+              },
+              { id: 'unlock', label: '2. Unlock Readiness (Current)', current: true },
+              {
+                id: 'solve',
+                label: '3. Solve Sprints',
+                done: contributions.length > 0,
+              },
+              { id: 'pulse', label: '4. Impact Pulse' },
+              { id: 'cleared', label: '5. Cleared Mobility' },
+            ] as Array<{
+              id: WorkspaceTab;
+              label: string;
+              done?: boolean;
+              current?: boolean;
+            }>
+          ).map((stage) => (
+            <li
+              key={stage.id}
+              className={`px-2.5 py-1 rounded-lg border ${
+                stage.current
+                  ? 'bg-[#146C53] dark:bg-[#2EB88B] border-[#146C53] dark:border-[#2EB88B] text-white dark:text-[#121315] font-semibold'
+                  : stage.done
+                    ? 'bg-[#E7F3EE] dark:bg-[#142B24] border-[#146C53]/30 dark:border-[#2EB88B]/35 text-[#146C53] dark:text-[#2EB88B]'
+                    : 'bg-white/80 dark:bg-[#1A1C20]/80 border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE]'
+              }`}
+            >
+              {stage.label}
+            </li>
+          ))}
+        </ol>
+      </aside>
+
       {/* Work-Ready Vault: Dual-View 1+1=3 Mechanic */}
       <div className="relative overflow-hidden rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8">
         <WovenBridgeArcsMotif />
@@ -288,6 +398,7 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                 <button
                   type="button"
                   role="tab"
+                  data-testid="vault-toggle-partner-preview"
                   aria-selected={vaultViewMode === 'partner'}
                   onClick={() => onChangeVaultViewMode('partner')}
                   className={`min-h-[40px] px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
@@ -296,8 +407,8 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                       : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
                   }`}
                 >
-                  <Building2 className="w-3.5 h-3.5" />
-                  <span>Hiring Partner View</span>
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Partner Preview</span>
                 </button>
               </div>
             </div>
@@ -310,7 +421,7 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-semibold font-mono-tabular tabular-nums text-[#146C53] dark:text-[#2EB88B]">
-                    {readiness.completedCount}/{readiness.totalCount} Verified Ready
+                    {readiness.completedCount}/{readiness.totalCount} Self-Declared Ready
                   </span>
                   <div
                     className="w-32 sm:w-44 h-2 rounded-full bg-[#F2EEE8] dark:bg-[#22252A] overflow-hidden"
@@ -333,12 +444,12 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                     onClick={() => onChangeVaultViewMode('partner')}
                     className="text-xs font-semibold text-[#C4622D] dark:text-[#E07B46] inline-flex items-center gap-1 hover:underline self-start sm:self-auto whitespace-nowrap"
                   >
-                    <span>Preview Hiring Partner Compliance Card</span>
+                    <span>Open Read-Only Partner Preview</span>
                     <ArrowRight className="w-3.5 h-3.5 rtl:rotate-180" />
                   </button>
                 ) : (
                   <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
-                    Complete all 3 steps to unlock instant partner contracting.
+                    Complete all 3 self-readiness steps to prepare your dossier for partner sign-off.
                   </p>
                 )}
               </div>
@@ -404,7 +515,7 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#E7F3EE] dark:bg-[#142B24] border border-[#146C53]/30 dark:border-[#2EB88B]/35 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] whitespace-nowrap"
                             >
                               <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Verified Ready</span>
+                              <span>Self-Declared Ready</span>
                             </span>
                           ) : (
                             <button
@@ -537,7 +648,7 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                             >
                               <CheckCircle2 className="w-3.5 h-3.5" />
                               <span>
-                                {item.completed ? 'Mark Needs Review' : 'Confirm Verified Ready'}
+                                {item.completed ? 'Mark Needs Review' : 'Mark Self-Declared Ready'}
                               </span>
                             </button>
                           </div>
@@ -549,20 +660,37 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
               </div>
             </div>
           ) : (
-            /* VIEW B: HIRING PARTNER VIEW — Compliance Card + Payout Status + Peer Endorsement Link Request */
-            <div role="tabpanel" aria-label="Hiring Partner Zero-Friction Compliance Card" className="space-y-6">
+            /* VIEW B: READ-ONLY PARTNER PREVIEW — Pre-Posting Dossier Preview (Strictly Talent-Scoped) */
+            <div role="tabpanel" aria-label="Read-Only Hiring Partner Preview" className="space-y-6">
+              {/* Role-Isolation & Read-Only Preview Notice */}
+              <div
+                data-testid="partner-preview-safeguard-banner"
+                role="note"
+                className="rounded-xl bg-[#E7F3EE]/70 dark:bg-[#142B24]/80 border border-[#146C53]/30 dark:border-[#2EB88B]/35 px-4 py-3 flex items-start gap-3"
+              >
+                <Lock className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B] shrink-0 mt-0.5" aria-hidden="true" />
+                <div className="space-y-0.5 text-xs leading-relaxed">
+                  <p className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                    Read-Only Partner Preview · Pre-Posting View of Your Own Dossier
+                  </p>
+                  <p className="text-[#575B62] dark:text-[#A3A7AE]">
+                    This preview shows how your readiness packet appears to a hiring partner before contracting. Escrow releases and collaborator endorsements require verified partner or external collaborator sign-off and cannot be self-approved here.
+                  </p>
+                </div>
+              </div>
+
               <article className="rounded-2xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-5 sm:p-7 space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-5 border-b border-[#E8E3DB] dark:border-[#2C3037]">
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#146C53] dark:text-[#2EB88B]">
-                      Zero-Friction Compliance Card
+                      Pre-Posting Compliance Card Preview
                     </p>
                     <h2 className="mt-1 font-display text-xl sm:text-2xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
                       {profile.displayName || 'Skilled Practitioner'}
                     </h2>
                     <p className="mt-1 text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE]">
                       Track {profile.ageStage} · {verifiedSkillsCount} confirmed capability record(s)
-                      {passport ? ` · Living Competency Passport Verified` : ''}
+                      {passport ? ` · Living Competency Passport Drafted` : ''}
                     </p>
                   </div>
 
@@ -581,13 +709,13 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                     )}
                     <span>
                       {readiness.isFullyReady
-                        ? 'Pre-Cleared · Ready to Contract'
-                        : `${readiness.completedCount}/3 Readiness Steps Complete`}
+                        ? 'Self-Declared Ready · Pending Partner Sign-Off'
+                        : `${readiness.completedCount}/3 Self-Readiness Steps Complete`}
                     </span>
                   </span>
                 </div>
 
-                {/* 3 Verified Compliance Pillars */}
+                {/* 3 Self-Declared Compliance Pillars */}
                 <dl className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="rounded-xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-4 space-y-1.5">
                     <dt className="flex items-center justify-between gap-2 text-xs text-[#575B62] dark:text-[#A3A7AE]">
@@ -604,7 +732,7 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                         ) : (
                           <Clock className="w-3.5 h-3.5 shrink-0" />
                         )}
-                        <span>{vault.identityCompleted ? 'Verified' : 'Pending'}</span>
+                        <span>{vault.identityCompleted ? 'Self-Declared' : 'Pending'}</span>
                       </span>
                     </dt>
                     <dd className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
@@ -627,7 +755,7 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                         ) : (
                           <Clock className="w-3.5 h-3.5 shrink-0" />
                         )}
-                        <span>{vault.contractCompleted ? 'Verified' : 'Pending'}</span>
+                        <span>{vault.contractCompleted ? 'Self-Declared' : 'Pending'}</span>
                       </span>
                     </dt>
                     <dd className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
@@ -650,7 +778,7 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                         ) : (
                           <Clock className="w-3.5 h-3.5 shrink-0" />
                         )}
-                        <span>{vault.payoutCompleted ? 'Verified' : 'Pending'}</span>
+                        <span>{vault.payoutCompleted ? 'Self-Declared' : 'Pending'}</span>
                       </span>
                     </dt>
                     <dd className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
@@ -659,10 +787,10 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                   </div>
                 </dl>
 
-                {/* Single Primary Action + Calm Secondary Action */}
+                {/* Single Primary Preview Action + Calm Secondary Action */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
                   <p className="text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE] max-w-xl leading-relaxed">
-                    Contract directly on milestone deliverables with plain-language IP protection and fast compliant settlement—no HR bottlenecks.
+                    Inspect the draft milestone agreement and IP terms you and a hiring partner will review before funds are committed to escrow.
                   </p>
 
                   <div className="flex flex-wrap items-center gap-3 shrink-0">
@@ -682,16 +810,16 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                       className="min-h-[46px] px-5 py-2.5 rounded-xl bg-[#C4622D] hover:bg-[#A95021] dark:bg-[#E07B46] dark:hover:bg-[#CE6A36] text-white dark:text-[#121315] text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap"
                     >
                       <FileCheck2 className="w-4 h-4" />
-                      <span>Generate Compliant Sprint Agreement</span>
+                      <span>Preview Draft Sprint Agreement</span>
                     </button>
                   </div>
                 </div>
               </article>
 
-              {/* Contract Payment Lifecycle Tracker: Escrow Held -> Processing -> Released */}
+              {/* Contract Payment Lifecycle Tracker (Read-Only in Talent Studio) */}
               <PayoutStatusCard
                 payouts={payouts}
-                onAdvancePayout={onAdvancePayout}
+                readOnlyPreview
               />
 
               {/* Payout Transaction Ledger with Compliant PDF Receipt Downloads */}
@@ -701,22 +829,232 @@ export const UnlockView: React.FC<UnlockViewProps> = ({
                 vault={vault}
               />
 
-              {/* Hiring Partner Zero-Document Peer Endorsement Link Request */}
+              {/* Collaborator Verification Link Generator (External Sign-Off Required) */}
               <PeerEndorsementPanel
                 variant="partner"
+                readOnlyPreview
                 endorsements={endorsements}
                 capabilities={capabilities}
                 passport={passport}
                 speechLang={speechLang}
                 t={t}
                 onRequestEndorsement={onRequestEndorsement}
-                onCompleteEndorsement={onCompleteEndorsement}
                 onDeleteEndorsement={onDeleteEndorsement}
               />
             </div>
           )}
         </div>
       </div>
+
+      {/* Live Hiring Partner Pre-Contracting Verification Status & Stage-Targeted Feedback */}
+      <section
+        aria-labelledby="unlock-partner-feedback-heading"
+        data-testid="unlock-partner-feedback-panel"
+        className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 space-y-5"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 pb-4 border-b border-[#E8E3DB] dark:border-[#2C3037]">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#146C53] dark:text-[#2EB88B]">
+              Cross-Portal Document Review · Real-Time Partner Feedback
+            </p>
+            <h2
+              id="unlock-partner-feedback-heading"
+              className="mt-1 font-display text-xl sm:text-2xl font-medium tracking-tight text-[#17191C] dark:text-[#F4F2EE]"
+            >
+              Hiring Partner Pre-Contracting Verification &amp; Stage Feedback
+            </h2>
+            <p className="mt-1 text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE] max-w-2xl leading-relaxed">
+              When you share a revocable Consent Grant in Stage 3, hiring partners verify each of the 3 pre-contracting steps individually and send stage-specific updates or clarification notes right here before finalizing contracting.
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#E7F3EE] dark:bg-[#142B24] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] self-start shrink-0">
+            <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>
+              {partnerFeedback.length} Feedback Note{partnerFeedback.length === 1 ? '' : 's'}
+            </span>
+          </span>
+        </div>
+
+        {activeGrants.length === 0 && partnerFeedback.length === 0 ? (
+          <div className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                No active hiring partner document reviews yet
+              </p>
+              <p className="text-xs text-[#575B62] dark:text-[#A3A7AE] leading-relaxed max-w-xl">
+                Complete your readiness steps above, then apply with a Consent Grant in Stage 3 (Solve). Your hiring partner’s step-by-step verification badges and stage feedback will appear here automatically.
+              </p>
+            </div>
+            {onNavigateStage && (
+              <button
+                type="button"
+                onClick={() => onNavigateStage('solve')}
+                className="min-h-[40px] px-4 py-2 rounded-xl border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-white dark:bg-[#1A1C20] hover:bg-[#E7F3EE]/60 dark:hover:bg-[#142B24]/60 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+              >
+                <span>Explore Stage 3 · Solve</span>
+                <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {activeGrants.map((grant) => {
+              const verification = partnerVerifications[grant.consentId];
+              const progress = computePartnerPreContractingProgress(verification);
+              return (
+                <div
+                  key={grant.consentId}
+                  data-testid={`unlock-grant-verification-${grant.consentId}`}
+                  className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-4 sm:p-5 space-y-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                        {grant.grantedToOrgName}{' '}
+                        <span className="font-mono-tabular text-[11px] font-normal text-[#575B62] dark:text-[#A3A7AE]">
+                          ({grant.consentId})
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                        Individual Partner Pre-Contracting Checks (prior to Stage 3 Contracting)
+                      </p>
+                    </div>
+                    <span
+                      data-testid={`unlock-grant-progress-${grant.consentId}`}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
+                        progress.isReadyForStage3
+                          ? 'bg-[#E7F3EE] dark:bg-[#142B24] border-[#146C53]/35 dark:border-[#2EB88B]/40 text-[#146C53] dark:text-[#2EB88B]'
+                          : 'bg-white dark:bg-[#1A1C20] border-[#E8E3DB] dark:border-[#2C3037] text-[#43484E] dark:text-[#C8CDD4]'
+                      }`}
+                    >
+                      {progress.isReadyForStage3 ? (
+                        <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                      ) : (
+                        <Clock className="w-3.5 h-3.5" aria-hidden="true" />
+                      )}
+                      <span>
+                        {progress.verifiedCount}/{progress.totalCount} Steps Verified by Partner
+                      </span>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {PARTNER_PRE_CONTRACTING_STEPS.map((step) => {
+                      const stepState = verification?.steps?.[step.id]?.status ?? 'pending';
+                      return (
+                        <div
+                          key={step.id}
+                          data-testid={`unlock-partner-step-${step.id}-${grant.consentId}`}
+                          data-step-status={stepState}
+                          className={`rounded-xl border p-3.5 space-y-1 ${
+                            stepState === 'verified'
+                              ? 'bg-white dark:bg-[#1A1C20] border-[#146C53]/40 dark:border-[#2EB88B]/45'
+                              : stepState === 'needs_clarification'
+                                ? 'bg-[#F9ECE5]/60 dark:bg-[#231914]/75 border-[#C4622D]/40 dark:border-[#E07B46]/45'
+                                : 'bg-white dark:bg-[#1A1C20] border-[#E8E3DB] dark:border-[#2C3037]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className="font-mono-tabular font-semibold text-[#575B62] dark:text-[#A3A7AE]">
+                              STEP {step.stepNumber} · {step.milestoneLabel.toUpperCase()}
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-1 font-semibold ${
+                                stepState === 'verified'
+                                  ? 'text-[#146C53] dark:text-[#2EB88B]'
+                                  : stepState === 'needs_clarification'
+                                    ? 'text-[#C4622D] dark:text-[#E07B46]'
+                                    : 'text-[#575B62] dark:text-[#A3A7AE]'
+                              }`}
+                            >
+                              {stepState === 'verified' ? (
+                                <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
+                              ) : stepState === 'needs_clarification' ? (
+                                <AlertCircle className="w-3 h-3" aria-hidden="true" />
+                              ) : (
+                                <Clock className="w-3 h-3" aria-hidden="true" />
+                              )}
+                              <span>
+                                {stepState === 'verified'
+                                  ? 'Verified'
+                                  : stepState === 'needs_clarification'
+                                    ? 'Clarification Requested'
+                                    : 'Pending Review'}
+                              </span>
+                            </span>
+                          </div>
+                          <p className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                            {step.title}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+
+            {partnerFeedback.length > 0 && (
+              <div className="space-y-3" data-testid="unlock-partner-feedback-list">
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#146C53] dark:text-[#2EB88B]">
+                  Stage-Specific Messages from Hiring Partners
+                </p>
+                <div className="space-y-2.5">
+                  {partnerFeedback.map((fb) => {
+                    const stageMeta = getFeedbackStageMeta(fb.stage);
+                    return (
+                      <article
+                        key={fb.id}
+                        data-testid={`unlock-feedback-item-${fb.id}`}
+                        className={`rounded-xl border p-4 space-y-2 ${
+                          fb.tone === 'clarification_needed'
+                            ? 'bg-[#F9ECE5]/60 dark:bg-[#231914]/75 border-[#C4622D]/35 dark:border-[#E07B46]/40'
+                            : 'bg-[#E7F3EE]/50 dark:bg-[#142B24]/60 border-[#146C53]/30 dark:border-[#2EB88B]/35'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                              {fb.fromOrgName}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-[11px] font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                              {stageMeta.shortLabel}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+                                fb.tone === 'clarification_needed'
+                                  ? 'bg-[#C4622D]/15 text-[#A95021] dark:text-[#F59E6C]'
+                                  : fb.tone === 'approved'
+                                    ? 'bg-[#146C53]/15 text-[#146C53] dark:text-[#5EEAD4]'
+                                    : 'bg-white/80 dark:bg-[#1A1C20] text-[#43484E] dark:text-[#C8CDD4]'
+                              }`}
+                            >
+                              {fb.tone === 'clarification_needed'
+                                ? 'Clarification Needed'
+                                : fb.tone === 'approved'
+                                  ? 'Step Approved'
+                                  : 'Hiring Update'}
+                            </span>
+                          </div>
+                          <time className="text-[11px] font-mono-tabular text-[#575B62] dark:text-[#A3A7AE]">
+                            {new Date(fb.createdAtIso).toLocaleString()}
+                          </time>
+                        </div>
+                        <p className="text-xs sm:text-sm text-[#17191C] dark:text-[#F4F2EE] leading-relaxed">
+                          {fb.message}
+                        </p>
+                        <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                          Applies to: {stageMeta.unlockSectionHint} · Consent {fb.consentId}
+                        </p>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Dedicated Compliance Readiness: Crossing Over Access Section */}
       <ComplianceCrossingSection

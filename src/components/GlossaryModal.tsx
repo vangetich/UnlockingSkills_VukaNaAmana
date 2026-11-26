@@ -5,6 +5,7 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  HelpCircle,
   Search,
   X,
 } from 'lucide-react';
@@ -219,6 +220,20 @@ export const GLOSSARY_ENTRIES: GlossaryItem[] = [
   },
 
   // Category C — The 5-Stage Crossing & Researched Global Frameworks
+  {
+    id: 'fw-mentoring-mentorship',
+    category: 'frameworks',
+    term: 'Mentor-Mentee Relationship (Formal Mentorship vs. Sprint-Based Guidance)',
+    targetTag: 'Mentoring & Mentorship Support Modes',
+    definition:
+      'The Mentor-Mentee relationship pairs practitioners with experienced Senior Specialists across two complementary modes. Choose Formal Mentorship Tracks for structured, multi-sprint growth—complete with 1:1 pairing goals, shared session agendas, milestone trackers, D3 growth roadmaps, and Tier 2/3 competency endorsements. Choose Spontaneous Sprint-Based Guidance for fast, targeted support inside an active Pod Sprint—such as ad-hoc QA thread feedback, timezone availability check-ins, or formative peer reviews on team collaboration notes.',
+    audience: 'Shared',
+    stageLabel: 'Stage 3 · Solve',
+    builderTab: 'solve',
+    builderJumpLabel: 'Go to Stage 3 · Solve & Mentor Hub',
+    keywords:
+      'mentor-mentee mentor mentee relationship formal mentorship tracks spontaneous sprint-based guidance mentoring mentorship qa peer review support',
+  },
   {
     id: 'fw-vuka-ethos',
     category: 'frameworks',
@@ -449,6 +464,37 @@ const FILTER_OPTIONS: Array<{ id: GlossaryFilterTab; label: string }> = [
   { id: 'partners', label: 'For Hiring Partners' },
 ];
 
+export interface MentorshipFaqItem {
+  id: string;
+  question: string;
+  answer: string;
+  bestStage: string;
+}
+
+export const MENTORSHIP_VS_GUIDANCE_FAQ: MentorshipFaqItem[] = [
+  {
+    id: 'faq-choose-support',
+    question: 'When should I choose a Formal Mentorship Track vs. Sprint-Based Guidance?',
+    answer:
+      'Choose a Formal Mentorship Track when you want structured, multi-sprint capability growth—such as mastering a domain track, following a milestone roadmap, setting recurring session agendas, and earning Tier 2/3 competency endorsements. Choose Sprint-Based Guidance when you need fast, targeted help on an active deliverable—like isolating a technical blocker, requesting a quick screen-share QA review, or tightening pod handoff notes.',
+    bestStage: 'Stage 3 · Solve & Stage 4 · Pulse',
+  },
+  {
+    id: 'faq-combine-both',
+    question: 'Can I use both formal mentorship and sprint-based guidance at the same time?',
+    answer:
+      'Yes—the two modes are designed to complement each other. Many practitioners stay enrolled in one Formal Mentorship Track for long-term career and systems growth while using Sprint-Based Guidance inside the Mentor Messaging Drawer whenever a live partner brief requires immediate troubleshooting or pre-submission verification.',
+    bestStage: 'Stage 3 · Solve',
+  },
+  {
+    id: 'faq-prepare-sessions',
+    question: 'How should I prepare differently for a mentorship session vs. a quick sprint check-in?',
+    answer:
+      'For Formal Mentorship sessions, draft a 2-to-3 bullet agenda in the Agenda tab beforehand and review your Growth Roadmap milestones. For Sprint-Based Guidance, share the exact blocker, two options you already considered, or ask for a brief screen share so your mentor can unblock you in minutes.',
+    bestStage: 'Mentor Messaging Drawer',
+  },
+];
+
 export interface GlossaryModalProps {
   isOpen: boolean;
   activePortal: PortalRealm;
@@ -472,12 +518,14 @@ export const GlossaryModal: React.FC<GlossaryModalProps> = ({
     isPartnerConsole ? 'partners' : 'all'
   );
   const [agendaFootnoteOpen, setAgendaFootnoteOpen] = useState(false);
+  const [openFaqId, setOpenFaqId] = useState<string | null>(MENTORSHIP_VS_GUIDANCE_FAQ[0].id);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setSearchQuery('');
       setActiveFilter(isPartnerConsole ? 'partners' : 'all');
+      setOpenFaqId(MENTORSHIP_VS_GUIDANCE_FAQ[0].id);
       window.setTimeout(() => searchInputRef.current?.focus(), 30);
     }
   }, [isOpen, isPartnerConsole]);
@@ -531,6 +579,20 @@ export const GlossaryModal: React.FC<GlossaryModalProps> = ({
     () => filteredEntries.filter((e) => e.category === 'frameworks'),
     [filteredEntries]
   );
+
+  const showMentorshipFaq = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) {
+      return activeFilter === 'all' || activeFilter === 'frameworks';
+    }
+    return (
+      'mentorship vs guidance formal long-term short-term sprint feedback mentor mentee faq'.includes(q) ||
+      MENTORSHIP_VS_GUIDANCE_FAQ.some(
+        (item) =>
+          item.question.toLowerCase().includes(q) || item.answer.toLowerCase().includes(q)
+      )
+    );
+  }, [searchQuery, activeFilter]);
 
   if (!isOpen) return null;
 
@@ -716,7 +778,7 @@ export const GlossaryModal: React.FC<GlossaryModalProps> = ({
 
         {/* Scrollable Curated Content Body */}
         <div className="flex-1 overflow-y-auto no-scrollbar px-5 sm:px-6 py-5 space-y-7">
-          {filteredEntries.length === 0 ? (
+          {filteredEntries.length === 0 && !showMentorshipFaq ? (
             <div className="py-12 text-center space-y-3">
               <p className="text-sm font-medium text-[#17191C] dark:text-[#F4F2EE]">
                 No glossary terms match &ldquo;{searchQuery}&rdquo;.
@@ -854,6 +916,92 @@ export const GlossaryModal: React.FC<GlossaryModalProps> = ({
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {frameworkEntries.map(renderStandardCard)}
+                  </div>
+                </section>
+              )}
+
+              {/* Dedicated 'Mentorship vs. Guidance' FAQ Section */}
+              {showMentorshipFaq && (
+                <section
+                  aria-labelledby="glossary-mentorship-faq-heading"
+                  data-testid="glossary-mentorship-vs-guidance-faq"
+                  className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#146C53]/30 dark:border-[#2EB88B]/35 p-4 sm:p-5 space-y-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2 pb-3 border-b border-[#E8E3DB] dark:border-[#2C3037]">
+                    <div className="space-y-1">
+                      <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#146C53] dark:text-[#2EB88B]">
+                        <HelpCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                        <span>Mentorship vs. Guidance · FAQ</span>
+                      </p>
+                      <h3
+                        id="glossary-mentorship-faq-heading"
+                        className="font-display text-base sm:text-lg font-medium text-[#17191C] dark:text-[#F4F2EE]"
+                      >
+                        Choosing Between Formal Mentorship Tracks &amp; Sprint-Based Guidance
+                      </h3>
+                      <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                        Understand how long-term mentorship tracks and short-term sprint feedback work together across your projects.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Quick 2-Column Side-by-Side Distinction */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-[#E7F3EE]/55 dark:bg-[#142B24]/65 border border-[#146C53]/25 dark:border-[#2EB88B]/30 p-3.5 space-y-1.5">
+                      <p className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                        Formal Mentorship Tracks (Long-Term)
+                      </p>
+                      <p className="text-xs text-[#353A40] dark:text-[#D5DAE0] leading-relaxed">
+                        Multi-sprint 1:1 pairing with a Senior Specialist—includes recurring agendas, Growth Roadmap milestones, audio feedback memos, and Tier 2/3 competency endorsements.
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5 space-y-1.5">
+                      <p className="text-xs font-semibold text-[#C4622D] dark:text-[#E07B46]">
+                        Sprint-Based Guidance (Short-Term)
+                      </p>
+                      <p className="text-xs text-[#43484E] dark:text-[#C4C9D0] leading-relaxed">
+                        Fast, targeted support inside an active Pod Sprint—ideal for unblocking a specific bug, requesting a live screen-share QA check, or refining delivery handoff notes.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Collapsible FAQ Items */}
+                  <div className="space-y-2">
+                    {MENTORSHIP_VS_GUIDANCE_FAQ.map((faq) => {
+                      const isExpanded = openFaqId === faq.id;
+                      return (
+                        <div
+                          key={faq.id}
+                          data-testid={`glossary-faq-item-${faq.id}`}
+                          className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] px-3.5 py-2.5"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setOpenFaqId(isExpanded ? null : faq.id)}
+                            aria-expanded={isExpanded}
+                            className="w-full flex items-center justify-between gap-2 text-left text-xs sm:text-[13px] font-semibold text-[#17191C] dark:text-[#F4F2EE] cursor-pointer"
+                          >
+                            <span>{faq.question}</span>
+                            {isExpanded ? (
+                              <ChevronUp className="w-4 h-4 text-[#575B62] dark:text-[#A3A7AE] shrink-0" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-[#575B62] dark:text-[#A3A7AE] shrink-0" />
+                            )}
+                          </button>
+                          {isExpanded && (
+                            <div className="mt-2 pt-2 border-t border-[#E8E3DB]/75 dark:border-[#2C3037]/75 space-y-1.5">
+                              <p className="text-xs text-[#43484E] dark:text-[#C4C9D0] leading-relaxed">
+                                {faq.answer}
+                              </p>
+                              <p className="text-[11px] font-mono-tabular text-[#146C53] dark:text-[#2EB88B]">
+                                Best used in: {faq.bestStage}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </section>
               )}

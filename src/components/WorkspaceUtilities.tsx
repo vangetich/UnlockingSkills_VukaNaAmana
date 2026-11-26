@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Building2, Download, Globe, LogOut, Moon, ShieldCheck, SlidersHorizontal, Sun, WifiOff } from 'lucide-react';
+import { Building2, Download, Globe, Moon, ShieldCheck, SlidersHorizontal, Sun, WifiOff } from 'lucide-react';
 import type { ActiveAuthSession, LocaleCode, PortalRealm, ThemeMode } from '../types/kora';
 import { LOCALE_OPTIONS, type TranslationDictionary } from '../utils/i18n';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { PwaOfflineSyncButton } from './PwaOfflineSyncButton';
+import { EndSessionPopover, type EndSessionDetails } from './EndSessionPopover';
 
 interface WorkspaceUtilitiesProps {
   locale: LocaleCode;
@@ -24,7 +25,7 @@ interface WorkspaceUtilitiesProps {
   onOpenPrivacyModal?: () => void;
   onOpenAccessComfort?: () => void;
   hasCustomAccessComfort?: boolean;
-  onEndSession?: () => void;
+  onEndSession?: (details?: EndSessionDetails) => void;
   t: TranslationDictionary;
 }
 
@@ -207,17 +208,13 @@ export const WorkspaceUtilities: React.FC<WorkspaceUtilitiesProps> = ({
           </button>
 
           {onEndSession && (
-            <button
-              type="button"
-              onClick={onEndSession}
-              aria-label="End Session and lock workspace"
-              title="End Session — lock workspace and return to landing page"
-              data-testid="utilities-end-session-btn"
-              className="min-h-[36px] px-3 py-1 rounded-lg border border-[#C4622D]/35 dark:border-[#E07B46]/40 bg-[#FFF7F3] dark:bg-[#2A1B14] hover:bg-[#F9ECE5] dark:hover:bg-[#3A241B] text-xs font-semibold text-[#B44E1E] dark:text-[#F59E6C] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5 shrink-0" />
-              <span>End Session</span>
-            </button>
+            <EndSessionPopover
+              portal={activePortal}
+              buttonTestId="utilities-end-session-btn"
+              ariaLabel="End Session and lock workspace"
+              titleAttr="End Session — lock workspace and return to landing page"
+              onConfirmEndSession={(details) => onEndSession(details)}
+            />
           )}
 
           {!isInstalled && isInstallable && (

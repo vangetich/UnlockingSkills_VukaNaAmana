@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Copy,
   Link2,
+  Lock,
   MessageSquareQuote,
   Plus,
   Send,
@@ -34,8 +35,9 @@ interface PeerEndorsementPanelProps {
     endorsementText?: string;
     sourceTab: 'verify' | 'unlock';
   }) => PeerEndorsement;
-  onCompleteEndorsement: (endorsementId: string, endorsementText: string) => void;
+  onCompleteEndorsement?: (endorsementId: string, endorsementText: string) => void;
   onDeleteEndorsement?: (endorsementId: string) => void;
+  readOnlyPreview?: boolean;
 }
 
 export const PeerEndorsementPanel: React.FC<PeerEndorsementPanelProps> = ({
@@ -48,6 +50,7 @@ export const PeerEndorsementPanel: React.FC<PeerEndorsementPanelProps> = ({
   onRequestEndorsement,
   onCompleteEndorsement,
   onDeleteEndorsement,
+  readOnlyPreview = false,
 }) => {
   const capabilityOptions = useMemo(() => {
     const list: string[] = [];
@@ -98,7 +101,8 @@ export const PeerEndorsementPanel: React.FC<PeerEndorsementPanelProps> = ({
       setFormError('Enter your collaborator’s name, role, organization, and capability.');
       return;
     }
-    if (directQuote.trim().length > 0 && directQuote.trim().length < 10) {
+    const allowDirectQuote = !readOnlyPreview && variant === 'verify';
+    if (allowDirectQuote && directQuote.trim().length > 0 && directQuote.trim().length < 10) {
       setFormError('Endorsement quote should be at least 10 characters, or leave blank to send a link.');
       return;
     }
@@ -109,7 +113,7 @@ export const PeerEndorsementPanel: React.FC<PeerEndorsementPanelProps> = ({
       collaboratorRole: collaboratorRole.trim(),
       organization: organization.trim(),
       capabilityTitle: safeCap,
-      endorsementText: directQuote.trim() || undefined,
+      endorsementText: allowDirectQuote ? directQuote.trim() || undefined : undefined,
       sourceTab: variant === 'partner' ? 'unlock' : 'verify',
     });
 
@@ -136,6 +140,7 @@ export const PeerEndorsementPanel: React.FC<PeerEndorsementPanelProps> = ({
 
   const handleSubmitReply = (e: React.FormEvent, id: string) => {
     e.preventDefault();
+    if (readOnlyPreview || !onCompleteEndorsement) return;
     if (replyText.trim().length < 10) {
       setReplyError('Please add a brief 1–2 sentence endorsement (at least 10 characters).');
       return;
@@ -402,17 +407,27 @@ export const PeerEndorsementPanel: React.FC<PeerEndorsementPanelProps> = ({
                         )}
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRespondingId(isReplying ? null : item.id);
-                          setReplyText('');
-                          setReplyError(null);
-                        }}
-                        className="min-h-[36px] px-3 py-1.5 rounded-lg bg-[#E7F3EE] dark:bg-[#142B24] hover:bg-[#D5EBE2] dark:hover:bg-[#1C3B31] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] whitespace-nowrap"
-                      >
-                        {isReplying ? 'Cancel' : 'Record Reply'}
-                      </button>
+                      {!readOnlyPreview && onCompleteEndorsement ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRespondingId(isReplying ? null : item.id);
+                            setReplyText('');
+                            setReplyError(null);
+                          }}
+                          className="min-h-[36px] px-3 py-1.5 rounded-lg bg-[#E7F3EE] dark:bg-[#142B24] hover:bg-[#D5EBE2] dark:hover:bg-[#1C3B31] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] whitespace-nowrap"
+                        >
+                          {isReplying ? 'Cancel' : 'Record Reply'}
+                        </button>
+                      ) : (
+                        <span
+                          data-testid={`endorsement-awaiting-external-${item.id}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[11px] font-semibold text-[#575B62] dark:text-[#A3A7AE] whitespace-nowrap"
+                        >
+                          <Lock className="w-3 h-3 text-[#C4622D] dark:text-[#E07B46]" aria-hidden="true" />
+                          <span>Awaiting Collaborator Confirmation</span>
+                        </span>
+                      )}
 
                       {onDeleteEndorsement && (
                         <button
@@ -427,7 +442,7 @@ export const PeerEndorsementPanel: React.FC<PeerEndorsementPanelProps> = ({
                     </div>
                   </div>
 
-                  {isReplying && (
+                  {isReplying && !readOnlyPreview && onCompleteEndorsement && (
                     <form
                       onSubmit={(e) => handleSubmitReply(e, item.id)}
                       className="pt-3 border-t border-[#E8E3DB] dark:border-[#2C3037] space-y-3"

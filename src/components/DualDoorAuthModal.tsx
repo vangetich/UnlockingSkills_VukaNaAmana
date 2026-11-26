@@ -69,10 +69,10 @@ interface PinEnrollmentCard {
 }
 
 const AGE_STAGE_OPTIONS: Array<{ value: AgeStage; label: string }> = [
-  { value: '15-17', label: '15–17' },
-  { value: '18-29', label: '18–29' },
-  { value: '30-45', label: '30–45' },
-  { value: '46+', label: '46+' },
+  { value: '15-17', label: '15–17yrs Emerging Builder' },
+  { value: '18-29', label: '18–29yrs Early-Career' },
+  { value: '30-45', label: '30–45yrs Specialist' },
+  { value: '46+', label: '46+ Master Practitioner' },
 ];
 
 interface SixDigitInputProps {
@@ -1014,7 +1014,7 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
                               htmlFor="talent-age-stage"
                               className="block text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] mb-1.5"
                             >
-                              Age Stage
+                              Select age group entry point
                             </label>
                             <select
                               id="talent-age-stage"
@@ -1025,7 +1025,7 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
                             >
                               {AGE_STAGE_OPTIONS.map((opt) => (
                                 <option key={opt.value} value={opt.value}>
-                                  Age {opt.label}
+                                  {opt.label}
                                 </option>
                               ))}
                             </select>
@@ -1302,7 +1302,7 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
                                 htmlFor="pin-age-stage"
                                 className="block text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] mb-1.5"
                               >
-                                Age Stage
+                                Select age group entry point
                               </label>
                               <select
                                 id="pin-age-stage"
@@ -1312,7 +1312,7 @@ export const DualDoorAuthModal: React.FC<DualDoorAuthModalProps> = ({
                               >
                                 {AGE_STAGE_OPTIONS.map((opt) => (
                                   <option key={opt.value} value={opt.value}>
-                                    Age {opt.label}
+                                    {opt.label}
                                   </option>
                                 ))}
                               </select>

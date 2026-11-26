@@ -2,15 +2,19 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowRight,
+  BarChart3,
+  Calendar,
   CheckCircle2,
   Clock,
   Download,
   FileText,
+  Globe2,
   Loader2,
   RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
+  Users,
   X,
 } from 'lucide-react';
 import type {
@@ -18,10 +22,14 @@ import type {
   CompetencyPassport,
   ContractPayout,
   ContributionStatus,
+  MentorPairingRequest,
+  MentorPeerReviewRecord,
+  MentorshipJournalEntry,
   PeerEndorsement,
   PractitionerProfile,
   SkillCapability,
   SprintCollaborationNote,
+  SprintDiscussionPost,
   SprintFeedback,
   SprintMilestoneKey,
   SprintRatingScore,
@@ -47,12 +55,19 @@ import { SprintFeedbackPanel } from './SprintFeedbackPanel';
 import { GlobalImpactDashboard } from './GlobalImpactDashboard';
 import { ImpactMilestones } from './ImpactMilestones';
 import { ImpactPulseAnalytics } from './ImpactPulseAnalytics';
+import { MentorshipImpactChart } from './MentorshipImpactChart';
+import { MentorAvailabilityHeatmap } from './MentorAvailabilityHeatmap';
+import { MentorCalendarAvailability } from './MentorCalendarAvailability';
+import { MentorshipPairingHistory } from './MentorshipPairingHistory';
 import { SprintCalendar } from './SprintCalendar';
 import { RecentActivityFeed } from './RecentActivityFeed';
 import {
   ExpandedSprintDetails,
   type CollaborationNoteSaveInput,
 } from './ExpandedSprintDetails';
+import type { SaveMentorshipJournalInput } from './MentorshipJournal';
+import type { CreateSprintDiscussionInput } from './SprintDiscussionBoard';
+import type { MentorPeerReviewDraft } from './MentorPeerReview';
 import { useMessaging } from '../contexts/MessagingContext';
 import { exportSdgImpactSummaryPdf } from '../utils/pdfReceipt';
 import solarEngineerImg from '../assets/images/community_solar_engineer_1795539856588.jpg';
@@ -129,14 +144,19 @@ interface PulseViewProps {
   payouts: ContractPayout[];
   sprintFeedback: SprintFeedback[];
   collaborationNotes?: SprintCollaborationNote[];
+  mentorshipJournal?: MentorshipJournalEntry[];
+  sprintDiscussions?: SprintDiscussionPost[];
   celebratedContribution: BriefSubmission | null;
   userEmail: string | null;
+  currentUserUid?: string;
   lastSyncedIso: string | null;
   queuedCount: number;
   isOnline: boolean;
   isSyncing: boolean;
   t: TranslationDictionary;
   sprintMilestonesByBrief?: Record<string, SprintMilestoneKey[]>;
+  mentorPairings?: MentorPairingRequest[];
+  mentorPeerReviews?: MentorPeerReviewRecord[];
   onAddSprintFeedback: (input: {
     contributionId: string;
     briefId: string;
@@ -149,6 +169,12 @@ interface PulseViewProps {
   }) => void;
   onSaveCollaborationNote?: (input: CollaborationNoteSaveInput) => void;
   onDeleteCollaborationNote?: (noteId: string) => void;
+  onSaveMentorshipJournalEntry?: (input: SaveMentorshipJournalInput) => void;
+  onDeleteMentorshipJournalEntry?: (entryId: string) => void;
+  onCreateSprintDiscussionPost?: (input: CreateSprintDiscussionInput) => void;
+  onDeleteSprintDiscussionPost?: (sprintId: string, postId: string) => void;
+  onSaveMentorPeerReview?: (draft: MentorPeerReviewDraft) => void;
+  onDeleteMentorPeerReview?: (reviewId: string) => void;
   onDismissCelebration: () => void;
   onSignIn: () => void;
   onSyncNow: () => void;
@@ -171,17 +197,28 @@ export const PulseView: React.FC<PulseViewProps> = ({
   payouts = [],
   sprintFeedback = [],
   collaborationNotes = [],
+  mentorshipJournal = [],
+  sprintDiscussions = [],
   celebratedContribution,
   userEmail,
+  currentUserUid,
   lastSyncedIso,
   queuedCount = 0,
   isOnline = true,
   isSyncing = false,
   sprintMilestonesByBrief = {},
+  mentorPairings = [],
+  mentorPeerReviews = [],
   t,
   onAddSprintFeedback,
   onSaveCollaborationNote,
   onDeleteCollaborationNote,
+  onSaveMentorshipJournalEntry,
+  onDeleteMentorshipJournalEntry,
+  onCreateSprintDiscussionPost,
+  onDeleteSprintDiscussionPost,
+  onSaveMentorPeerReview,
+  onDeleteMentorPeerReview,
   onDismissCelebration,
   onSignIn,
   onSyncNow,
@@ -195,10 +232,19 @@ export const PulseView: React.FC<PulseViewProps> = ({
 }) => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'in-progress'>('all');
   const [sprintSearchQuery, setSprintSearchQuery] = useState('');
+  const [mentorshipHubTab, setMentorshipHubTab] = useState<
+    'impact' | 'calendar' | 'heatmap' | 'history'
+  >('impact');
   const [selectedSprintContribution, setSelectedSprintContribution] =
     useState<BriefSubmission | null>(null);
   const [liveCompleted, setLiveCompleted] = useState<BriefSubmission | null>(null);
-  const { messages: mentorMessages, openMentorThread } = useMessaging();
+  const {
+    messages: mentorMessages,
+    mentorshipSessions,
+    openMentorThread,
+    bookMentorshipSession,
+    markMentorshipSessionAttended,
+  } = useMessaging();
   const previousStatusRef = useRef<Map<string, ContributionStatus>>(
     new Map(contributions.map((c) => [c.id, c.status]))
   );
@@ -1039,6 +1085,163 @@ export const PulseView: React.FC<PulseViewProps> = ({
         onGoToSolve={onGoToSolve}
       />
 
+      {/* UNIFIED MENTORSHIP OPERATIONS HUB (TABBED: IMPACT, CALENDAR, HEATMAP, PAIRING HISTORY) */}
+      <section
+        aria-labelledby="pulse-mentorship-hub-heading"
+        data-testid="pulse-mentorship-hub"
+        className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-5 sm:p-6 space-y-5"
+      >
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-4 border-b border-[#E8E3DB] dark:border-[#2C3037]">
+          <div className="space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#146C53] dark:text-[#2EB88B]">
+              Mentorship Operations Hub
+            </p>
+            <h2
+              id="pulse-mentorship-hub-heading"
+              className="font-display text-xl sm:text-2xl font-medium text-[#17191C] dark:text-[#F4F2EE]"
+            >
+              Mentorship Impact, Scheduling &amp; Pairing Ledger
+            </h2>
+            <p className="text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE]">
+              Switch between session velocity, monthly calendar availability, time-zone response windows, and pairing history.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 text-xs font-mono-tabular tabular-nums text-[#575B62] dark:text-[#A3A7AE] shrink-0">
+            <span>
+              <strong className="text-[#17191C] dark:text-[#F4F2EE]">
+                {mentorshipSessions.length}
+              </strong>{' '}
+              sessions
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>
+              <strong className="text-[#17191C] dark:text-[#F4F2EE]">
+                {mentorPairings.length}
+              </strong>{' '}
+              pairings
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>
+              <strong className="text-[#146C53] dark:text-[#2EB88B]">
+                {mentorPeerReviews.length}
+              </strong>{' '}
+              peer reviews
+            </span>
+          </div>
+        </div>
+
+        {/* Single-Line Accessible Segmented Tablist */}
+        <div
+          role="tablist"
+          aria-label="Mentorship Hub Views"
+          className="flex items-center gap-1.5 overflow-x-auto no-scrollbar p-1 rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037]"
+        >
+          {(
+            [
+              {
+                id: 'impact',
+                label: 'Impact Analytics',
+                icon: BarChart3,
+              },
+              {
+                id: 'calendar',
+                label: 'Session Calendar',
+                icon: Calendar,
+              },
+              {
+                id: 'heatmap',
+                label: 'Availability Heatmap',
+                icon: Globe2,
+              },
+              {
+                id: 'history',
+                label: 'Pairing History',
+                icon: Users,
+              },
+            ] as const
+          ).map((tab) => {
+            const Icon = tab.icon;
+            const isActive = mentorshipHubTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                id={`mentorship-hub-tab-${tab.id}`}
+                aria-selected={isActive}
+                aria-controls={`mentorship-hub-panel-${tab.id}`}
+                data-testid={`mentorship-hub-tab-${tab.id}`}
+                onClick={() => setMentorshipHubTab(tab.id)}
+                className={`min-h-[38px] px-3.5 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  isActive
+                    ? 'bg-[#146C53] dark:bg-[#2EB88B] text-white dark:text-[#121315] shadow-xs'
+                    : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] hover:bg-white/70 dark:hover:bg-[#1A1C20]'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Active Hub Tab Panel */}
+        <div
+          role="tabpanel"
+          id={`mentorship-hub-panel-${mentorshipHubTab}`}
+          aria-labelledby={`mentorship-hub-tab-${mentorshipHubTab}`}
+          data-testid={`mentorship-hub-panel-${mentorshipHubTab}`}
+          className="[&>section]:border-0 [&>section]:p-0 [&>section]:rounded-none [&>section]:shadow-none"
+        >
+          {mentorshipHubTab === 'impact' && (
+            <MentorshipImpactChart
+              contributions={contributions}
+              mentorMessages={mentorMessages}
+              mentorshipSessions={mentorshipSessions}
+              payouts={payouts}
+              sprintMilestonesByBrief={sprintMilestonesByBrief}
+              mentorPairings={mentorPairings}
+              onOpenMentorThread={openMentorThread}
+              onMarkSessionAttended={markMentorshipSessionAttended}
+            />
+          )}
+
+          {mentorshipHubTab === 'calendar' && (
+            <MentorCalendarAvailability
+              embedded
+              mentorshipSessions={mentorshipSessions}
+              mentorPairings={mentorPairings}
+              contributions={contributions}
+              onBookSession={bookMentorshipSession}
+              onConfirmSession={markMentorshipSessionAttended}
+              onOpenMentorThread={openMentorThread}
+            />
+          )}
+
+          {mentorshipHubTab === 'heatmap' && (
+            <MentorAvailabilityHeatmap
+              contributions={contributions}
+              mentorshipSessions={mentorshipSessions}
+              onOpenMentorThread={openMentorThread}
+            />
+          )}
+
+          {mentorshipHubTab === 'history' && (
+            <MentorshipPairingHistory
+              pairings={mentorPairings}
+              collaborationNotes={collaborationNotes}
+              contributions={contributions}
+              onOpenCollaborationNote={(contrib) =>
+                setSelectedSprintContribution(contrib)
+              }
+              onOpenMentorThread={openMentorThread}
+              onGoToSolve={onGoToSolve}
+            />
+          )}
+        </div>
+      </section>
+
       {/* SPRINT AVAILABILITY CALENDAR (MONTH VIEW: ACTIVE, UPCOMING & PAST) */}
       <SprintCalendar
         contributions={contributions}
@@ -1678,10 +1881,15 @@ export const PulseView: React.FC<PulseViewProps> = ({
             payouts={payouts}
             sprintFeedback={sprintFeedback}
             mentorMessages={mentorMessages}
+            mentorshipSessions={mentorshipSessions}
+            mentorshipJournal={mentorshipJournal}
             collaborationNotes={collaborationNotes}
+            mentorPeerReviews={mentorPeerReviews}
+            sprintDiscussions={sprintDiscussions}
             sprintMilestonesByBrief={sprintMilestonesByBrief}
             vault={vault}
             practitionerName={profile.displayName}
+            currentUserUid={currentUserUid ?? profile.uid}
             onClose={() => setSelectedSprintContribution(null)}
             onOpenInSolve={() => onGoToSolve()}
             onMessageMentor={(briefId, briefTitle, domain, options) =>
@@ -1690,6 +1898,12 @@ export const PulseView: React.FC<PulseViewProps> = ({
             onAddSprintFeedback={onAddSprintFeedback}
             onSaveCollaborationNote={onSaveCollaborationNote}
             onDeleteCollaborationNote={onDeleteCollaborationNote}
+            onSaveMentorshipJournalEntry={onSaveMentorshipJournalEntry}
+            onDeleteMentorshipJournalEntry={onDeleteMentorshipJournalEntry}
+            onCreateSprintDiscussionPost={onCreateSprintDiscussionPost}
+            onDeleteSprintDiscussionPost={onDeleteSprintDiscussionPost}
+            onSaveMentorPeerReview={onSaveMentorPeerReview}
+            onDeleteMentorPeerReview={onDeleteMentorPeerReview}
           />
         )}
       </AnimatePresence>

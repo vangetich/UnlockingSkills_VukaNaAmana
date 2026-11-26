@@ -7,6 +7,15 @@ import {
   deleteCloudCapability,
   deleteCloudCollaborationNote,
   deleteCloudEndorsement,
+  deleteCloudMenteeCompetencyBadge,
+  deleteCloudMentorMilestoneFeedback,
+  deleteCloudMentorPairing,
+  deleteCloudMentorPeerReview,
+  deleteCloudMentorRating,
+  deleteCloudMentorshipJournalEntry,
+  deleteCloudMentorshipSession,
+  deleteCloudMentorshipSessionAgenda,
+  deleteCloudSprintDiscussionPost,
   ensureCloudProfile,
   fetchCloudWorkspace,
   formatFirebaseAuthError,
@@ -22,13 +31,24 @@ import {
   signOutAccount,
   subscribeToCapabilities,
   subscribeToContributions,
+  subscribeToSprintDiscussions,
   upsertCloudCapability,
   upsertCloudCollaborationNote,
   upsertCloudContribution,
   upsertCloudEndorsement,
+  upsertCloudMenteeCompetencyBadge,
   upsertCloudMentorMessage,
+  upsertCloudMentorMilestoneFeedback,
+  upsertCloudMentorPairing,
+  upsertCloudMentorPeerReview,
+  upsertCloudMentorRating,
+  upsertCloudMentorshipJournalEntry,
+  upsertCloudMentorshipSession,
+  upsertCloudMentorshipSessionAgenda,
+  upsertCloudMentorshipTrackProgress,
   upsertCloudPassport,
   upsertCloudPayout,
+  upsertCloudSprintDiscussionPost,
   upsertCloudSprintFeedback,
   upsertCloudVault,
 } from './lib/firebase';
@@ -45,7 +65,19 @@ import type {
   LocaleCode,
   LockedUpskillingBridgeRecord,
   MatchedWorkApplication,
+  MenteeCompetencyBadge,
   MentorMessage,
+  MentorMilestoneFeedback,
+  MentorPairingCadence,
+  MentorPairingRequest,
+  MentorPeerReviewRecord,
+  MentorRating,
+  MentorRatingScore,
+  MentorshipJournalEntry,
+  MentorshipSession,
+  MentorshipSessionAgendaRecord,
+  MentorshipTrackProgressRecord,
+  MentorshipTrackSpec,
   OfflineMutation,
   PeerEndorsement,
   PodMentorProfile,
@@ -57,6 +89,7 @@ import type {
   SharedPassportPayload,
   SkillCapability,
   SprintCollaborationNote,
+  SprintDiscussionPost,
   SprintFeedback,
   SprintMilestoneKey,
   SprintRatingScore,
@@ -81,11 +114,21 @@ import {
   saveLocalContributions,
   saveLocalEndorsements,
   saveLocalMatchedWorkApplications,
+  saveLocalMenteeCompetencyBadges,
   saveLocalMentorMessages,
+  saveLocalMentorMilestoneFeedback,
+  saveLocalMentorPairings,
+  saveLocalMentorPeerReviews,
+  saveLocalMentorRatings,
+  saveLocalMentorshipJournal,
+  saveLocalMentorshipSessionAgendas,
+  saveLocalMentorshipSessions,
+  saveLocalMentorshipTrackProgress,
   saveLocalPassport,
   saveLocalPayouts,
   saveLocalProfile,
   saveLocalProofPortfolio,
+  saveLocalSprintDiscussions,
   saveLocalSprintFeedback,
   saveLocalSprintMilestones,
   saveLocalUpskillingBridges,
@@ -94,6 +137,7 @@ import {
 } from './utils/offlineStore';
 import {
   SEED_BRIEFS,
+  SOLUTION_SPRINTS,
   advancePayoutStatus,
   buildMentorQuickReply,
   countWorkplaceSignals,
@@ -106,10 +150,21 @@ import {
   parseSharedPassportToken,
   promoteVerificationStatus,
   toggleSprintMilestoneList,
+  getAssignedMentorForSprint,
 } from './utils/talentEngine';
+import {
+  DOMAIN_SKILL_BADGE_CATALOG,
+  generateBadgeVerificationCode,
+  normalizeBadgeStudioDomain,
+} from './components/MenteeCompetencyEndorsement';
+import type { CreateSprintDiscussionInput } from './components/SprintDiscussionBoard';
+import type { SaveMentorshipJournalInput } from './components/MentorshipJournal';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { useAutoSave } from './hooks/useAutoSave';
-import { MessagingProvider } from './contexts/MessagingContext';
+import {
+  MessagingProvider,
+  type LogMentorshipSessionInput,
+} from './contexts/MessagingContext';
 import { LandingFunnel } from './components/LandingFunnel';
 import { TopNav } from './components/TopNav';
 import { PwaSyncStatusBar } from './components/PwaSyncStatusBar';
@@ -117,6 +172,7 @@ import { WorkspaceUtilities } from './components/WorkspaceUtilities';
 import { VerifyView } from './components/VerifyView';
 import { UnlockView } from './components/UnlockView';
 import { SolveView } from './components/SolveView';
+import { StageSequenceDisclaimer } from './components/StageSequenceDisclaimer';
 import { PulseView } from './components/PulseView';
 import { ClearedView } from './components/ClearedView';
 import { PartnerScaleDrawer } from './components/PartnerScaleDrawer';
@@ -131,6 +187,8 @@ import { DualDoorAuthModal } from './components/DualDoorAuthModal';
 import { PrivacySharedAccessModal } from './components/PrivacySharedAccessModal';
 import { SyncLedger } from './components/SyncLedger';
 import { PartnerConsoleView } from './components/PartnerConsoleView';
+import type { EndSessionDetails } from './components/EndSessionPopover';
+import { toggleObjectiveCompletion } from './components/MentorshipMilestoneTracker';
 import { AccessComfortDrawer, ReadAloudMiniBar } from './components/AccessComfortDrawer';
 import {
   applyAccessComfortToDocument,
@@ -141,6 +199,15 @@ import {
   useReadAloud,
   type AccessComfortPreferences,
 } from './utils/accessComfort';
+import {
+  createDefaultPreContractingRecord,
+  type DocumentFeedbackStage,
+  type PartnerApplicantFeedbackItem,
+  type PartnerFeedbackTone,
+  type PartnerPreContractingRecord,
+  type PartnerStepReviewStatus,
+  type PartnerVerificationStepId,
+} from './utils/partnerVerification';
 
 export default function App() {
   const searchParams =
@@ -178,8 +245,38 @@ export default function App() {
   const [mentorMessages, setMentorMessages] = useState<MentorMessage[]>(
     initialState.mentorMessages
   );
+  const [mentorshipSessions, setMentorshipSessions] = useState<MentorshipSession[]>(
+    initialState.mentorshipSessions
+  );
+  const [mentorPairings, setMentorPairings] = useState<MentorPairingRequest[]>(
+    initialState.mentorPairings
+  );
+  const [mentorRatings, setMentorRatings] = useState<MentorRating[]>(
+    initialState.mentorRatings
+  );
+  const [mentorshipTrackProgress, setMentorshipTrackProgress] = useState<
+    MentorshipTrackProgressRecord[]
+  >(initialState.mentorshipTrackProgress);
   const [collaborationNotes, setCollaborationNotes] = useState<SprintCollaborationNote[]>(
     initialState.collaborationNotes
+  );
+  const [mentorshipJournal, setMentorshipJournal] = useState<MentorshipJournalEntry[]>(
+    initialState.mentorshipJournal
+  );
+  const [sprintDiscussions, setSprintDiscussions] = useState<SprintDiscussionPost[]>(
+    initialState.sprintDiscussions
+  );
+  const [menteeCompetencyBadges, setMenteeCompetencyBadges] = useState<MenteeCompetencyBadge[]>(
+    initialState.menteeCompetencyBadges
+  );
+  const [mentorMilestoneFeedback, setMentorMilestoneFeedback] = useState<MentorMilestoneFeedback[]>(
+    initialState.mentorMilestoneFeedback
+  );
+  const [mentorshipSessionAgendas, setMentorshipSessionAgendas] = useState<
+    MentorshipSessionAgendaRecord[]
+  >(initialState.mentorshipSessionAgendas);
+  const [mentorPeerReviews, setMentorPeerReviews] = useState<MentorPeerReviewRecord[]>(
+    initialState.mentorPeerReviews
   );
   const [offlineQueue, setOfflineQueue] = useState<OfflineMutation[]>(initialState.queue);
   const [lastSyncedIso, setLastSyncedIso] = useState<string | null>(initialState.lastSyncedIso);
@@ -256,6 +353,15 @@ export default function App() {
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
   const [consentGrants, setConsentGrants] = useState<ConsentGrant[]>([]);
   const [postedSprints, setPostedSprints] = useState<ProblemBrief[]>(() => SEED_BRIEFS);
+  const [issuedContractsByGrantId, setIssuedContractsByGrantId] = useState<
+    Record<string, { contractRef: string; bridgeType: string; issuedAtIso: string }>
+  >({});
+  const [partnerVerifications, setPartnerVerifications] = useState<
+    Record<string, PartnerPreContractingRecord>
+  >({});
+  const [partnerApplicantFeedback, setPartnerApplicantFeedback] = useState<
+    PartnerApplicantFeedbackItem[]
+  >([]);
   const [accessAuditLogs, setAccessAuditLogs] = useState<AccessAuditLogEntry[]>([]);
   const [sharePassportSignal, setSharePassportSignal] = useState(0);
   const [voiceTriggerSignal, setVoiceTriggerSignal] = useState(0);
@@ -285,33 +391,309 @@ export default function App() {
     };
   }, []);
 
-  const fetchGrantsAndLogs = async () => {
+  const fetchPartnerSprints = useCallback(async () => {
     try {
-      const [gRes, aRes] = await Promise.all([
-        fetch('/api/consent/grants'),
-        fetch('/api/audit/logs'),
-      ]);
-      if (gRes.ok) {
-        const gData = (await gRes.json()) as { grants?: ConsentGrant[] };
-        if (gData.grants) setConsentGrants(gData.grants);
-      }
-      if (aRes.ok) {
-        const aData = (await aRes.json()) as { auditLogs?: AccessAuditLogEntry[] };
-        if (aData.auditLogs) setAccessAuditLogs(aData.auditLogs);
+      const res = await fetch('/api/partner/sprints', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const data = (await res.json()) as { sprints?: ProblemBrief[] };
+      if (Array.isArray(data.sprints)) {
+        const merged = new Map<string, ProblemBrief>();
+        for (const s of data.sprints) {
+          merged.set(s.id, s);
+        }
+        for (const seed of SEED_BRIEFS) {
+          if (!merged.has(seed.id)) {
+            merged.set(seed.id, seed);
+          }
+        }
+        setPostedSprints(Array.from(merged.values()));
       }
     } catch {
-      // Offline fallback
+      // Offline fallback keeps SEED_BRIEFS
     }
-  };
+  }, []);
+
+  const fetchGrantsAndLogs = useCallback(
+    async (tokenOverride?: string) => {
+      const token = tokenOverride ?? activeAuthSession?.token;
+      const headers: Record<string, string> = token
+        ? { Authorization: `Bearer ${token}` }
+        : {};
+      try {
+        const [gRes, aRes] = await Promise.all([
+          fetch('/api/consent/grants', { credentials: 'same-origin', headers }),
+          fetch('/api/audit/logs', { credentials: 'same-origin', headers }),
+        ]);
+        if (gRes.ok) {
+          const gData = (await gRes.json()) as { grants?: ConsentGrant[] };
+          if (gData.grants) setConsentGrants(gData.grants);
+        }
+        if (aRes.ok) {
+          const aData = (await aRes.json()) as { auditLogs?: AccessAuditLogEntry[] };
+          if (aData.auditLogs) setAccessAuditLogs(aData.auditLogs);
+        }
+      } catch {
+        // Offline fallback
+      }
+    },
+    [activeAuthSession?.token]
+  );
+
+  const fetchPartnerContracts = useCallback(
+    async (tokenOverride?: string) => {
+      const token = tokenOverride ?? activeAuthSession?.token;
+      const headers: Record<string, string> = token
+        ? { Authorization: `Bearer ${token}` }
+        : {};
+      try {
+        const res = await fetch('/api/partner/contracts', {
+          credentials: 'same-origin',
+          headers,
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          contracts?: Array<{
+            grantId: string;
+            contractRef: string;
+            bridgeType: string;
+            issuedAtIso: string;
+          }>;
+        };
+        if (Array.isArray(data.contracts)) {
+          const nextMap: Record<
+            string,
+            { contractRef: string; bridgeType: string; issuedAtIso: string }
+          > = {};
+          for (const c of data.contracts) {
+            nextMap[c.grantId] = {
+              contractRef: c.contractRef,
+              bridgeType: c.bridgeType,
+              issuedAtIso: c.issuedAtIso,
+            };
+          }
+          setIssuedContractsByGrantId(nextMap);
+        }
+      } catch {
+        // Offline fallback
+      }
+    },
+    [activeAuthSession?.token]
+  );
+
+  const fetchPartnerVerificationState = useCallback(
+    async (tokenOverride?: string) => {
+      const token = tokenOverride ?? activeAuthSession?.token;
+      const headers: Record<string, string> = token
+        ? { Authorization: `Bearer ${token}` }
+        : {};
+      try {
+        const res = await fetch('/api/partner/verification/state', {
+          credentials: 'same-origin',
+          headers,
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          verifications?: Record<string, PartnerPreContractingRecord>;
+          feedback?: PartnerApplicantFeedbackItem[];
+        };
+        if (data.verifications) {
+          setPartnerVerifications(data.verifications);
+        }
+        if (Array.isArray(data.feedback)) {
+          setPartnerApplicantFeedback(data.feedback);
+        }
+      } catch {
+        // Offline fallback
+      }
+    },
+    [activeAuthSession?.token]
+  );
+
+  const handleUpdateVerificationStep = useCallback(
+    async (
+      consentId: string,
+      stepId: PartnerVerificationStepId,
+      status: PartnerStepReviewStatus,
+      reviewerNote?: string
+    ) => {
+      const nowIso = new Date().toISOString();
+      const orgLabel =
+        activeAuthSession?.realm === 'partner'
+          ? activeAuthSession.claims.orgName
+          : 'Hiring Partner';
+
+      // Optimistic local update for immediate partner feedback
+      setPartnerVerifications((prev) => {
+        const base = prev[consentId] ?? createDefaultPreContractingRecord(consentId, nowIso);
+        return {
+          ...prev,
+          [consentId]: {
+            ...base,
+            steps: {
+              ...base.steps,
+              [stepId]: {
+                status,
+                updatedAtIso: nowIso,
+                verifiedByOrgName: orgLabel,
+                ...(reviewerNote ? { reviewerNote } : {}),
+              },
+            },
+            updatedAtIso: nowIso,
+          },
+        };
+      });
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'VukaNaAmana',
+      };
+      if (activeAuthSession?.token) {
+        headers.Authorization = `Bearer ${activeAuthSession.token}`;
+      }
+
+      try {
+        const res = await fetch('/api/partner/verification/step', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers,
+          body: JSON.stringify({ consentId, stepId, status, reviewerNote }),
+        });
+        if (!res.ok) {
+          const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+          setGlobalToast({
+            id: `verify-step-err-${Date.now()}`,
+            variant: 'offline',
+            title: 'Verification Update Blocked',
+            message:
+              errBody.error ||
+              'Active, non-revoked Consent Grant required to update pre-contracting steps.',
+          });
+          await fetchPartnerVerificationState();
+          await fetchGrantsAndLogs();
+          return;
+        }
+        const data = (await res.json()) as { verification?: PartnerPreContractingRecord };
+        if (data.verification) {
+          setPartnerVerifications((prev) => ({
+            ...prev,
+            [consentId]: data.verification!,
+          }));
+        }
+        const label =
+          status === 'verified'
+            ? 'verified'
+            : status === 'needs_clarification'
+              ? 'flagged for clarification'
+              : 'reset to pending';
+        announcePolite(`Pre-contracting step ${label} for ${consentId}.`);
+        setGlobalToast({
+          id: `verify-step-ok-${Date.now()}`,
+          variant: 'synced',
+          title:
+            status === 'verified'
+              ? 'Pre-Contracting Step Verified'
+              : status === 'needs_clarification'
+                ? 'Clarification Flagged on Step'
+                : 'Step Reset to Pending',
+          message: `Updated step for ${consentId}. The applicant’s 2. Unlock progress reflects this live.`,
+        });
+        void fetchGrantsAndLogs();
+      } catch {
+        announcePolite('Verification step updated locally.');
+      }
+    },
+    [activeAuthSession, announcePolite, fetchGrantsAndLogs, fetchPartnerVerificationState]
+  );
+
+  const handleSendApplicantFeedback = useCallback(
+    async (input: {
+      consentId: string;
+      stage: DocumentFeedbackStage;
+      tone: PartnerFeedbackTone;
+      message: string;
+    }) => {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'VukaNaAmana',
+      };
+      if (activeAuthSession?.token) {
+        headers.Authorization = `Bearer ${activeAuthSession.token}`;
+      }
+
+      try {
+        const res = await fetch('/api/partner/verification/feedback', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers,
+          body: JSON.stringify(input),
+        });
+        if (!res.ok) {
+          const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+          setGlobalToast({
+            id: `partner-fb-err-${Date.now()}`,
+            variant: 'offline',
+            title: 'Unable to Send Feedback',
+            message:
+              errBody.error ||
+              'Active Consent Grant required to send stage feedback to this applicant.',
+          });
+          return;
+        }
+        const data = (await res.json()) as { feedback?: PartnerApplicantFeedbackItem };
+        if (data.feedback) {
+          setPartnerApplicantFeedback((prev) => [
+            data.feedback!,
+            ...prev.filter((item) => item.id !== data.feedback!.id),
+          ]);
+        }
+        announcePolite('Stage-specific feedback sent to applicant.');
+        setGlobalToast({
+          id: `partner-fb-sent-${Date.now()}`,
+          variant: 'synced',
+          title: 'Stage Feedback Sent to Applicant',
+          message: `Your update for ${input.consentId} is now visible in the applicant’s 2. Unlock view.`,
+        });
+        void fetchGrantsAndLogs();
+      } catch {
+        const fallbackItem: PartnerApplicantFeedbackItem = {
+          id: `pfb_local_${Date.now()}`,
+          consentId: input.consentId,
+          talentAlias:
+            consentGrants.find((g) => g.consentId === input.consentId)?.talentAlias ??
+            'Skilled Applicant',
+          fromOrgName:
+            activeAuthSession?.realm === 'partner'
+              ? activeAuthSession.claims.orgName
+              : 'Hiring Partner',
+          stage: input.stage,
+          tone: input.tone,
+          message: input.message,
+          createdAtIso: new Date().toISOString(),
+        };
+        setPartnerApplicantFeedback((prev) => [fallbackItem, ...prev]);
+        announcePolite('Stage feedback saved locally.');
+      }
+    },
+    [activeAuthSession, announcePolite, consentGrants, fetchGrantsAndLogs]
+  );
+
+  useEffect(() => {
+    void fetchPartnerSprints();
+  }, [fetchPartnerSprints]);
 
   const handleRevokeGrant = async (consentId: string) => {
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'VukaNaAmana',
+      };
+      if (activeAuthSession?.token) {
+        headers.Authorization = `Bearer ${activeAuthSession.token}`;
+      }
       const res = await fetch('/api/consent/revoke', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'VukaNaAmana',
-        },
+        credentials: 'same-origin',
+        headers,
         body: JSON.stringify({ consentId }),
       });
       if (res.ok) {
@@ -526,7 +908,11 @@ export default function App() {
               setActivePortal(data.realm);
               if (isValidPartner) {
                 setUnlockViewMode('partner');
+                void fetchPartnerContracts(data.token);
               }
+              void fetchGrantsAndLogs(data.token);
+              void fetchPartnerVerificationState(data.token);
+              void fetchPartnerSprints();
               setViewMode('studio');
               return;
             }
@@ -671,10 +1057,48 @@ export default function App() {
               await upsertCloudSprintFeedback(user.uid, item.payload);
             } else if (item.kind === 'upsert_mentor_message') {
               await upsertCloudMentorMessage(user.uid, item.payload);
+            } else if (item.kind === 'upsert_mentorship_session') {
+              await upsertCloudMentorshipSession(user.uid, item.payload);
+            } else if (item.kind === 'delete_mentorship_session') {
+              await deleteCloudMentorshipSession(user.uid, item.sessionId);
+            } else if (item.kind === 'upsert_mentor_pairing') {
+              await upsertCloudMentorPairing(user.uid, item.payload);
+            } else if (item.kind === 'delete_mentor_pairing') {
+              await deleteCloudMentorPairing(user.uid, item.pairingId);
+            } else if (item.kind === 'upsert_mentor_rating') {
+              await upsertCloudMentorRating(user.uid, item.payload);
+            } else if (item.kind === 'delete_mentor_rating') {
+              await deleteCloudMentorRating(user.uid, item.ratingId);
+            } else if (item.kind === 'upsert_track_progress') {
+              await upsertCloudMentorshipTrackProgress(user.uid, item.payload);
             } else if (item.kind === 'upsert_collaboration_note') {
               await upsertCloudCollaborationNote(user.uid, item.payload);
             } else if (item.kind === 'delete_collaboration_note') {
               await deleteCloudCollaborationNote(user.uid, item.noteId);
+            } else if (item.kind === 'upsert_mentorship_journal') {
+              await upsertCloudMentorshipJournalEntry(user.uid, item.payload);
+            } else if (item.kind === 'delete_mentorship_journal') {
+              await deleteCloudMentorshipJournalEntry(user.uid, item.entryId);
+            } else if (item.kind === 'upsert_sprint_discussion') {
+              await upsertCloudSprintDiscussionPost(user.uid, item.payload);
+            } else if (item.kind === 'delete_sprint_discussion') {
+              await deleteCloudSprintDiscussionPost(item.sprintId, item.postId);
+            } else if (item.kind === 'upsert_mentee_badge') {
+              await upsertCloudMenteeCompetencyBadge(user.uid, item.payload);
+            } else if (item.kind === 'delete_mentee_badge') {
+              await deleteCloudMenteeCompetencyBadge(user.uid, item.badgeId);
+            } else if (item.kind === 'upsert_milestone_feedback') {
+              await upsertCloudMentorMilestoneFeedback(user.uid, item.payload);
+            } else if (item.kind === 'delete_milestone_feedback') {
+              await deleteCloudMentorMilestoneFeedback(user.uid, item.feedbackId);
+            } else if (item.kind === 'upsert_session_agenda') {
+              await upsertCloudMentorshipSessionAgenda(user.uid, item.payload);
+            } else if (item.kind === 'delete_session_agenda') {
+              await deleteCloudMentorshipSessionAgenda(user.uid, item.agendaId);
+            } else if (item.kind === 'upsert_mentor_peer_review') {
+              await upsertCloudMentorPeerReview(user.uid, item.payload);
+            } else if (item.kind === 'delete_mentor_peer_review') {
+              await deleteCloudMentorPeerReview(user.uid, item.reviewId);
             }
             completedSteps += 1;
             setSyncProgress({
@@ -800,9 +1224,54 @@ export default function App() {
           saveLocalMentorMessages(cloud.mentorMessages);
         }
 
+        if (cloud.mentorshipSessions.length > 0) {
+          setMentorshipSessions(cloud.mentorshipSessions);
+          saveLocalMentorshipSessions(cloud.mentorshipSessions);
+        }
+
+        if (cloud.mentorPairings.length > 0) {
+          setMentorPairings(cloud.mentorPairings);
+          saveLocalMentorPairings(cloud.mentorPairings);
+        }
+
+        if (cloud.mentorRatings.length > 0) {
+          setMentorRatings(cloud.mentorRatings);
+          saveLocalMentorRatings(cloud.mentorRatings);
+        }
+
+        if (cloud.mentorshipTrackProgress.length > 0) {
+          setMentorshipTrackProgress(cloud.mentorshipTrackProgress);
+          saveLocalMentorshipTrackProgress(cloud.mentorshipTrackProgress);
+        }
+
         if (cloud.collaborationNotes.length > 0) {
           setCollaborationNotes(cloud.collaborationNotes);
           saveLocalCollaborationNotes(cloud.collaborationNotes);
+        }
+
+        if (cloud.mentorshipJournal.length > 0) {
+          setMentorshipJournal(cloud.mentorshipJournal);
+          saveLocalMentorshipJournal(cloud.mentorshipJournal);
+        }
+
+        if (cloud.menteeCompetencyBadges.length > 0) {
+          setMenteeCompetencyBadges(cloud.menteeCompetencyBadges);
+          saveLocalMenteeCompetencyBadges(cloud.menteeCompetencyBadges);
+        }
+
+        if (cloud.mentorMilestoneFeedback.length > 0) {
+          setMentorMilestoneFeedback(cloud.mentorMilestoneFeedback);
+          saveLocalMentorMilestoneFeedback(cloud.mentorMilestoneFeedback);
+        }
+
+        if (cloud.mentorshipSessionAgendas.length > 0) {
+          setMentorshipSessionAgendas(cloud.mentorshipSessionAgendas);
+          saveLocalMentorshipSessionAgendas(cloud.mentorshipSessionAgendas);
+        }
+
+        if (cloud.mentorPeerReviews.length > 0) {
+          setMentorPeerReviews(cloud.mentorPeerReviews);
+          saveLocalMentorPeerReviews(cloud.mentorPeerReviews);
         }
 
         unsubCaps = subscribeToCapabilities(authUser.uid, (cloudCaps) => {
@@ -833,6 +1302,34 @@ export default function App() {
     // Only re-subscribe when auth state or connectivity changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, authUser?.uid, authUser?.emailVerified, isOnline]);
+
+  const contributionSprintIdsKey = Array.from(
+    new Set(contributions.map((c) => c.briefId).filter(Boolean))
+  )
+    .sort()
+    .join(',');
+
+  // Real-time subscription for shared Pod Discussion Boards across practitioner's sprints
+  useEffect(() => {
+    if (!authReady || !authUser || !authUser.emailVerified || !isOnline) return;
+    if (!contributionSprintIdsKey) return;
+
+    const sprintIds = contributionSprintIdsKey.split(',').filter(Boolean);
+    const unsubs = sprintIds.map((sprintId) =>
+      subscribeToSprintDiscussions(sprintId, (cloudPosts) => {
+        setSprintDiscussions((prev) => {
+          const otherSprints = prev.filter((p) => p.sprintId !== sprintId);
+          const merged = [...otherSprints, ...cloudPosts];
+          saveLocalSprintDiscussions(merged);
+          return merged;
+        });
+      })
+    );
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [authReady, authUser, isOnline, contributionSprintIdsKey]);
 
   const canWriteCloud = Boolean(authUser && authUser.emailVerified && isOnline);
 
@@ -990,10 +1487,18 @@ export default function App() {
       let consentToken = `VNA-CONSENT-${cleanEmail.slice(0, 4).toUpperCase()}2026`;
       let updatedAtIso = new Date().toISOString();
 
-      if (isOnline) {
+      if (isOnline && activePortal === 'talent') {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'VukaNaAmana',
+        };
+        if (activeAuthSession?.realm === 'talent' && activeAuthSession.token) {
+          headers.Authorization = `Bearer ${activeAuthSession.token}`;
+        }
         const res = await fetch('/api/sync/email-vault', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          headers,
           body: JSON.stringify({
             email: cleanEmail,
             displayName: cleanName,
@@ -1008,7 +1513,17 @@ export default function App() {
               payouts,
               proofPortfolio,
               sprintFeedback,
+              mentorshipSessions,
+              mentorPairings,
+              mentorRatings,
+              mentorshipTrackProgress,
               collaborationNotes,
+              mentorshipJournal,
+              sprintDiscussions,
+              menteeCompetencyBadges,
+              mentorMilestoneFeedback,
+              mentorshipSessionAgendas,
+              mentorPeerReviews,
             },
           }),
         });
@@ -1063,7 +1578,14 @@ export default function App() {
 
     setIsSyncing(true);
     try {
-      const res = await fetch(`/api/sync/email-vault?email=${encodeURIComponent(cleanEmail)}`);
+      const headers: Record<string, string> = {};
+      if (activeAuthSession?.realm === 'talent' && activeAuthSession.token) {
+        headers.Authorization = `Bearer ${activeAuthSession.token}`;
+      }
+      const res = await fetch(`/api/sync/email-vault?email=${encodeURIComponent(cleanEmail)}`, {
+        credentials: 'same-origin',
+        headers,
+      });
       if (!res.ok) return false;
 
       const data = (await res.json()) as {
@@ -1084,7 +1606,17 @@ export default function App() {
             payouts?: ContractPayout[];
             proofPortfolio?: LivingProofPortfolio;
             sprintFeedback?: SprintFeedback[];
+            mentorshipSessions?: MentorshipSession[];
+            mentorPairings?: MentorPairingRequest[];
+            mentorRatings?: MentorRating[];
+            mentorshipTrackProgress?: MentorshipTrackProgressRecord[];
             collaborationNotes?: SprintCollaborationNote[];
+            mentorshipJournal?: MentorshipJournalEntry[];
+            sprintDiscussions?: SprintDiscussionPost[];
+            menteeCompetencyBadges?: MenteeCompetencyBadge[];
+            mentorMilestoneFeedback?: MentorMilestoneFeedback[];
+            mentorshipSessionAgendas?: MentorshipSessionAgendaRecord[];
+            mentorPeerReviews?: MentorPeerReviewRecord[];
           };
         };
       };
@@ -1128,9 +1660,52 @@ export default function App() {
         setSprintFeedback(snap.sprintFeedback);
         saveLocalSprintFeedback(snap.sprintFeedback);
       }
+      if (Array.isArray(snap.mentorshipSessions) && snap.mentorshipSessions.length > 0) {
+        setMentorshipSessions(snap.mentorshipSessions);
+        saveLocalMentorshipSessions(snap.mentorshipSessions);
+      }
+      if (Array.isArray(snap.mentorPairings) && snap.mentorPairings.length > 0) {
+        setMentorPairings(snap.mentorPairings);
+        saveLocalMentorPairings(snap.mentorPairings);
+      }
+      if (Array.isArray(snap.mentorRatings) && snap.mentorRatings.length > 0) {
+        setMentorRatings(snap.mentorRatings);
+        saveLocalMentorRatings(snap.mentorRatings);
+      }
+      if (Array.isArray(snap.mentorshipTrackProgress) && snap.mentorshipTrackProgress.length > 0) {
+        setMentorshipTrackProgress(snap.mentorshipTrackProgress);
+        saveLocalMentorshipTrackProgress(snap.mentorshipTrackProgress);
+      }
       if (Array.isArray(snap.collaborationNotes) && snap.collaborationNotes.length > 0) {
         setCollaborationNotes(snap.collaborationNotes);
         saveLocalCollaborationNotes(snap.collaborationNotes);
+      }
+      if (Array.isArray(snap.mentorshipJournal) && snap.mentorshipJournal.length > 0) {
+        setMentorshipJournal(snap.mentorshipJournal);
+        saveLocalMentorshipJournal(snap.mentorshipJournal);
+      }
+      if (Array.isArray(snap.sprintDiscussions) && snap.sprintDiscussions.length > 0) {
+        setSprintDiscussions(snap.sprintDiscussions);
+        saveLocalSprintDiscussions(snap.sprintDiscussions);
+      }
+      if (Array.isArray(snap.menteeCompetencyBadges) && snap.menteeCompetencyBadges.length > 0) {
+        setMenteeCompetencyBadges(snap.menteeCompetencyBadges);
+        saveLocalMenteeCompetencyBadges(snap.menteeCompetencyBadges);
+      }
+      if (Array.isArray(snap.mentorMilestoneFeedback) && snap.mentorMilestoneFeedback.length > 0) {
+        setMentorMilestoneFeedback(snap.mentorMilestoneFeedback);
+        saveLocalMentorMilestoneFeedback(snap.mentorMilestoneFeedback);
+      }
+      if (
+        Array.isArray(snap.mentorshipSessionAgendas) &&
+        snap.mentorshipSessionAgendas.length > 0
+      ) {
+        setMentorshipSessionAgendas(snap.mentorshipSessionAgendas);
+        saveLocalMentorshipSessionAgendas(snap.mentorshipSessionAgendas);
+      }
+      if (Array.isArray(snap.mentorPeerReviews) && snap.mentorPeerReviews.length > 0) {
+        setMentorPeerReviews(snap.mentorPeerReviews);
+        saveLocalMentorPeerReviews(snap.mentorPeerReviews);
       }
 
       const statusRecord: EmailVaultSyncStatus = {
@@ -1255,7 +1830,7 @@ export default function App() {
   // Mandatory session lock-out & termination whenever returning to the Landing Funnel
   // from ANY exit point (logo, header, Command Palette, sign-out button, or #landing hash).
   const handleLockAndExitToLanding = useCallback(
-    async (_source?: string) => {
+    async (_source?: string, details?: EndSessionDetails) => {
       const previousRealm = activeAuthSession?.realm ?? activePortal;
       const hadActiveSession = Boolean(activeAuthSession) || viewMode === 'studio';
       const tokenToRevoke = activeAuthSession?.token;
@@ -1301,12 +1876,15 @@ export default function App() {
       }
 
       if (hadActiveSession) {
+        const portalLabel = previousRealm === 'partner' ? 'Partner Console' : 'Builder Studio';
+        const reasonSuffix = details?.reasonLabel ? ` Reason: ${details.reasonLabel}.` : '';
+        const noteSuffix = details?.note ? ` Saved note: "${details.note}"` : '';
         announcePolite('Session locked and ended. Returned to Landing Funnel.');
         setGlobalToast({
           id: `portal-locked-landing-${Date.now()}`,
           variant: 'synced',
           title: 'Session Locked & Ended',
-          message: `Your isolated ${previousRealm === 'partner' ? 'Partner Console' : 'Builder Studio'} session has been locked upon returning to the Landing Funnel. Re-authenticate to re-enter.`,
+          message: `Your isolated ${portalLabel} session has been locked upon returning to the Landing Funnel.${reasonSuffix}${noteSuffix} Re-authenticate to re-enter.`,
         });
       }
     },
@@ -1354,6 +1932,10 @@ export default function App() {
         pulse: 'Stage 4 Pulse opened.',
         cleared: 'Tab 5 Cleared opened.',
       };
+      if (tab === 'unlock') {
+        void fetchGrantsAndLogs();
+        void fetchPartnerVerificationState();
+      }
       announcePolite(tabAnnouncements[tab]);
       options?.postAction?.();
       if (typeof window !== 'undefined') {
@@ -1474,6 +2056,9 @@ export default function App() {
       setUnlockViewMode('talent');
       setActiveTab(resolvedTargetTab);
       setViewMode('studio');
+      void fetchGrantsAndLogs(session.token);
+      void fetchPartnerVerificationState(session.token);
+      void fetchPartnerSprints();
       if (postAuthAction) {
         window.setTimeout(() => postAuthAction(), 60);
       }
@@ -1493,6 +2078,10 @@ export default function App() {
       setUnlockViewMode('partner');
       setActiveTab('unlock');
       setViewMode('studio');
+      void fetchPartnerSprints();
+      void fetchGrantsAndLogs(session.token);
+      void fetchPartnerContracts(session.token);
+      void fetchPartnerVerificationState(session.token);
       setGlobalToast({
         id: `partner-realm-${Date.now()}`,
         variant: 'synced',
@@ -1771,7 +2360,9 @@ export default function App() {
   }): PeerEndorsement => {
     const now = new Date().toISOString();
     const trimmedQuote = input.endorsementText?.trim() ?? '';
-    const isDirectVerified = trimmedQuote.length >= 10;
+    // Safeguard: unlock-tab partner reference requests must always start as 'requested'
+    // and await external collaborator confirmation rather than talent self-certification.
+    const isDirectVerified = input.sourceTab !== 'unlock' && trimmedQuote.length >= 10;
     const created: PeerEndorsement = {
       id: makeSafeId('end'),
       ownerUid: authUser?.uid ?? profile.uid,
@@ -1805,6 +2396,12 @@ export default function App() {
   };
 
   const handleCompleteEndorsement = (endorsementId: string, endorsementText: string) => {
+    const target = endorsements.find((item) => item.id === endorsementId);
+    if (!target || target.status === 'verified') return;
+    // Safeguard: block self-certifying unlock-tab partner verification requests inside Talent Studio
+    if (target.sourceTab === 'unlock' && activePortal !== 'partner') {
+      return;
+    }
     const now = new Date().toISOString();
     let updated: PeerEndorsement | null = null;
     const nextList = endorsements.map((item) => {
@@ -1856,9 +2453,15 @@ export default function App() {
     let updated: ContractPayout | null = null;
     const nextList = payouts.map((item) => {
       if (item.id !== payoutId || item.status === 'released') return item;
+      const nextStatus = advancePayoutStatus(item.status);
+      // Safeguard: talent sessions may only transition escrow-held -> processing upon
+      // deliverable submission; final release requires partner/escrow settlement authority.
+      if (nextStatus === 'released' && activePortal !== 'partner') {
+        return item;
+      }
       updated = {
         ...item,
-        status: advancePayoutStatus(item.status),
+        status: nextStatus,
         payoutRail: vault.payoutRail,
         updatedAtIso: now,
       };
@@ -2172,12 +2775,17 @@ export default function App() {
         : undefined;
 
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'VukaNaAmana',
+      };
+      if (activeAuthSession?.token) {
+        headers.Authorization = `Bearer ${activeAuthSession.token}`;
+      }
       void fetch('/api/consent/grant', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'VukaNaAmana',
-        },
+        credentials: 'same-origin',
+        headers,
         body: JSON.stringify({
           talentAlias: profile.displayName || 'Skilled Builder',
           verifiedPassportSummary: passport?.fieldMatch || 'Living Competency Passport verified',
@@ -2189,7 +2797,21 @@ export default function App() {
             ? { sharedWorkSetupPreferences: consentedWorkSetupPreferences }
             : {}),
         }),
-      });
+      })
+        .then(async (res) => {
+          if (!res.ok) return;
+          const data = (await res.json()) as { grant?: ConsentGrant };
+          if (data.grant) {
+            setConsentGrants((prev) => [
+              data.grant!,
+              ...prev.filter((g) => g.consentId !== data.grant!.consentId),
+            ]);
+          }
+          await fetchGrantsAndLogs();
+        })
+        .catch(() => {
+          // Offline fallback
+        });
     } catch {
       // Offline fallback
     }
@@ -2361,6 +2983,46 @@ export default function App() {
           queuedAtIso: now,
         });
       }
+
+      // Automatically award a mentor-endorsed Digital Skill Badge upon Pod Sprint completion if not yet awarded for this sprint
+      if (!menteeCompetencyBadges.some((b) => b.sprintId === completedItem.briefId)) {
+        const badgeDomain = normalizeBadgeStudioDomain(completedItem.domain);
+        const presets = DOMAIN_SKILL_BADGE_CATALOG[badgeDomain] ?? DOMAIN_SKILL_BADGE_CATALOG['Green Energy'];
+        const preset = presets[0];
+        const mentor = getAssignedMentorForSprint(completedItem.briefId, badgeDomain);
+        const autoBadge: MenteeCompetencyBadge = {
+          id: makeSafeId('mbadge'),
+          ownerUid: authUser?.uid ?? profile.uid,
+          sprintId: completedItem.briefId,
+          sprintTitle: completedItem.briefTitle,
+          domain: badgeDomain,
+          mentorId: mentor.id,
+          mentorName: mentor.name,
+          mentorRole: mentor.roleTitle,
+          badgeTitle: preset.badgeTitle,
+          skillCategory: preset.skillCategory,
+          competencyLevel: preset.defaultLevel,
+          citationNote: preset.defaultCitation,
+          verificationCode: generateBadgeVerificationCode(completedItem.briefId, badgeDomain),
+          awardedAtIso: now.slice(0, 10),
+          createdAtIso: now,
+          updatedAtIso: now,
+        };
+        const nextBadges = [autoBadge, ...menteeCompetencyBadges];
+        setMenteeCompetencyBadges(nextBadges);
+        saveLocalMenteeCompetencyBadges(nextBadges);
+
+        if (canWriteCloud && authUser) {
+          void upsertCloudMenteeCompetencyBadge(authUser.uid, autoBadge);
+        } else {
+          enqueueMutation({
+            id: makeSafeId('mut'),
+            kind: 'upsert_mentee_badge',
+            payload: autoBadge,
+            queuedAtIso: now,
+          });
+        }
+      }
     }
   };
 
@@ -2465,6 +3127,124 @@ export default function App() {
     }
   };
 
+  const handleSaveMentorshipJournalEntry = (input: SaveMentorshipJournalInput) => {
+    const now = new Date().toISOString();
+    const ownerId = authUser?.uid ?? profile.uid;
+    const existing = input.id
+      ? mentorshipJournal.find((j) => j.id === input.id)
+      : undefined;
+    const entryId = existing?.id || makeSafeId('mjournal');
+    const savedEntry: MentorshipJournalEntry = {
+      id: entryId,
+      ownerUid: ownerId,
+      contributionId: input.contributionId,
+      briefId: input.briefId,
+      briefTitle: input.briefTitle,
+      mentorId: input.mentorId,
+      mentorName: input.mentorName,
+      sessionDateIso: input.sessionDateIso,
+      focusTopic: input.focusTopic,
+      reflectionTitle: input.reflectionTitle,
+      reflectionBody: input.reflectionBody,
+      nextActionStep: input.nextActionStep,
+      createdAtIso: existing?.createdAtIso ?? now,
+      updatedAtIso: now,
+    };
+
+    const nextEntries = existing
+      ? mentorshipJournal.map((j) => (j.id === existing.id ? savedEntry : j))
+      : [savedEntry, ...mentorshipJournal];
+    setMentorshipJournal(nextEntries);
+    saveLocalMentorshipJournal(nextEntries);
+
+    if (canWriteCloud && authUser) {
+      void upsertCloudMentorshipJournalEntry(authUser.uid, savedEntry);
+    } else {
+      enqueueMutation({
+        id: makeSafeId('mut'),
+        kind: 'upsert_mentorship_journal',
+        payload: savedEntry,
+        queuedAtIso: now,
+      });
+    }
+  };
+
+  const handleDeleteMentorshipJournalEntry = (entryId: string) => {
+    const now = new Date().toISOString();
+    const nextEntries = mentorshipJournal.filter((j) => j.id !== entryId);
+    setMentorshipJournal(nextEntries);
+    saveLocalMentorshipJournal(nextEntries);
+
+    if (canWriteCloud && authUser) {
+      void deleteCloudMentorshipJournalEntry(authUser.uid, entryId);
+    } else {
+      enqueueMutation({
+        id: makeSafeId('mut'),
+        kind: 'delete_mentorship_journal',
+        entryId,
+        queuedAtIso: now,
+      });
+    }
+  };
+
+  const handleCreateSprintDiscussionPost = (input: CreateSprintDiscussionInput) => {
+    const now = new Date().toISOString();
+    const authorUid = authUser?.uid ?? profile.uid;
+    const matchedSprint = SOLUTION_SPRINTS.find((s) => s.id === input.sprintId);
+    const authorRole = matchedSprint?.podDeliveryRole || 'Pod Member';
+
+    const created: SprintDiscussionPost = {
+      id: makeSafeId('disc'),
+      sprintId: input.sprintId,
+      parentId: input.parentId ?? null,
+      authorUid,
+      authorName: profile.displayName || 'Practitioner',
+      authorRole,
+      deliverableTag: input.deliverableTag,
+      body: input.body,
+      resourceUrl: input.resourceUrl,
+      resourceLabel: input.resourceLabel,
+      createdAtIso: now,
+      updatedAtIso: now,
+    };
+
+    const nextList = [created, ...sprintDiscussions];
+    setSprintDiscussions(nextList);
+    saveLocalSprintDiscussions(nextList);
+
+    if (canWriteCloud && authUser) {
+      void upsertCloudSprintDiscussionPost(authUser.uid, created);
+    } else {
+      enqueueMutation({
+        id: makeSafeId('mut'),
+        kind: 'upsert_sprint_discussion',
+        payload: created,
+        queuedAtIso: now,
+      });
+    }
+  };
+
+  const handleDeleteSprintDiscussionPost = (sprintId: string, postId: string) => {
+    const now = new Date().toISOString();
+    const nextList = sprintDiscussions.filter(
+      (p) => p.id !== postId && p.parentId !== postId
+    );
+    setSprintDiscussions(nextList);
+    saveLocalSprintDiscussions(nextList);
+
+    if (canWriteCloud && authUser) {
+      void deleteCloudSprintDiscussionPost(sprintId, postId);
+    } else {
+      enqueueMutation({
+        id: makeSafeId('mut'),
+        kind: 'delete_sprint_discussion',
+        sprintId,
+        postId,
+        queuedAtIso: now,
+      });
+    }
+  };
+
   const handleSendMentorMessage = useCallback(
     (input: {
       sprintId: string;
@@ -2539,6 +3319,558 @@ export default function App() {
       }, 500);
     },
     [authUser, isOnline, profile.uid, enqueueMutation]
+  );
+
+  const handleLogMentorshipSession = useCallback(
+    (input: LogMentorshipSessionInput) => {
+      const now = new Date().toISOString();
+      const ownerId = authUser?.uid ?? profile.uid;
+      const newSession: MentorshipSession = {
+        id: makeSafeId('msess'),
+        ownerUid: ownerId,
+        sprintId: input.sprintId,
+        sprintTitle: input.sprintTitle,
+        mentorId: input.mentor.id,
+        mentorName: input.mentor.name,
+        focusTopic: input.focusTopic,
+        durationMinutes: input.durationMinutes,
+        status: input.status,
+        takeawayNote: input.takeawayNote,
+        attendedAtIso: input.scheduledAtIso ?? now,
+        createdAtIso: now,
+        updatedAtIso: now,
+      };
+
+      setMentorshipSessions((prev) => {
+        const next = [newSession, ...prev];
+        saveLocalMentorshipSessions(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void upsertCloudMentorshipSession(authUser.uid, newSession);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_mentorship_session',
+          payload: newSession,
+          queuedAtIso: now,
+        });
+      }
+      announcePolite(
+        `${input.status === 'attended' ? 'Attended' : 'Scheduled'} QA session saved for ${input.sprintTitle}.`
+      );
+    },
+    [authUser, canWriteCloud, profile.uid, enqueueMutation, announcePolite]
+  );
+
+  const handleMarkSessionAttended = useCallback(
+    (sessionId: string) => {
+      const now = new Date().toISOString();
+      let updatedRecord: MentorshipSession | null = null;
+      setMentorshipSessions((prev) => {
+        const next = prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          updatedRecord = {
+            ...s,
+            status: 'attended',
+            attendedAtIso: now,
+            updatedAtIso: now,
+          };
+          return updatedRecord;
+        });
+        saveLocalMentorshipSessions(next);
+        return next;
+      });
+
+      if (updatedRecord) {
+        if (canWriteCloud && authUser) {
+          void upsertCloudMentorshipSession(authUser.uid, updatedRecord);
+        } else {
+          enqueueMutation({
+            id: makeSafeId('mut'),
+            kind: 'upsert_mentorship_session',
+            payload: updatedRecord,
+            queuedAtIso: now,
+          });
+        }
+        announcePolite('Mentorship session marked as attended.');
+      }
+    },
+    [authUser, canWriteCloud, enqueueMutation, announcePolite]
+  );
+
+  const handleRequestMentorPairing = useCallback(
+    (input: {
+      track: MentorshipTrackSpec;
+      mentorName: string;
+      sprintId?: string;
+      sprintTitle?: string;
+      preferredCadence: MentorPairingCadence;
+      sprintGoals: string;
+    }): MentorPairingRequest => {
+      const now = new Date().toISOString();
+      const newPairing: MentorPairingRequest = {
+        id: makeSafeId('pair'),
+        ownerUid: profile.uid,
+        trackId: input.track.id,
+        trackTitle: input.track.title,
+        domain: input.track.domain,
+        mentorId: input.track.mentorId,
+        mentorName: input.mentorName,
+        sprintId: input.sprintId || undefined,
+        sprintTitle: input.sprintTitle || undefined,
+        preferredCadence: input.preferredCadence,
+        sprintGoals: input.sprintGoals,
+        status: 'requested',
+        createdAtIso: now,
+        updatedAtIso: now,
+      };
+
+      setMentorPairings((prev) => {
+        const next = [newPairing, ...prev];
+        saveLocalMentorPairings(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void upsertCloudMentorPairing(authUser.uid, newPairing);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_mentor_pairing',
+          payload: newPairing,
+          queuedAtIso: now,
+        });
+      }
+
+      announcePolite(`Formal mentor pairing requested for ${input.track.domain} track.`);
+      return newPairing;
+    },
+    [authUser, canWriteCloud, profile.uid, enqueueMutation, announcePolite]
+  );
+
+  const handleDeleteMentorPairing = useCallback(
+    (pairingId: string) => {
+      const now = new Date().toISOString();
+      setMentorPairings((prev) => {
+        const next = prev.filter((item) => item.id !== pairingId);
+        saveLocalMentorPairings(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void deleteCloudMentorPairing(authUser.uid, pairingId);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'delete_mentor_pairing',
+          pairingId,
+          queuedAtIso: now,
+        });
+      }
+      announcePolite('Mentor pairing request withdrawn.');
+    },
+    [authUser, canWriteCloud, enqueueMutation, announcePolite]
+  );
+
+  const handleSubmitMentorRating = useCallback(
+    (input: {
+      track: MentorshipTrackSpec;
+      mentorId: string;
+      mentorName: string;
+      rating: MentorRatingScore;
+      comment: string;
+    }) => {
+      const now = new Date().toISOString();
+      const newRating: MentorRating = {
+        id: makeSafeId('mrate'),
+        ownerUid: authUser?.uid || profile.uid,
+        trackId: input.track.id,
+        trackTitle: input.track.title,
+        domain: input.track.domain,
+        mentorId: input.mentorId,
+        mentorName: input.mentorName,
+        rating: input.rating,
+        comment: input.comment.trim().slice(0, 500),
+        createdAtIso: now,
+        updatedAtIso: now,
+      };
+
+      setMentorRatings((prev) => {
+        const next = [newRating, ...prev];
+        saveLocalMentorRatings(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void upsertCloudMentorRating(authUser.uid, newRating);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_mentor_rating',
+          payload: newRating,
+          queuedAtIso: now,
+        });
+      }
+
+      announcePolite(`Mentor rating (${input.rating}/5) recorded for ${input.mentorName}.`);
+      return newRating;
+    },
+    [authUser, canWriteCloud, profile.uid, enqueueMutation, announcePolite]
+  );
+
+  const handleDeleteMentorRating = useCallback(
+    (ratingId: string) => {
+      const now = new Date().toISOString();
+      setMentorRatings((prev) => {
+        const next = prev.filter((item) => item.id !== ratingId);
+        saveLocalMentorRatings(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void deleteCloudMentorRating(authUser.uid, ratingId);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'delete_mentor_rating',
+          ratingId,
+          queuedAtIso: now,
+        });
+      }
+      announcePolite('Mentor rating removed.');
+    },
+    [authUser, canWriteCloud, enqueueMutation, announcePolite]
+  );
+
+  const handleToggleTrackObjective = useCallback(
+    (trackId: string, objectiveId: string): MentorshipTrackProgressRecord => {
+      const now = new Date().toISOString();
+      const currentRecord = mentorshipTrackProgress.find((item) => item.trackId === trackId);
+      const nextCompletedIds = toggleObjectiveCompletion(
+        currentRecord?.completedObjectiveIds || [],
+        objectiveId
+      );
+
+      const updatedRecord: MentorshipTrackProgressRecord = {
+        id: trackId,
+        ownerUid: authUser?.uid || profile.uid,
+        trackId,
+        completedObjectiveIds: nextCompletedIds,
+        createdAtIso: currentRecord?.createdAtIso || now,
+        updatedAtIso: now,
+      };
+
+      setMentorshipTrackProgress((prev) => {
+        const filtered = prev.filter((item) => item.trackId !== trackId);
+        const next = [updatedRecord, ...filtered];
+        saveLocalMentorshipTrackProgress(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void upsertCloudMentorshipTrackProgress(authUser.uid, updatedRecord);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_track_progress',
+          payload: updatedRecord,
+          queuedAtIso: now,
+        });
+      }
+
+      const isMastered = nextCompletedIds.includes(objectiveId);
+      announcePolite(
+        isMastered
+          ? 'Learning objective marked as mastered and synced with Mentorship Progress Bar.'
+          : 'Learning objective marked as in progress.'
+      );
+      return updatedRecord;
+    },
+    [authUser, canWriteCloud, mentorshipTrackProgress, profile.uid, enqueueMutation, announcePolite]
+  );
+
+  const handleAwardMenteeBadge = useCallback(
+    (
+      draft: Omit<MenteeCompetencyBadge, 'id' | 'ownerUid' | 'createdAtIso' | 'updatedAtIso'>
+    ): MenteeCompetencyBadge => {
+      const now = new Date().toISOString();
+      const created: MenteeCompetencyBadge = {
+        id: makeSafeId('mbadge'),
+        ownerUid: authUser?.uid || profile.uid,
+        ...draft,
+        createdAtIso: now,
+        updatedAtIso: now,
+      };
+
+      setMenteeCompetencyBadges((prev) => {
+        const next = [created, ...prev];
+        saveLocalMenteeCompetencyBadges(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void upsertCloudMenteeCompetencyBadge(authUser.uid, created);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_mentee_badge',
+          payload: created,
+          queuedAtIso: now,
+        });
+      }
+
+      announcePolite(
+        `Digital Skill Badge "${created.badgeTitle}" awarded by ${created.mentorName} and added to your Competency Passport.`
+      );
+      return created;
+    },
+    [authUser, canWriteCloud, profile.uid, enqueueMutation, announcePolite]
+  );
+
+  const handleDeleteMenteeBadge = useCallback(
+    (badgeId: string) => {
+      const now = new Date().toISOString();
+      setMenteeCompetencyBadges((prev) => {
+        const next = prev.filter((item) => item.id !== badgeId);
+        saveLocalMenteeCompetencyBadges(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void deleteCloudMenteeCompetencyBadge(authUser.uid, badgeId);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'delete_mentee_badge',
+          badgeId,
+          queuedAtIso: now,
+        });
+      }
+      announcePolite('Digital skill badge removed from Competency Passport.');
+    },
+    [authUser, canWriteCloud, enqueueMutation, announcePolite]
+  );
+
+  const handleSubmitMilestoneFeedback = useCallback(
+    (
+      draft: Omit<MentorMilestoneFeedback, 'id' | 'ownerUid' | 'createdAtIso' | 'updatedAtIso'>
+    ): MentorMilestoneFeedback => {
+      const now = new Date().toISOString();
+      const existing = mentorMilestoneFeedback.find(
+        (item) => item.sprintId === draft.sprintId && item.milestoneKey === draft.milestoneKey
+      );
+      const record: MentorMilestoneFeedback = {
+        id: existing?.id || makeSafeId('mmfb'),
+        ownerUid: authUser?.uid || profile.uid,
+        ...draft,
+        createdAtIso: existing?.createdAtIso || now,
+        updatedAtIso: now,
+      };
+
+      setMentorMilestoneFeedback((prev) => {
+        const filtered = prev.filter((item) => item.id !== record.id);
+        const next = [record, ...filtered];
+        saveLocalMentorMilestoneFeedback(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void upsertCloudMentorMilestoneFeedback(authUser.uid, record);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_milestone_feedback',
+          payload: record,
+          queuedAtIso: now,
+        });
+      }
+
+      announcePolite(
+        `Milestone review (${record.rating}/5) recorded by ${record.mentorName} for ${record.sprintTitle}.`
+      );
+      return record;
+    },
+    [authUser, canWriteCloud, mentorMilestoneFeedback, profile.uid, enqueueMutation, announcePolite]
+  );
+
+  const handleDeleteMilestoneFeedback = useCallback(
+    (feedbackId: string) => {
+      const now = new Date().toISOString();
+      setMentorMilestoneFeedback((prev) => {
+        const next = prev.filter((item) => item.id !== feedbackId);
+        saveLocalMentorMilestoneFeedback(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void deleteCloudMentorMilestoneFeedback(authUser.uid, feedbackId);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'delete_milestone_feedback',
+          feedbackId,
+          queuedAtIso: now,
+        });
+      }
+      announcePolite('Mentor milestone review removed.');
+    },
+    [authUser, canWriteCloud, enqueueMutation, announcePolite]
+  );
+
+  const handleSaveSessionAgenda = useCallback(
+    (agenda: MentorshipSessionAgendaRecord): MentorshipSessionAgendaRecord => {
+      const now = new Date().toISOString();
+      const ownerUid = authUser?.uid ?? profile.uid;
+      const existing = mentorshipSessionAgendas.find((item) => item.id === agenda.id);
+
+      const record: MentorshipSessionAgendaRecord = {
+        id: existing ? existing.id : agenda.id || makeSafeId('magenda'),
+        ownerUid,
+        sprintId: agenda.sprintId.trim().slice(0, 120),
+        sprintTitle: agenda.sprintTitle.trim().slice(0, 160),
+        mentorId: agenda.mentorId.trim().slice(0, 120),
+        mentorName: agenda.mentorName.trim().slice(0, 80),
+        sessionId: agenda.sessionId ? agenda.sessionId.trim().slice(0, 120) : undefined,
+        sessionDateIso: agenda.sessionDateIso.trim().slice(0, 40),
+        focusTopic: agenda.focusTopic,
+        agendaTitle: agenda.agendaTitle.trim().slice(0, 140),
+        desiredOutcome: agenda.desiredOutcome.trim().slice(0, 400),
+        agendaItems: agenda.agendaItems.slice(0, 10),
+        completedItemIndices: agenda.completedItemIndices.slice(0, 10),
+        sharedWithMentor: Boolean(agenda.sharedWithMentor),
+        createdAtIso: existing ? existing.createdAtIso : agenda.createdAtIso || now,
+        updatedAtIso: now,
+      };
+
+      setMentorshipSessionAgendas((prev) => {
+        const filtered = prev.filter((item) => item.id !== record.id);
+        const next = [record, ...filtered].sort((a, b) =>
+          b.updatedAtIso.localeCompare(a.updatedAtIso)
+        );
+        saveLocalMentorshipSessionAgendas(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void upsertCloudMentorshipSessionAgenda(authUser.uid, record);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_session_agenda',
+          payload: record,
+          queuedAtIso: now,
+        });
+      }
+
+      announcePolite(
+        record.sharedWithMentor
+          ? `Session agenda "${record.agendaTitle}" saved and shared with ${record.mentorName}.`
+          : `Session agenda "${record.agendaTitle}" saved.`
+      );
+      return record;
+    },
+    [authUser, canWriteCloud, mentorshipSessionAgendas, profile.uid, enqueueMutation, announcePolite]
+  );
+
+  const handleDeleteSessionAgenda = useCallback(
+    (agendaId: string) => {
+      const now = new Date().toISOString();
+      setMentorshipSessionAgendas((prev) => {
+        const next = prev.filter((item) => item.id !== agendaId);
+        saveLocalMentorshipSessionAgendas(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void deleteCloudMentorshipSessionAgenda(authUser.uid, agendaId);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'delete_session_agenda',
+          agendaId,
+          queuedAtIso: now,
+        });
+      }
+      announcePolite('Mentorship session agenda removed.');
+    },
+    [authUser, canWriteCloud, enqueueMutation, announcePolite]
+  );
+
+  const handleSaveMentorPeerReview = useCallback(
+    (
+      draft: Omit<
+        MentorPeerReviewRecord,
+        'id' | 'ownerUid' | 'createdAtIso' | 'updatedAtIso'
+      >
+    ): MentorPeerReviewRecord => {
+      const now = new Date().toISOString();
+      const ownerUid = authUser?.uid ?? profile.uid;
+      const record: MentorPeerReviewRecord = {
+        id: makeSafeId('mprev'),
+        ownerUid,
+        sprintId: draft.sprintId.trim().slice(0, 120),
+        sprintTitle: draft.sprintTitle.trim().slice(0, 160),
+        mentorId: draft.mentorId.trim().slice(0, 120),
+        mentorName: draft.mentorName.trim().slice(0, 80),
+        mentorRole: draft.mentorRole.trim().slice(0, 120),
+        reviewedDate: draft.reviewedDate.trim().slice(0, 40) || now.slice(0, 10),
+        cohesionScore: draft.cohesionScore,
+        framingScore: draft.framingScore,
+        communicationScore: draft.communicationScore,
+        feedbackText: draft.feedbackText.trim().slice(0, 1000),
+        recommendedAction: draft.recommendedAction.trim().slice(0, 400),
+        createdAtIso: now,
+        updatedAtIso: now,
+      };
+
+      setMentorPeerReviews((prev) => {
+        const next = [record, ...prev];
+        saveLocalMentorPeerReviews(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void upsertCloudMentorPeerReview(authUser.uid, record);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'upsert_mentor_peer_review',
+          payload: record,
+          queuedAtIso: now,
+        });
+      }
+
+      announcePolite(`Formative mentor review by ${record.mentorName} saved.`);
+      return record;
+    },
+    [authUser, canWriteCloud, profile.uid, enqueueMutation, announcePolite]
+  );
+
+  const handleDeleteMentorPeerReview = useCallback(
+    (reviewId: string) => {
+      const now = new Date().toISOString();
+      setMentorPeerReviews((prev) => {
+        const next = prev.filter((item) => item.id !== reviewId);
+        saveLocalMentorPeerReviews(next);
+        return next;
+      });
+
+      if (canWriteCloud && authUser) {
+        void deleteCloudMentorPeerReview(authUser.uid, reviewId);
+      } else {
+        enqueueMutation({
+          id: makeSafeId('mut'),
+          kind: 'delete_mentor_peer_review',
+          reviewId,
+          queuedAtIso: now,
+        });
+      }
+
+      announcePolite('Mentor peer review removed.');
+    },
+    [authUser, canWriteCloud, enqueueMutation, announcePolite]
   );
 
   const handleApplyCohortPreset = (blueprint: CohortBlueprintPreview) => {
@@ -2732,7 +4064,9 @@ export default function App() {
       sprintMilestonesByBrief,
     },
     debounceMs: 5000,
+    enabled: viewMode === 'studio' && activePortal === 'talent',
     syncedEmail: activeSyncedEmail,
+    authToken: activeAuthSession?.realm === 'talent' ? activeAuthSession.token : null,
   });
 
   const accountSyncModalElement = (
@@ -2929,7 +4263,16 @@ export default function App() {
       <MotionConfig reducedMotion={accessPrefs.reducedMotion ? 'always' : 'user'}>
         <MessagingProvider
           messages={mentorMessages}
+          mentorshipSessions={mentorshipSessions}
+          milestoneFeedback={mentorMilestoneFeedback}
+          sessionAgendas={mentorshipSessionAgendas}
           onSendMessage={handleSendMentorMessage}
+          onLogMentorshipSession={handleLogMentorshipSession}
+          onMarkSessionAttended={handleMarkSessionAttended}
+          onSubmitMilestoneFeedback={handleSubmitMilestoneFeedback}
+          onDeleteMilestoneFeedback={handleDeleteMilestoneFeedback}
+          onSaveSessionAgenda={handleSaveSessionAgenda}
+          onDeleteSessionAgenda={handleDeleteSessionAgenda}
         >
           {srAnnouncerElement}
           {skipToMainLink}
@@ -2939,36 +4282,150 @@ export default function App() {
             activeSession={activeAuthSession}
             sprints={postedSprints}
             onPostSprint={(newSprint) => {
-              const brief: ProblemBrief = {
+              const fallbackBrief: ProblemBrief = {
                 id: `brief_${Date.now()}`,
                 ...newSprint,
               };
-              setPostedSprints((prev) => [brief, ...prev]);
-              announcePolite('New solution sprint posted.');
-            }}
-            consentedGrants={consentGrants}
-            onIssueContract={(grantId) => {
-              announcePolite('Compliant sprint contract issued. SDG Impact Pulse updated.');
+              const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'VukaNaAmana',
+              };
+              if (activeAuthSession?.token) {
+                headers.Authorization = `Bearer ${activeAuthSession.token}`;
+              }
+              void fetch('/api/partner/sprints', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers,
+                body: JSON.stringify(newSprint),
+              })
+                .then(async (res) => {
+                  if (res.ok) {
+                    const data = (await res.json()) as { sprint?: ProblemBrief };
+                    const created = data.sprint ?? fallbackBrief;
+                    setPostedSprints((prev) => [
+                      created,
+                      ...prev.filter((item) => item.id !== created.id),
+                    ]);
+                  } else {
+                    setPostedSprints((prev) => [fallbackBrief, ...prev]);
+                  }
+                })
+                .catch(() => {
+                  setPostedSprints((prev) => [fallbackBrief, ...prev]);
+                });
+              announcePolite('New solution sprint published live to Builder Studio Tab 3.');
               setGlobalToast({
-                id: `contract-issued-${Date.now()}`,
+                id: `sprint-posted-${Date.now()}`,
                 variant: 'synced',
-                title: 'Compliant Sprint Contract & Escrow Issued',
-                message: `Sprint agreement for consent grant ${grantId} has been successfully finalized and locked into escrow. SDGs 8, 16, and 17 incremented.`,
+                title: 'Solution Sprint Published Live',
+                message: `"${newSprint.title}" is now visible to Skilled Builders in Tab 3 [Solve].`,
               });
             }}
+            consentedGrants={consentGrants.filter((g) => g.status === 'active')}
+            issuedContractsByGrantId={issuedContractsByGrantId}
+            verificationsByGrantId={partnerVerifications}
+            applicantFeedback={partnerApplicantFeedback}
+            onUpdateVerificationStep={(consentId, stepId, status, reviewerNote) => {
+              void handleUpdateVerificationStep(consentId, stepId, status, reviewerNote);
+            }}
+            onSendApplicantFeedback={(input) => {
+              void handleSendApplicantFeedback(input);
+            }}
+            onIssueContract={(grantId, bridgeType = 'direct-local') => {
+              const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'VukaNaAmana',
+              };
+              if (activeAuthSession?.token) {
+                headers.Authorization = `Bearer ${activeAuthSession.token}`;
+              }
+              void fetch('/api/partner/contracts/issue', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers,
+                body: JSON.stringify({ grantId, bridgeType }),
+              })
+                .then(async (res) => {
+                  if (!res.ok) {
+                    const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+                    setGlobalToast({
+                      id: `contract-err-${Date.now()}`,
+                      variant: 'offline',
+                      title: 'Contract Issuance Blocked',
+                      message:
+                        errBody.error ||
+                        'This Consent Grant is no longer active or has been revoked by the builder.',
+                    });
+                    await fetchGrantsAndLogs();
+                    return;
+                  }
+                  const data = (await res.json()) as {
+                    contract?: {
+                      grantId: string;
+                      contractRef: string;
+                      bridgeType: string;
+                      issuedAtIso: string;
+                    };
+                  };
+                  if (data.contract) {
+                    setIssuedContractsByGrantId((prev) => ({
+                      ...prev,
+                      [data.contract!.grantId]: {
+                        contractRef: data.contract!.contractRef,
+                        bridgeType: data.contract!.bridgeType,
+                        issuedAtIso: data.contract!.issuedAtIso,
+                      },
+                    }));
+                    announcePolite(
+                      `Compliant sprint contract ${data.contract.contractRef} issued. SDG Impact Pulse updated.`
+                    );
+                    setGlobalToast({
+                      id: `contract-issued-${Date.now()}`,
+                      variant: 'synced',
+                      title: 'Compliant Sprint Contract & Escrow Active',
+                      message: `Agreement ${data.contract.contractRef} for ${grantId} is finalized and logged. SDGs 8, 16, and 17 updated.`,
+                    });
+                  }
+                  await fetchGrantsAndLogs();
+                })
+                .catch(() => {
+                  const localRef = `VNA-CTR-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+                  setIssuedContractsByGrantId((prev) => ({
+                    ...prev,
+                    [grantId]: {
+                      contractRef: localRef,
+                      bridgeType,
+                      issuedAtIso: new Date().toISOString(),
+                    },
+                  }));
+                  announcePolite('Compliant sprint contract issued locally.');
+                });
+            }}
             telemetry={{
-              sdg4Count: 12,
-              sdg8Count: postedSprints.length + 5,
-              sdg10Count: 24,
-              sdg16Count: 18,
-              sdg17Count: 15,
-              totalStipendDisbursedUsd: 14500,
+              sdg4Count: Math.max(1, capabilities.length + lockedBridges.length),
+              sdg8Count: postedSprints.length + contributions.length,
+              sdg10Count: Math.max(
+                1,
+                consentGrants.filter((g) => g.status === 'active').length +
+                  Object.keys(issuedContractsByGrantId).length
+              ),
+              sdg16Count: Math.max(1, accessAuditLogs.length),
+              sdg17Count: Object.keys(issuedContractsByGrantId).length,
+              totalStipendDisbursedUsd:
+                payouts.reduce((sum, p) => sum + (p.amountUsd || 0), 0) +
+                postedSprints.reduce((sum, s) => sum + (s.payoutUsd || 0), 0),
               activeSprintsCount: postedSprints.length,
-              clearedTalentCount: Math.max(1, consentGrants.length),
+              clearedTalentCount: consentGrants.filter((g) => g.status === 'active').length,
             }}
             activeTab={partnerConsoleTab}
             onSelectTab={(tab) => {
               setPartnerConsoleTab(tab);
+              if (tab === 'talent' || tab === 'compliance' || tab === 'impact') {
+                void fetchGrantsAndLogs();
+                void fetchPartnerContracts();
+                void fetchPartnerVerificationState();
+              }
               announcePolite(`Partner Console ${tab} tab opened.`);
             }}
             onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
@@ -2976,7 +4433,7 @@ export default function App() {
             hasCustomAccessComfort={isCustomAccessComfort}
             onSwitchToTalentDoor={() => void handleSwitchToTalentDoor()}
             onBackToHome={() => void handleLockAndExitToLanding('partner-home')}
-            onEndSession={() => void handleLockAndExitToLanding('partner-end-session')}
+            onEndSession={(details) => void handleLockAndExitToLanding('partner-end-session', details)}
             theme={profile.themePreference}
             onToggleTheme={handleToggleTheme}
             t={t}
@@ -2998,7 +4455,16 @@ export default function App() {
     <MotionConfig reducedMotion={accessPrefs.reducedMotion ? 'always' : 'user'}>
       <MessagingProvider
         messages={mentorMessages}
+        mentorshipSessions={mentorshipSessions}
+        milestoneFeedback={mentorMilestoneFeedback}
+        sessionAgendas={mentorshipSessionAgendas}
         onSendMessage={handleSendMentorMessage}
+        onLogMentorshipSession={handleLogMentorshipSession}
+        onMarkSessionAttended={handleMarkSessionAttended}
+        onSubmitMilestoneFeedback={handleSubmitMilestoneFeedback}
+        onDeleteMilestoneFeedback={handleDeleteMilestoneFeedback}
+        onSaveSessionAgenda={handleSaveSessionAgenda}
+        onDeleteSessionAgenda={handleDeleteSessionAgenda}
       >
         <div className="min-h-screen bg-[#FAF8F5] dark:bg-[#121315] text-[#17191C] dark:text-[#F4F2EE] pb-24 md:pb-12 overflow-x-clip">
           {srAnnouncerElement}
@@ -3053,8 +4519,12 @@ export default function App() {
             onSyncNow={handleSyncNow}
             onOpenAccountSync={handleOpenAccountSync}
             onOpenAccessComfort={() => setIsAccessDrawerOpen(true)}
+            onOpenPrivacyModal={() => {
+              setIsPrivacyModalOpen(true);
+              void fetchGrantsAndLogs();
+            }}
             hasCustomAccessComfort={isCustomAccessComfort}
-            onEndSession={() => void handleLockAndExitToLanding('builder-end-session')}
+            onEndSession={(details) => void handleLockAndExitToLanding('builder-end-session', details)}
             t={t}
           />
 
@@ -3096,6 +4566,21 @@ export default function App() {
             </div>
           )}
 
+          <StageSequenceDisclaimer
+            activeTab={activeTab}
+            hasVerifiedSkills={
+              Boolean(passport) ||
+              capabilities.some((c) => c.verificationStatus !== 'pending')
+            }
+            isVaultReady={
+              vault.identityCompleted &&
+              vault.contractCompleted &&
+              vault.payoutCompleted
+            }
+            hasActiveOrCompletedSprint={contributions.length > 0}
+            onNavigateTab={(tab) => navigateBuilderTab(tab)}
+          />
+
           {activeTab === 'verify' && (
             <VerifyView
               profile={profile}
@@ -3103,6 +4588,7 @@ export default function App() {
               contributions={contributions}
               passport={passport}
               endorsements={endorsements}
+              menteeBadges={menteeCompetencyBadges}
               isOnline={isOnline}
               speechLang={localeMeta.speechLang}
               t={t}
@@ -3116,6 +4602,8 @@ export default function App() {
               onRequestEndorsement={handleRequestEndorsement}
               onCompleteEndorsement={handleCompleteEndorsement}
               onDeleteEndorsement={handleDeleteEndorsement}
+              onAwardMenteeBadge={handleAwardMenteeBadge}
+              onDeleteMenteeBadge={handleDeleteMenteeBadge}
               onPreviewSharedPassport={(payload) => setSharedPassportView(payload)}
               sharePassportSignal={sharePassportSignal}
               voiceTriggerSignal={voiceTriggerSignal}
@@ -3136,15 +4624,17 @@ export default function App() {
               t={t}
               onChangeVaultViewMode={setUnlockViewMode}
               onUpdateVault={handleUpdateVault}
-              onAdvancePayout={handleAdvancePayout}
               onRequestEndorsement={handleRequestEndorsement}
-              onCompleteEndorsement={handleCompleteEndorsement}
               onDeleteEndorsement={handleDeleteEndorsement}
               onAcceptBrief={handleAcceptBrief}
               onOpenSolve={(briefId) => {
                 setSelectedBriefId(briefId);
                 navigateBuilderTab('solve');
               }}
+              activeGrants={consentGrants.filter((g) => g.status === 'active')}
+              partnerVerifications={partnerVerifications}
+              partnerFeedback={partnerApplicantFeedback}
+              onNavigateStage={(tab) => navigateBuilderTab(tab)}
             />
           )}
 
@@ -3159,6 +4649,7 @@ export default function App() {
               sprintMilestonesByBrief={sprintMilestonesByBrief}
               matchedApplications={matchedApplications}
               lockedBridges={lockedBridges}
+              partnerPostedSprints={postedSprints}
               selectedBriefId={selectedBriefId}
               isOnline={isOnline}
               speechLang={localeMeta.speechLang}
@@ -3175,6 +4666,14 @@ export default function App() {
               onGoToVerify={() => navigateBuilderTab('verify')}
               onGoToPulse={() => navigateBuilderTab('pulse')}
               onUpdateVault={handleUpdateVault}
+              mentorPairings={mentorPairings}
+              mentorRatings={mentorRatings}
+              mentorshipTrackProgress={mentorshipTrackProgress}
+              onRequestMentorPairing={handleRequestMentorPairing}
+              onDeleteMentorPairing={handleDeleteMentorPairing}
+              onSubmitMentorRating={handleSubmitMentorRating}
+              onDeleteMentorRating={handleDeleteMentorRating}
+              onToggleTrackObjective={handleToggleTrackObjective}
             />
           )}
 
@@ -3189,17 +4688,28 @@ export default function App() {
               payouts={payouts}
               sprintFeedback={sprintFeedback}
               collaborationNotes={collaborationNotes}
+              mentorshipJournal={mentorshipJournal}
+              sprintDiscussions={sprintDiscussions}
               celebratedContribution={recentCompletedContribution}
               userEmail={activeSyncedEmail}
+              currentUserUid={authUser?.uid ?? profile.uid}
               lastSyncedIso={lastSyncedIso}
               queuedCount={offlineQueue.length}
               isOnline={isOnline}
               isSyncing={isSyncing}
               sprintMilestonesByBrief={sprintMilestonesByBrief}
+              mentorPairings={mentorPairings}
+              mentorPeerReviews={mentorPeerReviews}
               t={t}
               onAddSprintFeedback={handleAddSprintFeedback}
               onSaveCollaborationNote={handleSaveCollaborationNote}
               onDeleteCollaborationNote={handleDeleteCollaborationNote}
+              onSaveMentorshipJournalEntry={handleSaveMentorshipJournalEntry}
+              onDeleteMentorshipJournalEntry={handleDeleteMentorshipJournalEntry}
+              onCreateSprintDiscussionPost={handleCreateSprintDiscussionPost}
+              onDeleteSprintDiscussionPost={handleDeleteSprintDiscussionPost}
+              onSaveMentorPeerReview={handleSaveMentorPeerReview}
+              onDeleteMentorPeerReview={handleDeleteMentorPeerReview}
               onDismissCelebration={() => setRecentCompletedContribution(null)}
               onSignIn={handleOpenAccountSync}
               onSyncNow={handleSyncNow}
@@ -3239,6 +4749,13 @@ export default function App() {
         {bibliographyModalElement}
         {judgeGuidePdfModalElement}
         {accountSyncModalElement}
+        <PrivacySharedAccessModal
+          isOpen={isPrivacyModalOpen}
+          onClose={() => setIsPrivacyModalOpen(false)}
+          grants={consentGrants}
+          auditLogs={accessAuditLogs}
+          onRevokeGrant={handleRevokeGrant}
+        />
         <MentorMessagingDrawer />
         <SyncLedger
           isOnline={isOnline}

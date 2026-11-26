@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   ArrowRight,
   Award,
+  CalendarClock,
   CheckCircle2,
   Clock3,
   Compass,
@@ -18,7 +19,14 @@ import type {
   LivingProofPortfolio,
   LockedUpskillingBridgeRecord,
   MatchedWorkApplication,
+  MentorPairingCadence,
+  MentorPairingRequest,
+  MentorRating,
+  MentorRatingScore,
+  MentorshipTrackProgressRecord,
+  MentorshipTrackSpec,
   PractitionerProfile,
+  ProblemBrief,
   RankedMatchedWorkOpportunity,
   RankedSolutionSprint,
   SkillCapability,
@@ -46,6 +54,8 @@ import { WorkSetupPreferencesCard } from './WorkSetupPreferencesCard';
 import { SprintMilestoneProgressBar } from './SprintMilestoneProgressBar';
 import { SprintMilestoneChecklist } from './SprintMilestoneChecklist';
 import { SprintReminders } from './SprintReminders';
+import { MentorshipPathsModal } from './MentorshipPathsModal';
+import { MentorshipAvailabilityScheduler } from './MentorshipAvailabilityScheduler';
 import { PlatformFAQs } from './PlatformFAQs';
 import { VoiceTextarea } from './VoiceField';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -63,6 +73,7 @@ interface SolveViewProps {
   matchedApplications: MatchedWorkApplication[];
   lockedBridges: LockedUpskillingBridgeRecord[];
   selectedBriefId: string | null;
+  partnerPostedSprints?: ProblemBrief[];
   isOnline: boolean;
   speechLang: string;
   t: TranslationDictionary;
@@ -82,6 +93,30 @@ interface SolveViewProps {
   onGoToVerify: () => void;
   onGoToPulse?: () => void;
   onUpdateVault?: (next: WorkReadyVault) => void;
+  mentorPairings?: MentorPairingRequest[];
+  mentorRatings?: MentorRating[];
+  mentorshipTrackProgress?: MentorshipTrackProgressRecord[];
+  onRequestMentorPairing?: (input: {
+    track: MentorshipTrackSpec;
+    mentorName: string;
+    sprintId?: string;
+    sprintTitle?: string;
+    preferredCadence: MentorPairingCadence;
+    sprintGoals: string;
+  }) => MentorPairingRequest;
+  onDeleteMentorPairing?: (pairingId: string) => void;
+  onSubmitMentorRating?: (input: {
+    track: MentorshipTrackSpec;
+    mentorId: string;
+    mentorName: string;
+    rating: MentorRatingScore;
+    comment: string;
+  }) => MentorRating;
+  onDeleteMentorRating?: (ratingId: string) => void;
+  onToggleTrackObjective?: (
+    trackId: string,
+    objectiveId: string
+  ) => MentorshipTrackProgressRecord;
 }
 
 export const SolveView: React.FC<SolveViewProps> = ({
@@ -95,6 +130,7 @@ export const SolveView: React.FC<SolveViewProps> = ({
   matchedApplications = [],
   lockedBridges,
   selectedBriefId,
+  partnerPostedSprints = [],
   isOnline,
   speechLang,
   t,
@@ -110,13 +146,28 @@ export const SolveView: React.FC<SolveViewProps> = ({
   onGoToVerify,
   onGoToPulse,
   onUpdateVault,
+  mentorPairings = [],
+  mentorRatings = [],
+  mentorshipTrackProgress = [],
+  onRequestMentorPairing,
+  onDeleteMentorPairing,
+  onSubmitMentorRating,
+  onDeleteMentorRating,
+  onToggleTrackObjective,
 }) => {
   const workbenchRef = useRef<HTMLDivElement | null>(null);
-  const { openMentorThread, getMentorForSprint, getMessagesForSprint } = useMessaging();
+  const {
+    mentorshipSessions,
+    openMentorThread,
+    bookMentorshipSession,
+    getMentorForSprint,
+    getMessagesForSprint,
+    getSessionsForSprint,
+  } = useMessaging();
 
   const rankedSprints = useMemo(
-    () => rankSolutionSprints(profile, capabilities, passport),
-    [profile, capabilities, passport]
+    () => rankSolutionSprints(profile, capabilities, passport, partnerPostedSprints),
+    [profile, capabilities, passport, partnerPostedSprints]
   );
 
   const activeSubmission =
@@ -142,6 +193,8 @@ export const SolveView: React.FC<SolveViewProps> = ({
     payoutUsd: number;
     hoursLogged: number;
   } | null>(null);
+  const [isMentorshipPathsOpen, setIsMentorshipPathsOpen] = useState(false);
+  const [isAvailabilityPopoverOpen, setIsAvailabilityPopoverOpen] = useState(false);
   const shouldReduceMotion = useReducedMotion();
 
   const visibleSprints = useMemo(() => {
@@ -283,10 +336,12 @@ export const SolveView: React.FC<SolveViewProps> = ({
       />
 
       {/* Header Banner + 3-Stage Proof-of-Work Pathway */}
-      <div className="relative overflow-hidden rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 space-y-6">
-        <TopographicAscentMotif />
+      <div className="relative rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 space-y-6">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
+          <TopographicAscentMotif />
+        </div>
 
-        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-4 pb-6 border-b border-[#E8E3DB] dark:border-[#2C3037]">
+        <div className="relative z-20 flex flex-col md:flex-row md:items-end justify-between gap-4 pb-6 border-b border-[#E8E3DB] dark:border-[#2C3037]">
           <div className="max-w-2xl">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#146C53] dark:text-[#2EB88B]">
               Solution-Flow Marketplace · Cross-Age Pods
@@ -322,6 +377,51 @@ export const SolveView: React.FC<SolveViewProps> = ({
                 <span>Generate Passport to Sharpen Match</span>
               </button>
             )}
+            <button
+              type="button"
+              data-testid="open-mentorship-paths-btn"
+              onClick={() => setIsMentorshipPathsOpen(true)}
+              className="min-h-[40px] px-4 py-2 rounded-xl border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-[#E7F3EE]/70 dark:bg-[#142B24]/70 hover:bg-[#D8EDE4] dark:hover:bg-[#1A392F] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+            >
+              <Users className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                Mentorship Paths
+                {mentorPairings.length > 0 ? ` (${mentorPairings.length})` : ''}
+              </span>
+            </button>
+            <div className="relative inline-flex">
+              <button
+                type="button"
+                data-testid="open-availability-scheduler-popover-btn"
+                aria-expanded={isAvailabilityPopoverOpen}
+                aria-haspopup="dialog"
+                onClick={() => setIsAvailabilityPopoverOpen((prev) => !prev)}
+                className="min-h-[40px] px-4 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+              >
+                <CalendarClock className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B] shrink-0" />
+                <span>Book Mentor Slot</span>
+              </button>
+              <MentorshipAvailabilityScheduler
+                variant="popover"
+                isOpen={isAvailabilityPopoverOpen}
+                onClose={() => setIsAvailabilityPopoverOpen(false)}
+                activeSubmission={activeSubmission}
+                contributions={contributions}
+                mentorshipSessions={mentorshipSessions}
+                onBookSlot={(payload) =>
+                  bookMentorshipSession({
+                    sprintId: payload.sprintId,
+                    sprintTitle: payload.sprintTitle,
+                    mentor: payload.mentor,
+                    focusTopic: payload.focusTopic,
+                    durationMinutes: payload.durationMinutes,
+                    status: 'scheduled',
+                    takeawayNote: payload.takeawayNote,
+                    scheduledAtIso: payload.scheduledAtIso,
+                  })
+                }
+              />
+            </div>
             <button
               type="button"
               onClick={onGoToUnlock}
@@ -950,6 +1050,28 @@ export const SolveView: React.FC<SolveViewProps> = ({
                   </button>
                 );
               })}
+
+              {/* Mentor Availability & Direct Slot Booking Sidebar */}
+              <div className="pt-2">
+                <MentorshipAvailabilityScheduler
+                  variant="sidebar"
+                  activeSubmission={activeSubmission}
+                  contributions={contributions}
+                  mentorshipSessions={mentorshipSessions}
+                  onBookSlot={(payload) =>
+                    bookMentorshipSession({
+                      sprintId: payload.sprintId,
+                      sprintTitle: payload.sprintTitle,
+                      mentor: payload.mentor,
+                      focusTopic: payload.focusTopic,
+                      durationMinutes: payload.durationMinutes,
+                      status: 'scheduled',
+                      takeawayNote: payload.takeawayNote,
+                      scheduledAtIso: payload.scheduledAtIso,
+                    })
+                  }
+                />
+              </div>
             </aside>
 
             {/* Right Workbench */}
@@ -1135,27 +1257,35 @@ export const SolveView: React.FC<SolveViewProps> = ({
                   activeSubmission.domain
                 );
                 const threadCount = getMessagesForSprint(activeSubmission.briefId).length;
+                const sprintSessions = getSessionsForSprint(activeSubmission.briefId);
+                const attendedCount = sprintSessions.filter((s) => s.status === 'attended').length;
+                const scheduledCount = sprintSessions.filter((s) => s.status === 'scheduled').length;
+                const doneMilestones =
+                  activeSubmission.milestonesDone ??
+                  sprintMilestonesByBrief?.[activeSubmission.briefId] ??
+                  [];
+                const needsPreSubmitQa =
+                  doneMilestones.includes('draft-ready') && attendedCount === 0;
+
                 return (
                   <div
                     data-testid="pod-mentorship-indicator"
-                    className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                    className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-4 space-y-3"
                   >
-                    <div className="space-y-1.5 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#146C53] dark:text-[#2EB88B]">
-                          Pod Mentorship
-                        </span>
-                        <span aria-hidden="true" className="text-[#8A847A]">·</span>
-                        <span
-                          data-testid="mentor-availability-status"
-                          className="inline-flex items-center gap-1.5 font-medium text-[#17191C] dark:text-[#F4F2EE]"
-                        >
-                          <span className="relative flex h-2 w-2 shrink-0" aria-hidden="true">
-                            {activeMentor.availability === 'available' && (
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#146C53] dark:bg-[#2EB88B] opacity-60" />
-                            )}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1.5 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#146C53] dark:text-[#2EB88B]">
+                            Pod Mentorship
+                          </span>
+                          <span aria-hidden="true" className="text-[#8A847A]">·</span>
+                          <span
+                            data-testid="mentor-availability-status"
+                            className="inline-flex items-center gap-1.5 font-medium text-[#17191C] dark:text-[#F4F2EE]"
+                          >
                             <span
-                              className={`relative inline-flex rounded-full h-2 w-2 ${
+                              aria-hidden="true"
+                              className={`inline-flex rounded-full h-2 w-2 shrink-0 ${
                                 activeMentor.availability === 'available'
                                   ? 'bg-[#146C53] dark:bg-[#2EB88B]'
                                   : activeMentor.availability === 'in-review'
@@ -1163,43 +1293,107 @@ export const SolveView: React.FC<SolveViewProps> = ({
                                     : 'bg-[#8A847A]'
                               }`}
                             />
+                            <span>{activeMentor.availabilityLabel}</span>
                           </span>
-                          <span>{activeMentor.availabilityLabel}</span>
-                        </span>
-                        <span aria-hidden="true" className="text-[#8A847A]">·</span>
-                        <span className="text-[#575B62] dark:text-[#A3A7AE]">
-                          {activeMentor.responseWindow}
-                        </span>
+                          <span aria-hidden="true" className="text-[#8A847A]">·</span>
+                          <span className="text-[#575B62] dark:text-[#A3A7AE]">
+                            {activeMentor.responseWindow}
+                          </span>
+                          <span aria-hidden="true" className="text-[#8A847A]">·</span>
+                          <span
+                            data-testid="solve-qa-sessions-summary"
+                            className="font-mono-tabular tabular-nums text-[#146C53] dark:text-[#2EB88B] font-medium"
+                          >
+                            {attendedCount} QA session{attendedCount === 1 ? '' : 's'} attended
+                            {scheduledCount > 0 ? ` (${scheduledCount} scheduled)` : ''}
+                          </span>
+                        </div>
+
+                        <p className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                          {activeMentor.name}{' '}
+                          <span className="font-normal text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                            — {activeMentor.roleTitle} ({activeMentor.ageStageBadge})
+                          </span>
+                        </p>
+
+                        <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                          {activeMentor.hubLocation} · {activeMentor.specialty}
+                          {threadCount > 0 ? ` · ${threadCount} message${threadCount === 1 ? '' : 's'} in thread` : ''}
+                        </p>
                       </div>
 
-                      <p className="text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
-                        {activeMentor.name}{' '}
-                        <span className="font-normal text-xs text-[#575B62] dark:text-[#A3A7AE]">
-                          — {activeMentor.roleTitle} ({activeMentor.ageStageBadge})
-                        </span>
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          data-testid="solve-pod-mentorship-paths-btn"
+                          onClick={() => setIsMentorshipPathsOpen(true)}
+                          className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-[#17191C] dark:text-[#F4F2EE] text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+                        >
+                          <Users className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
+                          <span>Mentorship Paths</span>
+                        </button>
 
-                      <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
-                        {activeMentor.hubLocation} · {activeMentor.specialty}
-                        {threadCount > 0 ? ` · ${threadCount} message${threadCount === 1 ? '' : 's'} in thread` : ''}
-                      </p>
+                        <button
+                          type="button"
+                          data-testid="solve-log-qa-session-btn"
+                          onClick={() =>
+                            openMentorThread(
+                              activeSubmission.briefId,
+                              activeSubmission.briefTitle,
+                              activeSubmission.domain,
+                              { initialPanel: 'session' }
+                            )
+                          }
+                          className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-[#17191C] dark:text-[#F4F2EE] text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+                        >
+                          <span>Log QA Session</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          data-testid="message-mentor-btn"
+                          onClick={() =>
+                            openMentorThread(
+                              activeSubmission.briefId,
+                              activeSubmission.briefTitle,
+                              activeSubmission.domain
+                            )
+                          }
+                          className="min-h-[42px] px-4 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Message Mentor</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <button
-                      type="button"
-                      data-testid="message-mentor-btn"
-                      onClick={() =>
-                        openMentorThread(
-                          activeSubmission.briefId,
-                          activeSubmission.briefTitle,
-                          activeSubmission.domain
-                        )
-                      }
-                      className="min-h-[42px] px-4 py-2 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>Message Mentor</span>
-                    </button>
+                    {needsPreSubmitQa && (
+                      <div
+                        data-testid="mentor-qa-readiness-hint"
+                        className="pt-2.5 border-t border-[#E8E3DB] dark:border-[#2C3037] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[#C4622D] dark:text-[#E07B46]"
+                      >
+                        <span>
+                          Draft Ready milestone reached with 0 mentor QA sessions logged yet — run a quick 15m handover check before final submission.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openMentorThread(
+                              activeSubmission.briefId,
+                              activeSubmission.briefTitle,
+                              activeSubmission.domain,
+                              {
+                                initialPanel: 'session',
+                                contextNote: 'Pre-submit Draft Ready QA check',
+                              }
+                            )
+                          }
+                          className="font-semibold underline whitespace-nowrap self-start sm:self-center cursor-pointer"
+                        >
+                          Log 15m QA Check →
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -1215,9 +1409,21 @@ export const SolveView: React.FC<SolveViewProps> = ({
                 }
                 isCompleted={isCompleted}
                 checkedDeliverables={checkedDeliverables}
+                mentorshipSessions={getSessionsForSprint(activeSubmission.briefId)}
                 headingLabel={t.deliverablesHeading}
                 onToggleDeliverable={toggleDeliverable}
                 onTogglePhaseMilestone={onToggleSprintMilestone}
+                onOpenMentorSessionDrawer={() =>
+                  openMentorThread(
+                    activeSubmission.briefId,
+                    activeSubmission.briefTitle,
+                    activeSubmission.domain,
+                    {
+                      initialPanel: 'session',
+                      contextNote: 'Mentor QA prerequisite for final sprint milestone',
+                    }
+                  )
+                }
               />
 
               {isCompleted ? (
@@ -1322,6 +1528,50 @@ export const SolveView: React.FC<SolveViewProps> = ({
 
       {/* How Vuka Works: Platform FAQs & Guide */}
       <PlatformFAQs variant="solve" />
+
+      {/* Mentorship Paths & Formal Pairing Modal */}
+      <MentorshipPathsModal
+        isOpen={isMentorshipPathsOpen}
+        onClose={() => setIsMentorshipPathsOpen(false)}
+        activeSubmission={activeSubmission}
+        contributions={contributions}
+        passport={passport}
+        mentorPairings={mentorPairings}
+        mentorshipSessions={mentorshipSessions}
+        mentorRatings={mentorRatings}
+        mentorshipTrackProgress={mentorshipTrackProgress}
+        onBookSessionClick={() => {
+          setIsMentorshipPathsOpen(false);
+          setIsAvailabilityPopoverOpen(true);
+        }}
+        onRequestMentorPairing={(input) => {
+          if (onRequestMentorPairing) {
+            return onRequestMentorPairing(input);
+          }
+          const now = new Date().toISOString();
+          return {
+            id: `pairing-${Date.now()}`,
+            ownerUid: profile.uid,
+            trackId: input.track.id,
+            trackTitle: input.track.title,
+            domain: input.track.domain,
+            mentorId: input.track.mentorId,
+            mentorName: input.mentorName,
+            sprintId: input.sprintId,
+            sprintTitle: input.sprintTitle,
+            preferredCadence: input.preferredCadence,
+            sprintGoals: input.sprintGoals,
+            status: 'requested',
+            createdAtIso: now,
+            updatedAtIso: now,
+          };
+        }}
+        onDeleteMentorPairing={onDeleteMentorPairing}
+        onSubmitMentorRating={onSubmitMentorRating}
+        onDeleteMentorRating={onDeleteMentorRating}
+        onToggleTrackObjective={onToggleTrackObjective}
+        onOpenMentorThread={openMentorThread}
+      />
     </section>
   );
 };

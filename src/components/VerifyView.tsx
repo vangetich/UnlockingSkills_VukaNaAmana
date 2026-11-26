@@ -31,6 +31,7 @@ import type {
   AgeStage,
   BriefSubmission,
   CompetencyPassport,
+  MenteeCompetencyBadge,
   PeerEndorsement,
   PractitionerProfile,
   SharedPassportPayload,
@@ -58,6 +59,7 @@ import {
 } from '../utils/talentEngine';
 import type { TranslationDictionary } from '../utils/i18n';
 import { WovenBridgeArcsMotif } from './ResilienceMotifs';
+import { MenteeCompetencyEndorsement } from './MenteeCompetencyEndorsement';
 
 interface VerifyViewProps {
   profile: PractitionerProfile;
@@ -65,6 +67,7 @@ interface VerifyViewProps {
   contributions?: BriefSubmission[];
   passport: CompetencyPassport | null;
   endorsements: PeerEndorsement[];
+  menteeBadges?: MenteeCompetencyBadge[];
   isOnline: boolean;
   speechLang: string;
   t: TranslationDictionary;
@@ -92,6 +95,10 @@ interface VerifyViewProps {
   }) => PeerEndorsement;
   onCompleteEndorsement: (endorsementId: string, endorsementText: string) => void;
   onDeleteEndorsement: (endorsementId: string) => void;
+  onAwardMenteeBadge?: (
+    draft: Omit<MenteeCompetencyBadge, 'id' | 'ownerUid' | 'createdAtIso' | 'updatedAtIso'>
+  ) => void;
+  onDeleteMenteeBadge?: (badgeId: string) => void;
   onPreviewSharedPassport: (payload: SharedPassportPayload) => void;
   sharePassportSignal?: number;
   voiceTriggerSignal?: number;
@@ -129,6 +136,7 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
   contributions = [],
   passport,
   endorsements,
+  menteeBadges = [],
   isOnline,
   speechLang,
   t,
@@ -142,6 +150,8 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
   onRequestEndorsement,
   onCompleteEndorsement,
   onDeleteEndorsement,
+  onAwardMenteeBadge,
+  onDeleteMenteeBadge,
   onPreviewSharedPassport,
   sharePassportSignal = 0,
   voiceTriggerSignal = 0,
@@ -1698,6 +1708,16 @@ export const VerifyView: React.FC<VerifyViewProps> = ({
                         'Professional Working Fluency (English / Regional)'}
                     </span>
                   </div>
+
+                  {/* Earned Mentor Digital Skill Badges from Completed Pod Sprints */}
+                  <MenteeCompetencyEndorsement
+                    badges={menteeBadges}
+                    contributions={contributions}
+                    activeDomain={passport.studioDomain}
+                    menteeName={profile.displayName || 'Practitioner'}
+                    onAwardBadge={onAwardMenteeBadge}
+                    onDeleteBadge={onDeleteMenteeBadge}
+                  />
                 </div>
 
                 {/* Subtle, Honest UNESCO-Aligned Transparency Note */}

@@ -11,6 +11,8 @@ import {
   FOREIGN_CIVIL_TRANSCRIPT_SAMPLE,
   IDENTITY_DOCUMENT_TIERS,
   MATCHED_WORK_OPPORTUNITIES,
+  MENTORSHIP_TRACKS,
+  POD_MENTORS,
   PRACTICAL_SCENARIOS,
   SEED_BRIEFS,
   SKILL_TRACK_OPTIONS,
@@ -54,6 +56,7 @@ import {
   filterSolutionSprints,
   getAssignedMentorForSprint,
   getMatchedFatfKycTier,
+  getMentorshipTrackForDomain,
   getPreseededComplianceRoute,
   getRecommendedVerifyRoute,
   getSprintComplexityLevel,
@@ -77,10 +80,13 @@ import type {
   CompetencyPassport,
   ContractPayout,
   MentorMessage,
+  MentorPairingRequest,
+  MentorshipSession,
   OfflineMutation,
   PeerEndorsement,
   SkillCapability,
   SprintCollaborationNote,
+  SprintDiscussionPost,
   SprintFeedback,
 } from '../types/kora';
 import {
@@ -106,10 +112,39 @@ import {
   buildImpactPulseSeries,
   buildYearInReviewHeatmap,
 } from '../components/ImpactPulseAnalytics';
+import {
+  buildMentorshipTrackImpactMetrics,
+  buildMentorshipVelocityMetrics,
+  buildSixMonthMentorshipCorrelation,
+} from '../components/MentorshipImpactChart';
+import {
+  buildMentorAvailabilityHeatmap,
+  formatResponseMinutes,
+} from '../components/MentorAvailabilityHeatmap';
+import {
+  MENTORSHIP_SUCCESS_STORIES,
+  getMentorshipStoriesForTrack,
+} from '../components/MentorshipSuccessStories';
+import {
+  END_SESSION_REASON_OPTIONS,
+  getEndSessionAdvice,
+} from '../components/EndSessionPopover';
+import { buildMentorOpenSlots } from '../components/MentorshipAvailabilityScheduler';
+import { computeMentorshipTrackProgress } from '../components/MentorshipProgressBar';
+import {
+  MENTOR_RATING_LABELS,
+  computeMentorRatingSummary,
+  validateAndFormatMentorRating,
+} from '../components/MentorRatingSystem';
+import {
+  getLearningObjectivesForTrack,
+  toggleObjectiveCompletion,
+} from '../components/MentorshipMilestoneTracker';
 import { GLOSSARY_ENTRIES } from '../components/GlossaryModal';
 import {
   buildSprintMilestoneTasks,
   filterSprintMilestoneTasks,
+  getMentorshipPathSummary,
   getMilestoneStatusExplanation,
   getSprintMilestoneFilterCounts,
 } from '../components/SprintMilestoneChecklist';
@@ -126,7 +161,47 @@ import {
   buildMonthCalendarGrid,
   buildSprintCalendarEvents,
 } from '../components/SprintCalendar';
-import { resolveRealtimeMentorAvailability } from '../components/MentorMessagingDrawer';
+import {
+  buildMentorshipSessionSummaryText,
+  resolveRealtimeMentorAvailability,
+} from '../components/MentorMessagingDrawer';
+import {
+  computeMenteeRubricEvaluation,
+  filterAndSortJournalEntries,
+  validateAndFormatJournalEntry,
+} from '../components/MentorshipJournal';
+import {
+  buildDefaultPodDiscussionsForSprint,
+  buildSprintDiscussionThreads,
+  sanitizeDiscussionResourceUrl,
+} from '../components/SprintDiscussionBoard';
+import {
+  DOMAIN_SKILL_BADGE_CATALOG,
+  buildEligibleSprintsForEndorsement,
+  computeEarnedBadgeSummary,
+  generateBadgeVerificationCode,
+  normalizeBadgeStudioDomain,
+  validateAndFormatMenteeBadge,
+} from '../components/MenteeCompetencyEndorsement';
+import {
+  PROJECT_MILESTONE_CATALOG,
+  computeMilestoneFeedbackLoopSummary,
+  formatMilestoneFeedbackForChat,
+  validateAndFormatMilestoneFeedback,
+} from '../components/MentorDashboardFeedback';
+import {
+  buildPairingHistoryTimeline,
+  computePairingHistorySummary,
+  findContributionForPairing,
+  matchCollaborationNotesForPairing,
+} from '../components/MentorshipPairingHistory';
+import {
+  computeSessionAgendaProgress,
+  formatSessionAgendaForChat,
+  toggleAgendaItemCompletion,
+  validateAndFormatSessionAgenda,
+} from '../components/MentorshipSessionAgenda';
+import { TRANSLATIONS } from './i18n';
 
 const sampleCap: SkillCapability = {
   id: 'cap-1',
@@ -2847,8 +2922,1940 @@ test('Markdown parser safely structures collaboration notes and rejects unsafe l
   assert.equal(compactedDelete[0].kind, 'delete_collaboration_note');
 });
 
+test('SprintMilestoneChecklist marks sequential task dependencies and locks downstream milestones until prerequisite is Completed', () => {
+  const ranked = rankSolutionSprints(
+    createInitialProfile({ ageStage: '30-45', problemStatement: 'solar inverter' }),
+    [sampleCap],
+    samplePassport
+  );
+  const solarSprint = ranked.find((s) => s.id === 'sprint-solar-coldchain-01')!;
+  const nowMs = Date.parse('2026-11-25T12:00:00.000Z');
 
+  // Step 0: nothing completed -> Task 1 root (unlocked), Tasks 2 & 3 locked
+  const initialTasks = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: [],
+    isCompleted: false,
+    checkedMap: {},
+    deadlineIso: '2026-11-28T12:00:00.000Z',
+    nowMs,
+  });
 
+  assert.equal(initialTasks[0].dependencyState, 'root');
+  assert.equal(initialTasks[0].dependsOnOrder, null);
+  assert.equal(initialTasks[0].isLocked, false);
+
+  assert.equal(initialTasks[1].dependencyState, 'locked');
+  assert.equal(initialTasks[1].dependsOnOrder, 1);
+  assert.equal(initialTasks[1].isLocked, true);
+  assert.equal(initialTasks[1].dependencyLabel, 'Locked until Task 01 is Completed');
+
+  assert.equal(initialTasks[2].dependencyState, 'locked');
+  assert.equal(initialTasks[2].dependsOnOrder, 2);
+  assert.equal(initialTasks[2].isLocked, true);
+  assert.equal(initialTasks[2].dependencyLabel, 'Locked until Task 02 is Completed');
+
+  // Step 1: Task 1 checked off -> Task 2 unlocked, Task 3 still locked on Task 2
+  const firstDoneTasks = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: {},
+    deadlineIso: '2026-11-28T12:00:00.000Z',
+    nowMs,
+  });
+
+  assert.equal(firstDoneTasks[0].statusLabel, 'Completed');
+  assert.equal(firstDoneTasks[1].dependencyState, 'unlocked');
+  assert.equal(firstDoneTasks[1].isLocked, false);
+  assert.equal(firstDoneTasks[1].dependencyLabel, 'Unlocked · Task 01 Completed');
+  assert.equal(firstDoneTasks[2].dependencyState, 'locked');
+  assert.equal(firstDoneTasks[2].isLocked, true);
+
+  // Step 2: Task 2 checked off via checkedMap -> Task 3 unlocked
+  const secondKey = `${solarSprint.id}::${solarSprint.deliverableChecklist[1]}`;
+  const secondDoneTasks = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: { [secondKey]: true },
+    deadlineIso: '2026-11-28T12:00:00.000Z',
+    nowMs,
+  });
+
+  assert.equal(secondDoneTasks[2].dependencyState, 'unlocked');
+  assert.equal(secondDoneTasks[2].isLocked, false);
+  assert.equal(secondDoneTasks[2].dependencyLabel, 'Unlocked · Task 02 Completed');
+});
+
+test('SprintDiscussionBoard sanitizes resource URLs, builds deliverable threads, and compacts discussion offline mutations', () => {
+  assert.equal(
+    sanitizeDiscussionResourceUrl('https://docs.vukanaamana.org/specs/solar-qa'),
+    'https://docs.vukanaamana.org/specs/solar-qa'
+  );
+  assert.equal(sanitizeDiscussionResourceUrl('http://localhost:3000/guide'), 'http://localhost:3000/guide');
+  assert.equal(sanitizeDiscussionResourceUrl('javascript:alert(1)'), undefined);
+  assert.equal(sanitizeDiscussionResourceUrl('data:text/html,<script>'), undefined);
+  assert.equal(sanitizeDiscussionResourceUrl('ftp://files.example.com/a'), undefined);
+  assert.equal(sanitizeDiscussionResourceUrl('https://bad url with spaces.com'), undefined);
+  assert.equal(sanitizeDiscussionResourceUrl('/relative/path'), undefined);
+
+  const seeded = buildDefaultPodDiscussionsForSprint({
+    sprintId: 'sprint-solar-coldchain-01',
+    briefTitle: 'Solar Cold-Chain Telemetry',
+    deliverables: ['48V inverter wiring diagram', 'Telemetry alert threshold spec'],
+    mentorName: 'Dr. Grace Mwangi',
+    mentorRole: 'Senior Energy Specialist',
+  });
+  assert.equal(seeded.length, 3);
+
+  const customRoot: SprintDiscussionPost = {
+    id: 'disc-custom-1',
+    sprintId: 'sprint-solar-coldchain-01',
+    parentId: null,
+    authorUid: 'user-1',
+    authorName: 'Amina Hassan',
+    authorRole: 'Pod Delivery',
+    deliverableTag: '48V inverter wiring diagram',
+    body: 'Uploaded updated busbar fuse rating table.',
+    resourceUrl: 'https://docs.vukanaamana.org/fuse-chart',
+    resourceLabel: 'Fuse Rating Chart',
+    createdAtIso: '2026-11-25T10:00:00.000Z',
+    updatedAtIso: '2026-11-25T10:00:00.000Z',
+  };
+  const customReply: SprintDiscussionPost = {
+    id: 'disc-custom-2',
+    sprintId: 'sprint-solar-coldchain-01',
+    parentId: 'disc-custom-1',
+    authorUid: 'user-2',
+    authorName: 'Samuel Kiprop',
+    authorRole: 'Pod Lead',
+    deliverableTag: '48V inverter wiring diagram',
+    body: 'Confirmed 60A breaker match for the clinic sub-panel.',
+    createdAtIso: '2026-11-25T11:00:00.000Z',
+    updatedAtIso: '2026-11-25T11:00:00.000Z',
+  };
+
+  const allThreads = buildSprintDiscussionThreads([...seeded, customRoot, customReply], 'all');
+  assert.equal(allThreads.length, 3);
+  assert.equal(allThreads[0].root.id, 'disc-custom-1');
+  assert.equal(allThreads[0].replies.length, 1);
+  assert.equal(allThreads[0].replies[0].id, 'disc-custom-2');
+
+  const filteredThreads = buildSprintDiscussionThreads(
+    [...seeded, customRoot, customReply],
+    'Telemetry alert threshold spec'
+  );
+  assert.equal(filteredThreads.length, 1);
+  assert.equal(filteredThreads[0].root.deliverableTag, 'Telemetry alert threshold spec');
+
+  const compactedDisc = compactOfflineQueue([
+    { id: 'd1', kind: 'upsert_sprint_discussion', payload: customRoot, queuedAtIso: customRoot.createdAtIso },
+    {
+      id: 'd2',
+      kind: 'upsert_sprint_discussion',
+      payload: { ...customRoot, body: 'Edited fuse rating note.' },
+      queuedAtIso: '2026-11-25T10:05:00.000Z',
+    },
+    {
+      id: 'd3',
+      kind: 'delete_sprint_discussion',
+      sprintId: customReply.sprintId,
+      postId: customReply.id,
+      queuedAtIso: '2026-11-25T11:30:00.000Z',
+    },
+  ]);
+  assert.equal(compactedDisc.length, 2);
+  assert.equal(compactedDisc[0].id, 'd2');
+  assert.equal(compactedDisc[1].kind, 'delete_sprint_discussion');
+});
+
+test('buildMentorshipVelocityMetrics correlates attended sessions, mentor thread fallback, velocity lift, and ratio', () => {
+  const emptyMetrics = buildMentorshipVelocityMetrics({
+    contributions: [],
+    mentorMessages: [],
+    mentorshipSessions: [],
+    payouts: [],
+  });
+  assert.equal(emptyMetrics.points.length, 0);
+  assert.equal(emptyMetrics.sessionsAttendedCount, 0);
+  assert.equal(emptyMetrics.completedSprintsCount, 0);
+  assert.equal(emptyMetrics.sessionToSprintRatioLabel, '0 : 0');
+
+  const contributions: BriefSubmission[] = [
+    {
+      id: 'c-mentored-1',
+      ownerUid: 'u1',
+      briefId: 'sprint-solar-coldchain-01',
+      briefTitle: 'Solar Microgrid Diagnostics',
+      domain: 'Green Energy',
+      status: 'completed',
+      solutionNotes: 'Completed thermal diagnostics and 48V cell rebalance.',
+      hoursLogged: 6,
+      payoutUsd: 480,
+      milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+      createdAtIso: '2026-11-01T10:00:00.000Z',
+      updatedAtIso: '2026-11-05T10:00:00.000Z',
+    },
+    {
+      id: 'c-thread-2',
+      ownerUid: 'u1',
+      briefId: 'sprint-health-02',
+      briefTitle: 'Clinic Triage Protocol',
+      domain: 'Healthcare Ops',
+      status: 'completed',
+      solutionNotes: 'Completed bilingual triage checklist.',
+      hoursLogged: 4,
+      payoutUsd: 390,
+      milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+      createdAtIso: '2026-11-10T10:00:00.000Z',
+      updatedAtIso: '2026-11-12T10:00:00.000Z',
+    },
+    {
+      id: 'c-unmentored-3',
+      ownerUid: 'u1',
+      briefId: 'sprint-finance-03',
+      briefTitle: 'Artisan Working-Capital Ledger',
+      domain: 'SME Finance',
+      status: 'in-progress',
+      solutionNotes: 'Initial sheet draft.',
+      hoursLogged: 3,
+      payoutUsd: 460,
+      milestonesDone: ['analysis-complete'],
+      createdAtIso: '2026-11-18T10:00:00.000Z',
+      updatedAtIso: '2026-11-20T10:00:00.000Z',
+    },
+  ];
+
+  const mentorshipSessions: MentorshipSession[] = [
+    {
+      id: 'ms-1',
+      ownerUid: 'u1',
+      sprintId: 'sprint-solar-coldchain-01',
+      sprintTitle: 'Solar Microgrid Diagnostics',
+      mentorId: 'mentor-green-01',
+      mentorName: 'Eng. Samuel Kariuki',
+      focusTopic: 'qa-architecture',
+      durationMinutes: 30,
+      status: 'attended',
+      takeawayNote: 'Checked 48V busbar torque.',
+      attendedAtIso: '2026-11-02T10:00:00.000Z',
+      createdAtIso: '2026-11-02T10:00:00.000Z',
+      updatedAtIso: '2026-11-02T10:00:00.000Z',
+    },
+    {
+      id: 'ms-2',
+      ownerUid: 'u1',
+      sprintId: 'sprint-solar-coldchain-01',
+      sprintTitle: 'Solar Microgrid Diagnostics',
+      mentorId: 'mentor-green-01',
+      mentorName: 'Eng. Samuel Kariuki',
+      focusTopic: 'handover-rubric',
+      durationMinutes: 15,
+      status: 'attended',
+      takeawayNote: 'Approved handover checklist.',
+      attendedAtIso: '2026-11-04T10:00:00.000Z',
+      createdAtIso: '2026-11-04T10:00:00.000Z',
+      updatedAtIso: '2026-11-04T10:00:00.000Z',
+    },
+    {
+      id: 'ms-3',
+      ownerUid: 'u1',
+      sprintId: 'sprint-finance-03',
+      sprintTitle: 'Artisan Working-Capital Ledger',
+      mentorId: 'mentor-finance-04',
+      mentorName: 'Grace Mukasa',
+      focusTopic: 'career-rpl',
+      durationMinutes: 30,
+      status: 'scheduled',
+      takeawayNote: 'Upcoming Friday ledger review.',
+      attendedAtIso: '2026-11-26T10:00:00.000Z',
+      createdAtIso: '2026-11-24T10:00:00.000Z',
+      updatedAtIso: '2026-11-24T10:00:00.000Z',
+    },
+  ];
+
+  const mentorMessages: MentorMessage[] = [
+    // Already has explicit logged sessions on sprint-solar-coldchain-01, so should NOT double-count
+    {
+      id: 'mm-1',
+      ownerUid: 'u1',
+      sprintId: 'sprint-solar-coldchain-01',
+      sprintTitle: 'Solar Microgrid Diagnostics',
+      mentorId: 'mentor-green-01',
+      mentorName: 'Eng. Samuel Kariuki',
+      sender: 'practitioner',
+      body: 'Ready for review',
+      createdAtIso: '2026-11-02T09:00:00.000Z',
+      updatedAtIso: '2026-11-02T09:00:00.000Z',
+    },
+    // No explicit logged session on sprint-health-02, so counts as 1 async pod check-in
+    {
+      id: 'mm-2',
+      ownerUid: 'u1',
+      sprintId: 'sprint-health-02',
+      sprintTitle: 'Clinic Triage Protocol',
+      mentorId: 'mentor-health-02',
+      mentorName: 'Dr. Amina Haddad',
+      sender: 'practitioner',
+      body: 'Can you verify maternal red-flag phrasing?',
+      createdAtIso: '2026-11-11T09:00:00.000Z',
+      updatedAtIso: '2026-11-11T09:00:00.000Z',
+    },
+  ];
+
+  const metrics = buildMentorshipVelocityMetrics({
+    contributions,
+    mentorMessages,
+    mentorshipSessions,
+    payouts: [],
+  });
+
+  // 2 explicit attended on sprint-1 + 1 async check-in on sprint-2 = 3 attended; 2 completed sprints => 1.5 : 1
+  assert.equal(metrics.sessionsAttendedCount, 3);
+  assert.equal(metrics.completedSprintsCount, 2);
+  assert.equal(metrics.scheduledSessionsCount, 1);
+  assert.equal(metrics.sessionToSprintRatio, 1.5);
+  assert.equal(metrics.sessionToSprintRatioLabel, '1.5 : 1');
+  assert.equal(metrics.mentoredSprintsCount, 2);
+  assert.equal(metrics.unmentoredSprintsCount, 1);
+  assert.equal(metrics.mentoredSprintCoveragePct, 67);
+  assert.equal(metrics.mentoredAvgVelocityPct, 100);
+  assert.equal(metrics.unmentoredAvgVelocityPct, 33);
+  assert.equal(metrics.velocityLiftPct, 67);
+  assert.equal(metrics.totalMentorshipMinutes, 60); // 30m + 15m + 15m async fallback
+  assert.equal(metrics.points.length, 3);
+  assert.equal(metrics.points[0].sessionsAttended, 2);
+  assert.equal(metrics.points[1].sessionsAttended, 1);
+  assert.equal(metrics.points[2].sessionsAttended, 0);
+
+  // Offline queue compaction for upsert_mentorship_session / delete_mentorship_session
+  const compactedSessions = compactOfflineQueue([
+    {
+      id: 'qm-1',
+      kind: 'upsert_mentorship_session',
+      payload: mentorshipSessions[2],
+      queuedAtIso: '2026-11-24T10:00:00.000Z',
+    },
+    {
+      id: 'qm-2',
+      kind: 'upsert_mentorship_session',
+      payload: { ...mentorshipSessions[2], status: 'attended' },
+      queuedAtIso: '2026-11-25T10:00:00.000Z',
+    },
+    {
+      id: 'qm-3',
+      kind: 'delete_mentorship_session',
+      sessionId: 'ms-1',
+      queuedAtIso: '2026-11-25T11:00:00.000Z',
+    },
+  ]);
+  assert.equal(compactedSessions.length, 2);
+  assert.equal(compactedSessions[0].id, 'qm-2');
+  assert.equal(compactedSessions[1].kind, 'delete_mentorship_session');
+});
+
+test('buildSixMonthMentorshipCorrelation buckets 6 rolling months and compares mentored vs unmentored sprint success', () => {
+  const anchorMs = Date.parse('2026-11-25T12:00:00.000Z');
+  const contributions: BriefSubmission[] = [
+    {
+      id: 'c-jun',
+      ownerUid: 'u1',
+      briefId: 'sprint-jun-01',
+      briefTitle: 'June Solar Check',
+      domain: 'Green Energy',
+      status: 'completed',
+      solutionNotes: 'Done',
+      hoursLogged: 5,
+      payoutUsd: 350,
+      milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+      createdAtIso: '2026-06-05T10:00:00.000Z',
+      updatedAtIso: '2026-06-12T10:00:00.000Z',
+    },
+    {
+      id: 'c-aug',
+      ownerUid: 'u1',
+      briefId: 'sprint-aug-02',
+      briefTitle: 'August Finance Audit',
+      domain: 'SME Finance',
+      status: 'in-progress',
+      solutionNotes: 'Drafted initial ledger.',
+      hoursLogged: 2,
+      payoutUsd: 400,
+      milestonesDone: ['analysis-complete'],
+      createdAtIso: '2026-08-03T10:00:00.000Z',
+      updatedAtIso: '2026-08-14T10:00:00.000Z',
+    },
+    {
+      id: 'c-nov',
+      ownerUid: 'u1',
+      briefId: 'sprint-nov-03',
+      briefTitle: 'November Sync Architecture',
+      domain: 'Tech',
+      status: 'completed',
+      solutionNotes: 'Shipped conflict queue tests.',
+      hoursLogged: 7,
+      payoutUsd: 520,
+      milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+      createdAtIso: '2026-11-02T10:00:00.000Z',
+      updatedAtIso: '2026-11-19T10:00:00.000Z',
+    },
+  ];
+
+  const mentorshipSessions: MentorshipSession[] = [
+    {
+      id: 'ms-jun',
+      ownerUid: 'u1',
+      sprintId: 'sprint-jun-01',
+      sprintTitle: 'June Solar Check',
+      mentorId: 'mentor-green-01',
+      mentorName: 'Eng. Samuel Kariuki',
+      focusTopic: 'qa-architecture',
+      durationMinutes: 30,
+      status: 'attended',
+      takeawayNote: 'Verified thermal hysteresis curve.',
+      attendedAtIso: '2026-06-08T10:00:00.000Z',
+      createdAtIso: '2026-06-08T10:00:00.000Z',
+      updatedAtIso: '2026-06-08T10:00:00.000Z',
+    },
+    {
+      id: 'ms-nov-1',
+      ownerUid: 'u1',
+      sprintId: 'sprint-nov-03',
+      sprintTitle: 'November Sync Architecture',
+      mentorId: 'mentor-tech-03',
+      mentorName: 'Eng. Tomasz Kowalski',
+      focusTopic: 'technical-unblocker',
+      durationMinutes: 45,
+      status: 'attended',
+      takeawayNote: 'Reviewed offline idempotency boundary.',
+      attendedAtIso: '2026-11-10T10:00:00.000Z',
+      createdAtIso: '2026-11-10T10:00:00.000Z',
+      updatedAtIso: '2026-11-10T10:00:00.000Z',
+    },
+    {
+      id: 'ms-nov-2',
+      ownerUid: 'u1',
+      sprintId: 'sprint-nov-03',
+      sprintTitle: 'November Sync Architecture',
+      mentorId: 'mentor-tech-03',
+      mentorName: 'Eng. Tomasz Kowalski',
+      focusTopic: 'handover-rubric',
+      durationMinutes: 15,
+      status: 'attended',
+      takeawayNote: 'Final PR sign-off.',
+      attendedAtIso: '2026-11-18T10:00:00.000Z',
+      createdAtIso: '2026-11-18T10:00:00.000Z',
+      updatedAtIso: '2026-11-18T10:00:00.000Z',
+    },
+  ];
+
+  const sixM = buildSixMonthMentorshipCorrelation({
+    contributions,
+    mentorshipSessions,
+    nowMs: anchorMs,
+  });
+
+  assert.equal(sixM.months.length, 6);
+  assert.deepEqual(
+    sixM.months.map((m) => m.monthKey),
+    ['2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']
+  );
+  assert.equal(sixM.months[0].sessionsAttended, 1);
+  assert.equal(sixM.months[0].completionSuccessRatePct, 100);
+  assert.equal(sixM.months[0].milestoneVelocityPct, 100);
+
+  assert.equal(sixM.months[2].sessionsAttended, 0);
+  assert.equal(sixM.months[2].completionSuccessRatePct, 0);
+  assert.equal(sixM.months[2].milestoneVelocityPct, 33);
+
+  assert.equal(sixM.months[5].sessionsAttended, 2);
+  assert.equal(sixM.months[5].completionSuccessRatePct, 100);
+  assert.equal(sixM.months[5].milestoneVelocityPct, 100);
+
+  assert.equal(sixM.totalSessions6M, 3);
+  assert.equal(sixM.totalCompletedSprints6M, 2);
+  assert.equal(sixM.totalSprints6M, 3);
+  assert.equal(sixM.overallSuccessRatePct, 67);
+  assert.ok(sixM.correlationSummary.includes('100%'));
+});
+
+test('MENTORSHIP_TRACKS covers all 4 studio domains and compactOfflineQueue deduplicates mentor pairings', () => {
+  assert.equal(MENTORSHIP_TRACKS.length, 4);
+  assert.equal(getMentorshipTrackForDomain('Healthcare Ops').mentorId, 'mentor-health-02');
+  assert.equal(getMentorshipTrackForDomain('Tech').mentorId, 'mentor-tech-03');
+  assert.equal(getMentorshipTrackForDomain('SME Finance').mentorId, 'mentor-finance-04');
+  assert.equal(getMentorshipTrackForDomain('Green Energy').mentorId, 'mentor-green-01');
+
+  const pairingA: MentorPairingRequest = {
+    id: 'pair-1',
+    ownerUid: 'u1',
+    trackId: 'track-tech',
+    trackTitle: 'Offline-First Systems & Sync Architecture Track',
+    domain: 'Tech',
+    mentorId: 'mentor-tech-03',
+    mentorName: 'Eng. Tomasz Kowalski',
+    sprintId: 'sprint-remote-sync-04',
+    sprintTitle: 'Offline Queue Conflict Suite',
+    preferredCadence: 'async-review',
+    sprintGoals: 'Complete deterministic queue compaction unit tests.',
+    status: 'requested',
+    createdAtIso: '2026-11-25T10:00:00.000Z',
+    updatedAtIso: '2026-11-25T10:00:00.000Z',
+  };
+
+  const compacted = compactOfflineQueue([
+    {
+      id: 'mp-1',
+      kind: 'upsert_mentor_pairing',
+      payload: pairingA,
+      queuedAtIso: '2026-11-25T10:00:00.000Z',
+    },
+    {
+      id: 'mp-2',
+      kind: 'upsert_mentor_pairing',
+      payload: { ...pairingA, preferredCadence: 'milestone-gates' },
+      queuedAtIso: '2026-11-25T10:05:00.000Z',
+    },
+    {
+      id: 'mp-3',
+      kind: 'delete_mentor_pairing',
+      pairingId: 'pair-old',
+      queuedAtIso: '2026-11-25T10:10:00.000Z',
+    },
+  ]);
+
+  assert.equal(compacted.length, 2);
+  assert.equal(compacted[0].id, 'mp-2');
+  assert.equal(compacted[1].kind, 'delete_mentor_pairing');
+});
+
+test('buildMentorshipTrackImpactMetrics compares mentoring tracks by mentor-led sprint success rate and velocity', () => {
+  const contributions: BriefSubmission[] = [
+    {
+      id: 'sub-track-1',
+      ownerUid: 'u1',
+      briefId: 'sprint-solar-coldchain-01',
+      briefTitle: 'Solar Microgrid Diagnostics',
+      domain: 'Green Energy',
+      status: 'completed',
+      solutionNotes: 'Completed inverter diagnostic check.',
+      hoursLogged: 6,
+      payoutUsd: 480,
+      milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+      createdAtIso: '2026-11-01T10:00:00.000Z',
+      updatedAtIso: '2026-11-05T10:00:00.000Z',
+    },
+    {
+      id: 'sub-track-2',
+      ownerUid: 'u1',
+      briefId: 'sprint-health-02',
+      briefTitle: 'Maternal Clinic Intake Flow',
+      domain: 'Healthcare Ops',
+      status: 'in-progress',
+      solutionNotes: 'Drafting triage checklist.',
+      hoursLogged: 4,
+      payoutUsd: 400,
+      milestonesDone: ['analysis-complete'],
+      createdAtIso: '2026-11-10T10:00:00.000Z',
+      updatedAtIso: '2026-11-14T10:00:00.000Z',
+    },
+    {
+      id: 'sub-track-3',
+      ownerUid: 'u1',
+      briefId: 'sprint-tech-03',
+      briefTitle: 'Offline Queue Sync Audit',
+      domain: 'Tech',
+      status: 'completed',
+      solutionNotes: 'Verified queue compaction.',
+      hoursLogged: 5,
+      payoutUsd: 520,
+      milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+      createdAtIso: '2026-11-12T10:00:00.000Z',
+      updatedAtIso: '2026-11-16T10:00:00.000Z',
+    },
+  ];
+
+  const mentorshipSessions: MentorshipSession[] = [
+    {
+      id: 'ms-track-1',
+      ownerUid: 'u1',
+      sprintId: 'sprint-solar-coldchain-01',
+      sprintTitle: 'Solar Microgrid Diagnostics',
+      mentorId: 'mentor-green-01',
+      mentorName: 'Eng. Samuel Kariuki',
+      focusTopic: 'qa-architecture',
+      durationMinutes: 30,
+      status: 'attended',
+      takeawayNote: 'Verified 48V busbar resistance.',
+      attendedAtIso: '2026-11-03T10:00:00.000Z',
+      createdAtIso: '2026-11-03T10:00:00.000Z',
+      updatedAtIso: '2026-11-03T10:00:00.000Z',
+    },
+    {
+      id: 'ms-track-2',
+      ownerUid: 'u1',
+      sprintId: 'sprint-solar-coldchain-01',
+      sprintTitle: 'Solar Microgrid Diagnostics',
+      mentorId: 'mentor-green-01',
+      mentorName: 'Eng. Samuel Kariuki',
+      focusTopic: 'handover-rubric',
+      durationMinutes: 15,
+      status: 'attended',
+      takeawayNote: 'Signed final handover checklist.',
+      attendedAtIso: '2026-11-04T10:00:00.000Z',
+      createdAtIso: '2026-11-04T10:00:00.000Z',
+      updatedAtIso: '2026-11-04T10:00:00.000Z',
+    },
+    {
+      id: 'ms-track-3',
+      ownerUid: 'u1',
+      sprintId: 'sprint-health-02',
+      sprintTitle: 'Maternal Clinic Intake Flow',
+      mentorId: 'mentor-health-02',
+      mentorName: 'Dr. Grace Mwangi',
+      focusTopic: 'technical-unblocker',
+      durationMinutes: 30,
+      status: 'attended',
+      takeawayNote: 'Reviewed WHO cold-chain thresholds.',
+      attendedAtIso: '2026-11-12T10:00:00.000Z',
+      createdAtIso: '2026-11-12T10:00:00.000Z',
+      updatedAtIso: '2026-11-12T10:00:00.000Z',
+    },
+  ];
+
+  const mentorPairings: MentorPairingRequest[] = [
+    {
+      id: 'pair-track-1',
+      ownerUid: 'u1',
+      trackId: 'track-green-energy',
+      trackTitle: 'Solar Microgrid & Cold-Chain QA Track',
+      domain: 'Green Energy',
+      mentorId: 'mentor-green-01',
+      mentorName: 'Eng. Samuel Kariuki',
+      sprintId: 'sprint-solar-coldchain-01',
+      sprintTitle: 'Solar Microgrid Diagnostics',
+      preferredCadence: 'milestone-gates',
+      sprintGoals: 'Validate 48V cold-room inverter diagnostics.',
+      status: 'active',
+      createdAtIso: '2026-11-01T08:00:00.000Z',
+      updatedAtIso: '2026-11-01T08:00:00.000Z',
+    },
+  ];
+
+  const trackMetrics = buildMentorshipTrackImpactMetrics({
+    contributions,
+    mentorshipSessions,
+    mentorPairings,
+  });
+
+  assert.equal(trackMetrics.tracks.length, 4);
+  assert.equal(trackMetrics.hasAnyTrackActivity, true);
+  assert.equal(trackMetrics.totalMentoredSprints, 2);
+  assert.equal(trackMetrics.totalCompletedMentoredSprints, 1);
+  assert.equal(trackMetrics.overallMentorLedSuccessRatePct, 50);
+
+  const greenTrack = trackMetrics.tracks.find((t) => t.domain === 'Green Energy')!;
+  const healthTrack = trackMetrics.tracks.find((t) => t.domain === 'Healthcare Ops')!;
+  const techTrack = trackMetrics.tracks.find((t) => t.domain === 'Tech')!;
+
+  assert.equal(greenTrack.mentoredSprints, 1);
+  assert.equal(greenTrack.completedMentoredSprints, 1);
+  assert.equal(greenTrack.mentorLedSuccessRatePct, 100);
+  assert.equal(greenTrack.sessionsAttended, 2);
+  assert.equal(greenTrack.mentorshipMinutes, 45);
+  assert.equal(greenTrack.pairingRequestsCount, 1);
+
+  assert.equal(healthTrack.mentoredSprints, 1);
+  assert.equal(healthTrack.completedMentoredSprints, 0);
+  assert.equal(healthTrack.mentorLedSuccessRatePct, 0);
+  assert.equal(healthTrack.sessionsAttended, 1);
+
+  // Tech sprint had no attended session or async thread, so mentoredSprints = 0
+  assert.equal(techTrack.totalSprints, 1);
+  assert.equal(techTrack.mentoredSprints, 0);
+  assert.equal(techTrack.mentorLedSuccessRatePct, 0);
+
+  assert.equal(trackMetrics.topImpactTrack?.domain, 'Green Energy');
+  assert.ok(trackMetrics.summaryText.includes('Green Energy'));
+  assert.ok(trackMetrics.summaryText.includes('100%'));
+});
+
+test('SprintMilestoneChecklist marks Mentorship Required status tags and unlocks once an attended mentor session is logged', () => {
+  const ranked = rankSolutionSprints(
+    createInitialProfile({ ageStage: '30-45', problemStatement: 'solar inverter' }),
+    [sampleCap],
+    samplePassport
+  );
+  const solarSprint = ranked.find((s) => s.id === 'sprint-solar-coldchain-01')!;
+  const nowMs = Date.parse('2026-11-25T12:00:00.000Z');
+  const secondKey = `${solarSprint.id}::${solarSprint.deliverableChecklist[1]}`;
+
+  // 0 attended sessions: Task 3 (final-submission) shows 'Mentorship Required' and stays locked even when Task 1 & 2 are completed
+  const gatedTasks = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: { [secondKey]: true },
+    deadlineIso: '2026-11-28T12:00:00.000Z',
+    nowMs,
+    mentorshipSessions: [],
+  });
+
+  assert.equal(gatedTasks[0].requiresMentorship, false);
+  assert.equal(gatedTasks[2].requiresMentorship, true);
+  assert.equal(gatedTasks[2].status, 'mentorship-required');
+  assert.equal(gatedTasks[2].statusLabel, 'Mentorship Required');
+  assert.equal(gatedTasks[2].isMentorshipLocked, true);
+  assert.equal(gatedTasks[2].isLocked, true);
+  assert.ok(gatedTasks[2].mentorshipPrerequisiteLabel?.includes('attended mentor QA session'));
+
+  // Scheduled-only session is NOT sufficient to unlock
+  const scheduledOnlyTasks = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: { [secondKey]: true },
+    deadlineIso: '2026-11-28T12:00:00.000Z',
+    nowMs,
+    mentorshipSessions: [
+      {
+        id: 'ms-sched-1',
+        ownerUid: 'u1',
+        sprintId: solarSprint.id,
+        sprintTitle: solarSprint.title,
+        mentorId: 'mentor-green-01',
+        mentorName: 'Eng. Samuel Kariuki',
+        focusTopic: 'handover-rubric',
+        durationMinutes: 15,
+        status: 'scheduled',
+        takeawayNote: 'Booked handover QA.',
+        attendedAtIso: '2026-11-26T10:00:00.000Z',
+        createdAtIso: '2026-11-25T10:00:00.000Z',
+        updatedAtIso: '2026-11-25T10:00:00.000Z',
+      },
+    ],
+  });
+  assert.equal(scheduledOnlyTasks[2].status, 'mentorship-required');
+  assert.equal(scheduledOnlyTasks[2].isLocked, true);
+
+  // Attended session unlocks Task 3 and switches its status to In Progress
+  const unlockedTasks = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: { [secondKey]: true },
+    deadlineIso: '2026-11-28T12:00:00.000Z',
+    nowMs,
+    mentorshipSessions: [
+      {
+        id: 'ms-att-1',
+        ownerUid: 'u1',
+        sprintId: solarSprint.id,
+        sprintTitle: solarSprint.title,
+        mentorId: 'mentor-green-01',
+        mentorName: 'Eng. Samuel Kariuki',
+        focusTopic: 'handover-rubric',
+        durationMinutes: 15,
+        status: 'attended',
+        takeawayNote: 'Signed off handover QA.',
+        attendedAtIso: '2026-11-25T11:00:00.000Z',
+        createdAtIso: '2026-11-25T11:00:00.000Z',
+        updatedAtIso: '2026-11-25T11:00:00.000Z',
+      },
+    ],
+  });
+  assert.equal(unlockedTasks[2].isMentorshipLocked, false);
+  assert.equal(unlockedTasks[2].mentorshipMet, true);
+  assert.equal(unlockedTasks[2].isLocked, false);
+  assert.equal(unlockedTasks[2].statusLabel, 'In Progress');
+  assert.ok(unlockedTasks[2].mentorshipPrerequisiteLabel?.includes('Prerequisite Met'));
+
+  const mentorshipInfo = getMilestoneStatusExplanation('mentorship-required');
+  assert.ok(mentorshipInfo.title.includes('Mentorship Required'));
+  assert.ok(mentorshipInfo.description.toLowerCase().includes('attended mentor qa session'));
+});
+
+test('MentorAvailabilityHeatmap calculates mentor response latencies across selectable time zones and finds peak pod overlap', () => {
+  assert.equal(formatResponseMinutes(12), '12m');
+  assert.equal(formatResponseMinutes(150), '2.5h');
+
+  const utcHeatmap = buildMentorAvailabilityHeatmap({ timezoneId: 'utc' });
+  assert.equal(utcHeatmap.timezone.id, 'utc');
+  assert.equal(utcHeatmap.slots.length, 8);
+  assert.equal(utcHeatmap.rows.length, 4);
+  assert.equal(utcHeatmap.bestOverlapMentorsCount, 4);
+  assert.ok(utcHeatmap.bestOverlapSlotLabel.includes('09:00–12:00 UTC+0'));
+
+  // Nairobi Green Energy mentor (UTC+3): 09:00-12:00 UTC corresponds to 12:00-15:00 local (Peak Live)
+  const greenUtcRow = utcHeatmap.rows.find((r) => r.mentor.id === 'mentor-green-01')!;
+  const utcSlot09 = greenUtcRow.cells[3]; // 09:00-12:00 UTC
+  assert.equal(utcSlot09.tier, 'peak');
+  assert.equal(utcSlot09.mentorLocalRangeLabel, '12:00–15:00');
+  assert.ok(utcSlot09.estimatedResponseMinutes <= 12);
+
+  // Switch viewer timezone to PST (UTC-8): Nairobi 12:00-15:00 local shifts to 01:00-04:00 -> slot 0 (00:00-03:00 PST) or slot 1 (03:00-06:00 PST)
+  const pstHeatmap = buildMentorAvailabilityHeatmap({ timezoneId: 'pst' });
+  assert.equal(pstHeatmap.timezone.id, 'pst');
+  const greenPstRow = pstHeatmap.rows.find((r) => r.mentor.id === 'mentor-green-01')!;
+  // At 00:00-03:00 PST (08:00-11:00 UTC = 11:00-14:00 Nairobi EAT), mentor is in peak local window
+  assert.equal(greenPstRow.cells[0].tier, 'peak');
+  assert.equal(greenPstRow.cells[0].mentorLocalRangeLabel, '11:00–14:00');
+  // Meanwhile 15:00-18:00 PST (23:00-02:00 UTC = 02:00-05:00 Nairobi EAT) is off-hours
+  assert.equal(greenPstRow.cells[5].tier, 'off-hours');
+  assert.ok(greenPstRow.cells[5].estimatedResponseMinutes >= 60);
+});
+
+test('SprintMilestoneChecklist Mentorship Path identifies accelerated milestones and computes estimated time savings', () => {
+  const ranked = rankSolutionSprints(
+    createInitialProfile({ ageStage: '30-45', problemStatement: 'solar inverter' }),
+    [sampleCap],
+    samplePassport
+  );
+  const solarSprint = ranked.find((s) => s.id === 'sprint-solar-coldchain-01')!;
+  const nowMs = Date.parse('2026-11-25T12:00:00.000Z');
+
+  // Task 1 (analysis-complete) is not mentorship-accelerated; Tasks 2 & 3 (draft-ready & final-submission) are
+  const tasksInitial = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: {},
+    deadlineIso: '2026-11-28T12:00:00.000Z',
+    nowMs,
+  });
+
+  assert.equal(tasksInitial[0].isMentorshipAccelerated, false);
+  assert.equal(tasksInitial[0].estimatedTimeSavingsHours, 0);
+
+  assert.equal(tasksInitial[1].isMentorshipAccelerated, true);
+  assert.equal(tasksInitial[1].estimatedTimeSavingsHours, 2.5);
+  assert.equal(tasksInitial[1].estimatedTimeSavingsLabel, 'Est. ~2.5h saved');
+  assert.equal(tasksInitial[1].recommendedMentorFocus, 'QA Architecture Review');
+
+  assert.equal(tasksInitial[2].isMentorshipAccelerated, true);
+  assert.equal(tasksInitial[2].estimatedTimeSavingsHours, 1.5);
+  assert.equal(tasksInitial[2].estimatedTimeSavingsLabel, 'Est. ~1.5h saved');
+  assert.equal(tasksInitial[2].recommendedMentorFocus, 'Handover & Rubric Check');
+
+  const summaryInitial = getMentorshipPathSummary(tasksInitial);
+  assert.equal(summaryInitial.acceleratedCount, 2);
+  assert.equal(summaryInitial.remainingAcceleratedCount, 2);
+  assert.equal(summaryInitial.totalEstimatedHoursSaved, 4);
+  assert.equal(summaryInitial.remainingEstimatedHoursSaved, 4);
+
+  // Completing Task 2 reduces remaining accelerated count and hours saved
+  const secondKey = `${solarSprint.id}::${solarSprint.deliverableChecklist[1]}`;
+  const tasksAfterDraft = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: { [secondKey]: true },
+    deadlineIso: '2026-11-28T12:00:00.000Z',
+    nowMs,
+  });
+
+  const summaryAfterDraft = getMentorshipPathSummary(tasksAfterDraft);
+  assert.equal(summaryAfterDraft.acceleratedCount, 2);
+  assert.equal(summaryAfterDraft.remainingAcceleratedCount, 1);
+  assert.equal(summaryAfterDraft.totalEstimatedHoursSaved, 4);
+  assert.equal(summaryAfterDraft.remainingEstimatedHoursSaved, 1.5);
+});
+
+test('MentorshipImpactChart sessionFilter isolates Mentor-Led Sessions Only from async thread fallbacks', () => {
+  const contribs: BriefSubmission[] = [
+    {
+      id: 'sub-filter-solar',
+      ownerUid: 'u-test',
+      briefId: 'sprint-solar-coldchain-01',
+      briefTitle: 'Off-Grid Solar Cold-Chain Diagnostics',
+      domain: 'Green Energy',
+      status: 'completed',
+      solutionNotes: 'Completed solar inverter commissioning telemetry',
+      hoursLogged: 16,
+      payoutUsd: 420,
+      milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+      createdAtIso: '2026-11-05T10:00:00.000Z',
+      updatedAtIso: '2026-11-12T10:00:00.000Z',
+    },
+    {
+      id: 'sub-filter-tech',
+      ownerUid: 'u-test',
+      briefId: 'sprint-mesh-telemetry-03',
+      briefTitle: 'Offline-First Mesh Sync Queue',
+      domain: 'Tech',
+      status: 'in-progress',
+      solutionNotes: 'Drafted offline queue sync worker',
+      hoursLogged: 10,
+      payoutUsd: 350,
+      milestonesDone: ['analysis-complete', 'draft-ready'],
+      createdAtIso: '2026-11-10T10:00:00.000Z',
+      updatedAtIso: '2026-11-15T10:00:00.000Z',
+    },
+  ];
+
+  // Formal attended mentor session ONLY on solar sprint; mesh sprint only has async thread messages
+  const formalSessions: MentorshipSession[] = [
+    {
+      id: 'ms-filter-1',
+      ownerUid: 'u-test',
+      sprintId: 'sprint-solar-coldchain-01',
+      sprintTitle: 'Off-Grid Solar Cold-Chain Diagnostics',
+      mentorId: 'mentor-green-01',
+      mentorName: 'Eng. Samuel Kariuki',
+      focusTopic: 'qa-architecture',
+      durationMinutes: 30,
+      status: 'attended',
+      takeawayNote: 'Signed off voltage sag test',
+      attendedAtIso: '2026-11-08T14:00:00.000Z',
+      createdAtIso: '2026-11-08T14:00:00.000Z',
+      updatedAtIso: '2026-11-08T14:00:00.000Z',
+    },
+  ];
+
+  const asyncOnlyMessages: MentorMessage[] = [
+    {
+      id: 'msg-filter-mesh',
+      ownerUid: 'u-test',
+      sprintId: 'sprint-mesh-telemetry-03',
+      sprintTitle: 'Offline-First Mesh Sync Queue',
+      mentorId: 'mentor-tech-01',
+      mentorName: 'Eng. Tomasz Kowalski',
+      sender: 'practitioner',
+      body: 'Quick question on retry backoff interval',
+      createdAtIso: '2026-11-11T09:00:00.000Z',
+      updatedAtIso: '2026-11-11T09:00:00.000Z',
+    },
+  ];
+
+  const allMetrics = buildMentorshipVelocityMetrics({
+    contributions: contribs,
+    mentorshipSessions: formalSessions,
+    mentorMessages: asyncOnlyMessages,
+    sessionFilter: 'all',
+  });
+  // In 'all' mode, both solar (formal) and mesh (async fallback) count as mentored
+  assert.equal(allMetrics.sessionsAttendedCount, 2);
+  assert.equal(allMetrics.mentoredSprintsCount, 2);
+  assert.equal(allMetrics.unmentoredSprintsCount, 0);
+
+  const mentorLedMetrics = buildMentorshipVelocityMetrics({
+    contributions: contribs,
+    mentorshipSessions: formalSessions,
+    mentorMessages: asyncOnlyMessages,
+    sessionFilter: 'mentor-led',
+  });
+  // In 'mentor-led' mode, async-only mesh sprint is excluded so only formal solar session counts
+  assert.equal(mentorLedMetrics.sessionsAttendedCount, 1);
+  assert.equal(mentorLedMetrics.mentoredSprintsCount, 1);
+  assert.equal(mentorLedMetrics.unmentoredSprintsCount, 1);
+  assert.equal(mentorLedMetrics.points.find((p) => p.sprintId === 'sprint-mesh-telemetry-03')?.sessionsAttended, 0);
+  assert.equal(mentorLedMetrics.points.find((p) => p.sprintId === 'sprint-solar-coldchain-01')?.sessionsAttended, 1);
+
+  const corrAll = buildSixMonthMentorshipCorrelation({
+    contributions: contribs,
+    mentorshipSessions: formalSessions,
+    mentorMessages: asyncOnlyMessages,
+    sessionFilter: 'all',
+  });
+  const corrMentorLed = buildSixMonthMentorshipCorrelation({
+    contributions: contribs,
+    mentorshipSessions: formalSessions,
+    mentorMessages: asyncOnlyMessages,
+    sessionFilter: 'mentor-led',
+  });
+  assert.equal(corrAll.totalSessions6M, 2);
+  assert.equal(corrMentorLed.totalSessions6M, 1);
+
+  const trackMentorLed = buildMentorshipTrackImpactMetrics({
+    contributions: contribs,
+    mentorshipSessions: formalSessions,
+    mentorMessages: asyncOnlyMessages,
+    sessionFilter: 'mentor-led',
+  });
+  const techTrack = trackMentorLed.tracks.find((t) => t.domain === 'Tech')!;
+  const greenTrack = trackMentorLed.tracks.find((t) => t.domain === 'Green Energy')!;
+  assert.equal(techTrack.mentoredSprints, 0);
+  assert.equal(techTrack.sessionsAttended, 0);
+  assert.equal(greenTrack.mentoredSprints, 1);
+  assert.equal(greenTrack.sessionsAttended, 1);
+  assert.equal(greenTrack.mentorLedSuccessRatePct, 100);
+});
+
+test('MentorshipSuccessStories provides track-scoped practitioner testimonials and guidance tips for all tracks', () => {
+  assert.ok(MENTORSHIP_SUCCESS_STORIES.length >= MENTORSHIP_TRACKS.length);
+  for (const track of MENTORSHIP_TRACKS) {
+    const stories = getMentorshipStoriesForTrack(track.id);
+    assert.ok(stories.length >= 1, `Expected at least one story for ${track.id}`);
+    assert.equal(stories[0].trackId, track.id);
+    assert.ok(stories[0].quote.trim().length > 20);
+    assert.ok(stories[0].outcomeStat.trim().length > 5);
+    assert.ok(stories[0].guidanceTip.trim().length > 10);
+  }
+  const allStories = getMentorshipStoriesForTrack(undefined);
+  assert.equal(allStories.length, MENTORSHIP_SUCCESS_STORIES.length);
+});
+
+test('EndSessionPopover provides distinct portal closing advice and structured exit reasons', () => {
+  assert.ok(END_SESSION_REASON_OPTIONS.length >= 4);
+  assert.ok(END_SESSION_REASON_OPTIONS.some((r) => r.id === 'work-complete'));
+  assert.ok(END_SESSION_REASON_OPTIONS.some((r) => r.id === 'switching-device'));
+
+  const partnerAdvice = getEndSessionAdvice('partner');
+  const talentAdvice = getEndSessionAdvice('talent');
+
+  assert.equal(partnerAdvice.title, 'End Partner Session');
+  assert.ok(partnerAdvice.closingAdvice.includes('Partner Console'));
+  assert.equal(talentAdvice.title, 'End Practitioner Session');
+  assert.ok(talentAdvice.closingAdvice.includes('Competency Passport'));
+});
+
+test('MentorshipAvailabilityScheduler generates open slots from mentor schedules and flags booked slots', () => {
+  const greenMentor = POD_MENTORS.find((m) => m.id === 'mentor-green-01')!;
+  const refNowMs = Date.parse('2026-11-26T06:00:00.000Z');
+
+  // Eng. Samuel Kariuki is EAT (UTC+3), peak 09:00-17:00 EAT (06:00-14:00 UTC)
+  const initialSlots = buildMentorOpenSlots({
+    mentor: greenMentor,
+    timezoneId: 'utc',
+    mentorshipSessions: [],
+    referenceNowMs: refNowMs,
+    daysAhead: 2,
+  });
+
+  assert.ok(initialSlots.days.length >= 2);
+  assert.ok(initialSlots.openSlotsCount >= 6);
+  assert.equal(initialSlots.bookedSlotsCount, 0);
+
+  // 07:00 UTC is 10:00 EAT -> Peak Live!
+  const firstSlot = initialSlots.days[0].slots[0];
+  assert.equal(firstSlot.viewerStartLabel, '07:00');
+  assert.equal(firstSlot.tier, 'peak');
+  assert.equal(firstSlot.isBooked, false);
+
+  // Book the first slot and confirm it switches to isBooked=true and decrements openSlotsCount
+  const bookedSession: MentorshipSession = {
+    id: 'ms-booked-1',
+    ownerUid: 'u-test',
+    sprintId: 'sprint-solar-coldchain-01',
+    sprintTitle: 'Off-Grid Solar Cold-Chain Diagnostics',
+    mentorId: greenMentor.id,
+    mentorName: greenMentor.name,
+    focusTopic: 'qa-architecture',
+    durationMinutes: 30,
+    status: 'scheduled',
+    takeawayNote: 'Booked slot',
+    attendedAtIso: firstSlot.slotIso,
+    createdAtIso: '2026-11-26T06:00:00.000Z',
+    updatedAtIso: '2026-11-26T06:00:00.000Z',
+  };
+
+  const afterBooking = buildMentorOpenSlots({
+    mentor: greenMentor,
+    timezoneId: 'utc',
+    mentorshipSessions: [bookedSession],
+    referenceNowMs: refNowMs,
+    daysAhead: 2,
+  });
+
+  assert.equal(afterBooking.bookedSlotsCount, 1);
+  assert.equal(afterBooking.openSlotsCount, initialSlots.openSlotsCount - 1);
+  assert.equal(afterBooking.days[0].slots[0].isBooked, true);
+  assert.equal(afterBooking.days[0].slots[0].bookedSessionId, 'ms-booked-1');
+});
+
+test('MentorshipProgressBar tracks track completion percentage, milestones, and unlocked rewards across session sequences', () => {
+  const greenTrack = MENTORSHIP_TRACKS.find((t) => t.id === 'track-green-energy')!;
+
+  const p0 = computeMentorshipTrackProgress({
+    track: greenTrack,
+    mentorshipSessions: [],
+    mentorPairings: [],
+    contributions: [],
+  });
+  assert.equal(p0.completionPct, 0);
+  assert.equal(p0.unlockedRewards.length, 0);
+  assert.equal(p0.nextMilestone?.id, 'step-pairing-kickoff');
+
+  const pairing: MentorPairingRequest = {
+    id: 'pair-1',
+    ownerUid: 'u-test',
+    trackId: greenTrack.id,
+    trackTitle: greenTrack.title,
+    domain: greenTrack.domain,
+    mentorId: greenTrack.mentorId,
+    mentorName: 'Eng. Samuel Kariuki',
+    preferredCadence: 'milestone-gates',
+    sprintGoals: 'Validate inverter QA',
+    status: 'requested',
+    createdAtIso: '2026-11-25T10:00:00.000Z',
+    updatedAtIso: '2026-11-25T10:00:00.000Z',
+  };
+
+  const p25 = computeMentorshipTrackProgress({
+    track: greenTrack,
+    mentorshipSessions: [],
+    mentorPairings: [pairing],
+    contributions: [],
+  });
+  assert.equal(p25.completionPct, 25);
+  assert.deepEqual(p25.unlockedRewards, ['Priority Pod Match']);
+  assert.equal(p25.nextMilestone?.id, 'step-qa-gate');
+
+  const makeAttendedSession = (idx: number): MentorshipSession => ({
+    id: `ms-prog-${idx}`,
+    ownerUid: 'u-test',
+    sprintId: 'sprint-solar-coldchain-01',
+    sprintTitle: 'Off-Grid Solar Cold-Chain Diagnostics',
+    mentorId: greenTrack.mentorId,
+    mentorName: 'Eng. Samuel Kariuki',
+    focusTopic: 'qa-architecture',
+    durationMinutes: 30,
+    status: 'attended',
+    takeawayNote: `Session ${idx}`,
+    attendedAtIso: `2026-11-2${idx}T12:00:00.000Z`,
+    createdAtIso: `2026-11-2${idx}T12:00:00.000Z`,
+    updatedAtIso: `2026-11-2${idx}T12:00:00.000Z`,
+  });
+
+  const p50 = computeMentorshipTrackProgress({
+    track: greenTrack,
+    mentorshipSessions: [makeAttendedSession(1)],
+    mentorPairings: [pairing],
+    contributions: [],
+  });
+  assert.equal(p50.completionPct, 50);
+  assert.deepEqual(p50.unlockedRewards, ['Priority Pod Match', 'QA Blueprint Review']);
+
+  const p75 = computeMentorshipTrackProgress({
+    track: greenTrack,
+    mentorshipSessions: [makeAttendedSession(1), makeAttendedSession(2)],
+    mentorPairings: [pairing],
+    contributions: [],
+  });
+  assert.equal(p75.completionPct, 75);
+  assert.deepEqual(p75.unlockedRewards, [
+    'Priority Pod Match',
+    'QA Blueprint Review',
+    'Handover Endorsement',
+  ]);
+
+  const p100 = computeMentorshipTrackProgress({
+    track: greenTrack,
+    mentorshipSessions: [
+      makeAttendedSession(1),
+      makeAttendedSession(2),
+      makeAttendedSession(3),
+    ],
+    mentorPairings: [pairing],
+    contributions: [],
+  });
+  assert.equal(p100.completionPct, 100);
+  assert.equal(p100.unlockedRewards.length, 4);
+  assert.equal(p100.nextMilestone, null);
+});
+
+test('MentorRatingSystem validates 5-point scale ratings, enforces comment bounds, and computes track accountability summaries', () => {
+  assert.equal(Object.keys(MENTOR_RATING_LABELS).length, 5);
+  assert.equal(MENTOR_RATING_LABELS[5], 'Exceptional Mentorship');
+
+  const valid = validateAndFormatMentorRating({
+    rating: 5,
+    comment: '  Clear architecture walkthrough and rapid inverter QA feedback.  ',
+  });
+  assert.equal(valid.valid, true);
+  assert.equal(valid.rating, 5);
+  assert.equal(valid.comment, 'Clear architecture walkthrough and rapid inverter QA feedback.');
+
+  const invalidShort = validateAndFormatMentorRating({ rating: 4, comment: 'ok' });
+  assert.equal(invalidShort.valid, false);
+  assert.ok(invalidShort.error?.includes('at least 5 characters'));
+
+  const summaryEmpty = computeMentorRatingSummary([], { trackId: 'track-green-transitions' });
+  assert.equal(summaryEmpty.totalRatings, 0);
+  assert.equal(summaryEmpty.averageRating, 0);
+
+  const summaryPopulated = computeMentorRatingSummary(
+    [
+      {
+        id: 'mr-1',
+        ownerUid: 'u1',
+        trackId: 'track-green-transitions',
+        trackTitle: 'Green Energy Systems & Microgrid Track',
+        domain: 'Green Energy',
+        mentorId: 'mentor-green-01',
+        mentorName: 'Eng. Samuel Kariuki',
+        rating: 5,
+        comment: 'Helped me structure the 48V solar cold-chain QA checklist.',
+        createdAtIso: '2026-11-25T10:00:00.000Z',
+        updatedAtIso: '2026-11-25T10:00:00.000Z',
+      },
+      {
+        id: 'mr-2',
+        ownerUid: 'u1',
+        trackId: 'track-green-transitions',
+        trackTitle: 'Green Energy Systems & Microgrid Track',
+        domain: 'Green Energy',
+        mentorId: 'mentor-green-01',
+        mentorName: 'Eng. Samuel Kariuki',
+        rating: 4,
+        comment: 'Great technical guidance during milestone 2 review.',
+        createdAtIso: '2026-11-25T12:00:00.000Z',
+        updatedAtIso: '2026-11-25T12:00:00.000Z',
+      },
+    ],
+    { trackId: 'track-green-transitions' }
+  );
+  assert.equal(summaryPopulated.totalRatings, 2);
+  assert.equal(summaryPopulated.averageRating, 4.5);
+  assert.equal(summaryPopulated.fiveStarCount, 1);
+});
+
+test('MentorshipMilestoneTracker generates Mentorship Milestones including First Mentor Intro, Pod Sprint Review, Advanced Problem Framing, Confidence in Problem Framing, and Mastered Sprint Workflow and syncs with MentorshipProgressBar', () => {
+  const greenTrack = MENTORSHIP_TRACKS[0];
+  const objectives = getLearningObjectivesForTrack(greenTrack);
+  assert.equal(objectives.length, 6);
+  assert.ok(objectives.some((obj) => obj.title === 'First Mentor Intro'));
+  assert.ok(objectives.some((obj) => obj.title === 'Confidence in Problem Framing'));
+  assert.ok(objectives.some((obj) => obj.title === 'Advanced Problem Framing'));
+  assert.ok(objectives.some((obj) => obj.title === 'Pod Sprint Review'));
+  assert.ok(objectives.some((obj) => obj.title === 'Mastered Sprint Workflow'));
+
+  const firstObjId = objectives[0].id;
+  const secondObjId = objectives[1].id;
+
+  const afterAddFirst = toggleObjectiveCompletion([], firstObjId);
+  assert.deepEqual(afterAddFirst, [firstObjId]);
+
+  const afterAddSecond = toggleObjectiveCompletion(afterAddFirst, secondObjId);
+  assert.deepEqual(afterAddSecond, [firstObjId, secondObjId]);
+
+  const afterRemoveFirst = toggleObjectiveCompletion(afterAddSecond, firstObjId);
+  assert.deepEqual(afterRemoveFirst, [secondObjId]);
+
+  // Verify bidirectional sync with MentorshipProgressBar when completedObjectiveIds is provided
+  const syncedZero = computeMentorshipTrackProgress({
+    track: greenTrack,
+    mentorshipSessions: [],
+    mentorPairings: [],
+    contributions: [],
+    completedObjectiveIds: [],
+  });
+  assert.equal(syncedZero.completionPct, 0);
+  assert.equal(syncedZero.masteredObjectivesCount, 0);
+  assert.equal(syncedZero.totalObjectivesCount, 6);
+
+  const syncedTwoObjectives = computeMentorshipTrackProgress({
+    track: greenTrack,
+    mentorshipSessions: [],
+    mentorPairings: [],
+    contributions: [],
+    completedObjectiveIds: [firstObjId, secondObjId],
+  });
+  // 0/4 session milestones + 2/6 learning objectives = 2/10 = 20%
+  assert.equal(syncedTwoObjectives.completionPct, 20);
+  assert.equal(syncedTwoObjectives.masteredObjectivesCount, 2);
+
+  // Deduplication in compactOfflineQueue for mentor ratings & track progress
+  const queue: OfflineMutation[] = [
+    {
+      id: 'm1',
+      kind: 'upsert_mentor_rating',
+      payload: {
+        id: 'mr-100',
+        ownerUid: 'u1',
+        trackId: greenTrack.id,
+        trackTitle: greenTrack.title,
+        domain: greenTrack.domain,
+        mentorId: greenTrack.mentorId,
+        mentorName: 'Eng. Samuel Kariuki',
+        rating: 4,
+        comment: 'Initial rating comment',
+        createdAtIso: '2026-11-25T10:00:00.000Z',
+        updatedAtIso: '2026-11-25T10:00:00.000Z',
+      },
+      queuedAtIso: '2026-11-25T10:00:00.000Z',
+    },
+    {
+      id: 'm2',
+      kind: 'delete_mentor_rating',
+      ratingId: 'mr-100',
+      queuedAtIso: '2026-11-25T10:05:00.000Z',
+    },
+    {
+      id: 'm3',
+      kind: 'upsert_track_progress',
+      payload: {
+        id: greenTrack.id,
+        ownerUid: 'u1',
+        trackId: greenTrack.id,
+        completedObjectiveIds: [firstObjId],
+        createdAtIso: '2026-11-25T10:01:00.000Z',
+        updatedAtIso: '2026-11-25T10:01:00.000Z',
+      },
+      queuedAtIso: '2026-11-25T10:01:00.000Z',
+    },
+    {
+      id: 'm4',
+      kind: 'upsert_track_progress',
+      payload: {
+        id: greenTrack.id,
+        ownerUid: 'u1',
+        trackId: greenTrack.id,
+        completedObjectiveIds: [firstObjId, secondObjId],
+        createdAtIso: '2026-11-25T10:01:00.000Z',
+        updatedAtIso: '2026-11-25T10:06:00.000Z',
+      },
+      queuedAtIso: '2026-11-25T10:06:00.000Z',
+    },
+  ];
+
+  const compacted = compactOfflineQueue(queue);
+  assert.equal(compacted.length, 2);
+  assert.equal(compacted[0].kind, 'delete_mentor_rating');
+  assert.equal(compacted[1].kind, 'upsert_track_progress');
+  if (compacted[1].kind === 'upsert_track_progress') {
+    assert.deepEqual(compacted[1].payload.completedObjectiveIds, [firstObjId, secondObjId]);
+  }
+});
+
+test('MentorshipJournal validates reflections, computes Mentor-to-Mentee rubric evaluation, and SessionSummaryExport formats structured chat transcript', () => {
+  // 1. Validate journal entry input
+  const invalidTitle = validateAndFormatJournalEntry({
+    sessionDateIso: '2026-11-25',
+    focusTopic: 'qa-architecture',
+    reflectionTitle: 'A',
+    reflectionBody: 'Reflected on 48V inverter defrost safety margin with mentor.',
+    nextActionStep: 'Add 15-minute lockout check.',
+  });
+  assert.equal(invalidTitle.valid, false);
+  assert.ok(invalidTitle.error?.includes('reflection title'));
+
+  const validEntry = validateAndFormatJournalEntry({
+    sessionDateIso: '2026-11-25',
+    focusTopic: 'qa-architecture',
+    reflectionTitle: '  Validated 48V Defrost Safety Threshold  ',
+    reflectionBody: '  Confirmed battery voltage sag recovery before compressor restart in clinic cold-chain pod. ',
+    nextActionStep: '  Update handover checklist section 3. ',
+  });
+  assert.equal(validEntry.valid, true);
+  assert.equal(validEntry.reflectionTitle, 'Validated 48V Defrost Safety Threshold');
+  assert.equal(validEntry.nextActionStep, 'Update handover checklist section 3.');
+
+  // 2. Filter and sort journal entries for a sprint chronologically (newest session date first)
+  const filteredEntries = filterAndSortJournalEntries(
+    [
+      {
+        id: 'mj-1',
+        ownerUid: 'u1',
+        contributionId: 'sub-1',
+        briefId: 'sprint-solar-coldchain-01',
+        briefTitle: 'Solar Cold-Chain Telemetry',
+        mentorId: 'mentor-green-01',
+        mentorName: 'Eng. Samuel Kariuki',
+        sessionDateIso: '2026-11-20',
+        focusTopic: 'technical-unblocker',
+        reflectionTitle: 'Initial voltage calibration review',
+        reflectionBody: 'Walked through sensor drift compensation.',
+        nextActionStep: 'Re-run 24h log.',
+        createdAtIso: '2026-11-20T10:00:00.000Z',
+        updatedAtIso: '2026-11-20T10:00:00.000Z',
+      },
+      {
+        id: 'mj-2',
+        ownerUid: 'u1',
+        contributionId: 'sub-1',
+        briefId: 'sprint-solar-coldchain-01',
+        briefTitle: 'Solar Cold-Chain Telemetry',
+        mentorId: 'mentor-green-01',
+        mentorName: 'Eng. Samuel Kariuki',
+        sessionDateIso: '2026-11-25',
+        focusTopic: 'handover-rubric',
+        reflectionTitle: 'Final handover sign-off reflection',
+        reflectionBody: 'Signed off bilingual maintenance checklist for clinic technicians.',
+        nextActionStep: 'Submit final sprint deliverable.',
+        createdAtIso: '2026-11-25T12:00:00.000Z',
+        updatedAtIso: '2026-11-25T12:00:00.000Z',
+      },
+      {
+        id: 'mj-other',
+        ownerUid: 'u1',
+        contributionId: 'sub-99',
+        briefId: 'sprint-other',
+        briefTitle: 'Other Sprint',
+        mentorId: 'mentor-tech-03',
+        mentorName: 'Amina',
+        sessionDateIso: '2026-11-26',
+        focusTopic: 'career-rpl',
+        reflectionTitle: 'Other sprint reflection',
+        reflectionBody: 'Should not appear in solar sprint journal.',
+        nextActionStep: '',
+        createdAtIso: '2026-11-26T10:00:00.000Z',
+        updatedAtIso: '2026-11-26T10:00:00.000Z',
+      },
+    ],
+    {
+      contributionId: 'sub-1',
+      briefId: 'sprint-solar-coldchain-01',
+    }
+  );
+  assert.equal(filteredEntries.length, 2);
+  assert.equal(filteredEntries[0].id, 'mj-2');
+  assert.equal(filteredEntries[1].id, 'mj-1');
+
+  // 3. Mentor-to-Mentee 4-dimension rubric evaluation & readiness recommendation
+  const podLeadEval = computeMenteeRubricEvaluation({
+    sprintId: 'sprint-solar-coldchain-01',
+    sprintTitle: 'Solar Cold-Chain Telemetry',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    menteeName: 'Tariq Al-Mansoor',
+    problemFramingScore: 5,
+    technicalExecutionScore: 5,
+    podCollaborationScore: 4,
+    handoverRigorScore: 5,
+    endorsementNote: 'Strong diagnostic framing and safety checklist discipline.',
+  });
+  assert.equal(podLeadEval.compositeScore, 4.75);
+  assert.equal(podLeadEval.recommendation, 'lead-ready');
+
+  const independentEval = computeMenteeRubricEvaluation({
+    sprintId: 'sprint-solar-coldchain-01',
+    sprintTitle: 'Solar Cold-Chain Telemetry',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    menteeName: 'Tariq Al-Mansoor',
+    problemFramingScore: 4,
+    technicalExecutionScore: 4,
+    podCollaborationScore: 4,
+    handoverRigorScore: 4,
+    endorsementNote: 'Ready for independent sprint execution.',
+  });
+  assert.equal(independentEval.compositeScore, 4);
+  assert.equal(independentEval.recommendation, 'independent-cleared');
+
+  // 4. SessionSummaryExport structured text builder
+  const mentor = POD_MENTORS[0];
+  const summaryText = buildMentorshipSessionSummaryText({
+    sprintId: 'sprint-solar-coldchain-01',
+    sprintTitle: 'Solar Cold-Chain Telemetry',
+    mentor,
+    contextNote: 'Milestone 2/3 · Draft Ready',
+    generatedAtIso: '2026-11-25T18:30:00.000Z',
+    messages: [
+      {
+        id: 'msg-1',
+        ownerUid: 'u1',
+        sprintId: 'sprint-solar-coldchain-01',
+        sprintTitle: 'Solar Cold-Chain Telemetry',
+        mentorId: mentor.id,
+        mentorName: mentor.name,
+        sender: 'practitioner',
+        body: 'Requesting QA review on the 48V battery cutoff curve.',
+        createdAtIso: '2026-11-25T14:00:00.000Z',
+        updatedAtIso: '2026-11-25T14:00:00.000Z',
+      },
+      {
+        id: 'msg-2',
+        ownerUid: 'u1',
+        sprintId: 'sprint-solar-coldchain-01',
+        sprintTitle: 'Solar Cold-Chain Telemetry',
+        mentorId: mentor.id,
+        mentorName: mentor.name,
+        sender: 'mentor',
+        body: 'Cutoff curve looks solid — add a 15-minute compressor delay note.',
+        createdAtIso: '2026-11-25T14:10:00.000Z',
+        updatedAtIso: '2026-11-25T14:10:00.000Z',
+      },
+    ],
+    sessions: [
+      {
+        id: 'sess-1',
+        ownerUid: 'u1',
+        sprintId: 'sprint-solar-coldchain-01',
+        sprintTitle: 'Solar Cold-Chain Telemetry',
+        mentorId: mentor.id,
+        mentorName: mentor.name,
+        focusTopic: 'qa-architecture',
+        durationMinutes: 30,
+        status: 'attended',
+        takeawayNote: 'Verified 48V cutoff curve and compressor delay threshold.',
+        attendedAtIso: '2026-11-25T14:30:00.000Z',
+        createdAtIso: '2026-11-25T14:30:00.000Z',
+        updatedAtIso: '2026-11-25T14:30:00.000Z',
+      },
+    ],
+  });
+
+  assert.ok(summaryText.includes('KORA POD MENTORSHIP — STRUCTURED SESSION SUMMARY RECORD'));
+  assert.ok(summaryText.includes('Solar Cold-Chain Telemetry (sprint-solar-coldchain-01)'));
+  assert.ok(summaryText.includes(mentor.name));
+  assert.ok(summaryText.includes('Direct Thread Messages: 2 (1 practitioner · 1 mentor)'));
+  assert.ok(summaryText.includes('Verified 48V cutoff curve and compressor delay threshold.'));
+  assert.ok(summaryText.includes('Requesting QA review on the 48V battery cutoff curve.'));
+
+  // 5. Offline queue deduplication for mentorship journal mutations
+  const journalQueue: OfflineMutation[] = [
+    {
+      id: 'jq-1',
+      kind: 'upsert_mentorship_journal',
+      payload: filteredEntries[0],
+      queuedAtIso: '2026-11-25T12:00:00.000Z',
+    },
+    {
+      id: 'jq-2',
+      kind: 'delete_mentorship_journal',
+      entryId: filteredEntries[0].id,
+      queuedAtIso: '2026-11-25T12:05:00.000Z',
+    },
+  ];
+  const compactedJournalQueue = compactOfflineQueue(journalQueue);
+  assert.equal(compactedJournalQueue.length, 1);
+  assert.equal(compactedJournalQueue[0].kind, 'delete_mentorship_journal');
+});
+
+test('MenteeCompetencyEndorsement awards digital skill badges for completed Pod Sprints and MentorDashboardFeedback closes milestone feedback loops', () => {
+  // 1. Eligible completed Pod Sprints extraction & domain normalization
+  assert.equal(normalizeBadgeStudioDomain('Cold-Chain Logistics'), 'Green Energy');
+  assert.equal(normalizeBadgeStudioDomain('Software & Offline Systems'), 'Tech');
+  assert.equal(normalizeBadgeStudioDomain('Maternal Clinic Operations'), 'Healthcare Ops');
+  assert.equal(normalizeBadgeStudioDomain('Cooperative Ledger & Working Capital'), 'SME Finance');
+
+  const eligibleSprints = buildEligibleSprintsForEndorsement([
+    {
+      id: 'sub-done-1',
+      ownerUid: 'u1',
+      briefId: 'brief-coldchain-03',
+      briefTitle: 'Solar-Direct Cold-Chain Compressor Retrofit Plan',
+      domain: 'Cold-Chain Logistics',
+      status: 'completed',
+      solutionNotes: 'Completed compressor retrofit and handover SOP.',
+      hoursLogged: 5,
+      payoutUsd: 350,
+      createdAtIso: '2026-11-20T10:00:00.000Z',
+      updatedAtIso: '2026-11-24T10:00:00.000Z',
+    },
+    {
+      id: 'sub-active-2',
+      ownerUid: 'u1',
+      briefId: 'sprint-remote-sync-03',
+      briefTitle: '2G-Resilient Clinic Inventory Sync Engine',
+      domain: 'Tech',
+      status: 'in-progress',
+      solutionNotes: 'Drafting conflict resolution.',
+      hoursLogged: 3,
+      payoutUsd: 520,
+      createdAtIso: '2026-11-24T10:00:00.000Z',
+      updatedAtIso: '2026-11-24T10:00:00.000Z',
+    },
+  ]);
+  assert.equal(eligibleSprints.length, 1);
+  assert.equal(eligibleSprints[0].sprintId, 'brief-coldchain-03');
+  assert.equal(eligibleSprints[0].domain, 'Green Energy');
+
+  // 2. Validate & format digital skill badge and compute earned summary
+  const code = generateBadgeVerificationCode('brief-coldchain-03', 'Green Energy');
+  assert.ok(code.startsWith('KORA-BADGE-GE-'));
+
+  const preset = DOMAIN_SKILL_BADGE_CATALOG['Green Energy'][0];
+  const validBadgeResult = validateAndFormatMenteeBadge({
+    sprintId: 'brief-coldchain-03',
+    sprintTitle: 'Solar-Direct Cold-Chain Compressor Retrofit Plan',
+    domain: 'Green Energy',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    mentorRole: 'Senior Microgrid & Cold-Chain Architect',
+    badgeTitle: preset.badgeTitle,
+    skillCategory: preset.skillCategory,
+    competencyLevel: 'pod-lead-endorsed',
+    citationNote: preset.defaultCitation,
+    verificationCode: code,
+    awardedAtIso: '2026-11-25',
+  });
+  assert.equal(validBadgeResult.valid, true);
+  assert.ok(validBadgeResult.formatted);
+  assert.equal(validBadgeResult.formatted?.competencyLevel, 'pod-lead-endorsed');
+
+  const badgeRecord = {
+    id: 'mbadge-1',
+    ownerUid: 'u1',
+    ...validBadgeResult.formatted!,
+    createdAtIso: '2026-11-25T12:00:00.000Z',
+    updatedAtIso: '2026-11-25T12:00:00.000Z',
+  };
+  const badgeSummary = computeEarnedBadgeSummary([badgeRecord]);
+  assert.equal(badgeSummary.totalEarned, 1);
+  assert.equal(badgeSummary.podLeadEndorsedCount, 1);
+  assert.equal(badgeSummary.uniqueDomainsCount, 1);
+  assert.equal(badgeSummary.latestAwardedBadge?.id, 'mbadge-1');
+
+  // 3. Validate MentorDashboardFeedback milestone review and compute feedback loop summary
+  assert.ok(PROJECT_MILESTONE_CATALOG['analysis-complete']);
+  assert.ok(PROJECT_MILESTONE_CATALOG['draft-ready']);
+  assert.ok(PROJECT_MILESTONE_CATALOG['final-submission']);
+
+  const fbResult1 = validateAndFormatMilestoneFeedback({
+    sprintId: 'sprint-solar-coldchain-01',
+    sprintTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+    milestoneKey: 'analysis-complete',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    rating: 5,
+    readinessStatus: 'exemplary',
+    strengthsNote: 'Isolated night-time battery voltage sag across all 16 LiFePO4 cells.',
+    constructiveFeedback: 'Add ambient clinic room temperature delta column to baseline table.',
+    nextMilestoneAction: 'Proceed to Gate 2 working schematic.',
+  });
+  assert.equal(fbResult1.valid, true);
+  assert.ok(fbResult1.formatted);
+
+  const fbRecord1 = {
+    id: 'mmfb-1',
+    ownerUid: 'u1',
+    ...fbResult1.formatted!,
+    createdAtIso: '2026-11-25T14:00:00.000Z',
+    updatedAtIso: '2026-11-25T14:00:00.000Z',
+  };
+
+  const chatSummary = formatMilestoneFeedbackForChat(fbRecord1);
+  assert.ok(chatSummary.includes('[Milestone Feedback · Gate 1 · Diagnostic Baseline · 5/5 ★ · Exemplary]'));
+  assert.ok(chatSummary.includes('Constructive Guidance: Add ambient clinic room temperature delta column to baseline table.'));
+
+  const loopSummary = computeMilestoneFeedbackLoopSummary(
+    [fbRecord1],
+    'sprint-solar-coldchain-01'
+  );
+  assert.equal(loopSummary.totalReviews, 1);
+  assert.equal(loopSummary.coveredMilestonesCount, 1);
+  assert.equal(loopSummary.averageRating, 5);
+  assert.equal(loopSummary.approvedOrExemplaryCount, 1);
+  assert.equal(loopSummary.loopClosedPct, 33);
+
+  // 4. Offline queue compaction for badge & milestone feedback mutations
+  const compacted = compactOfflineQueue([
+    {
+      id: 'm-b1',
+      kind: 'upsert_mentee_badge',
+      payload: badgeRecord,
+      queuedAtIso: '2026-11-25T12:00:00.000Z',
+    },
+    {
+      id: 'm-b2',
+      kind: 'upsert_mentee_badge',
+      payload: { ...badgeRecord, competencyLevel: 'specialist-verified' },
+      queuedAtIso: '2026-11-25T12:05:00.000Z',
+    },
+    {
+      id: 'm-f1',
+      kind: 'upsert_milestone_feedback',
+      payload: fbRecord1,
+      queuedAtIso: '2026-11-25T14:00:00.000Z',
+    },
+    {
+      id: 'm-f2',
+      kind: 'delete_milestone_feedback',
+      feedbackId: fbRecord1.id,
+      queuedAtIso: '2026-11-25T14:05:00.000Z',
+    },
+  ]);
+  assert.equal(compacted.length, 2);
+  assert.equal(
+    compacted[0].kind === 'upsert_mentee_badge' && compacted[0].payload.competencyLevel,
+    'specialist-verified'
+  );
+  assert.equal(compacted[1].kind, 'delete_milestone_feedback');
+});
+
+test('MentorshipPairingHistory chronological timeline links pairings with shared collaboration notes and MentorshipSessionAgenda validates, tracks, and formats bulleted session agendas', () => {
+  // 1. Verify updated age stage labels and entry point copy
+  assert.equal(TRANSLATIONS.en.stageSelectorLabel, 'Select age group entry point');
+  assert.equal(TRANSLATIONS.en.stage15Title, '15–17yrs Emerging Builder');
+  assert.equal(TRANSLATIONS.en.stage18Title, '18–29yrs Early-Career');
+  assert.equal(TRANSLATIONS.en.stage30Title, '30–45yrs Specialist');
+  assert.equal(TRANSLATIONS.en.stage46Title, '46+ Master Practitioner');
+
+  const stageLabels = Object.values(AGE_STAGE_PATHWAYS).map((p) => p.shortLabel);
+  assert.deepEqual(stageLabels, [
+    '15–17yrs Emerging Builder',
+    '18–29yrs Early-Career',
+    '30–45yrs Specialist',
+    '46+ Master Practitioner',
+  ]);
+
+  // 2. Test MentorshipPairingHistory timeline & collaboration note matching
+  const pairings = [
+    {
+      id: 'pairing-old',
+      ownerUid: 'u1',
+      trackId: 'track-healthcare-triage',
+      trackTitle: 'Rural Clinic Triage & Cold-Chain Systems Track',
+      domain: 'Healthcare Ops' as const,
+      mentorId: 'mentor-health-01',
+      mentorName: 'Dr. Amina Osei',
+      sprintId: 'brief-clinic-02',
+      sprintTitle: 'Rural Clinic Triage Queue & Cold-Storage Audit',
+      sprintGoals: 'Structure bilingual maternal triage intake cards.',
+      preferredCadence: 'milestone-gates' as const,
+      status: 'matched' as const,
+      createdAtIso: '2026-10-12T09:15:00.000Z',
+      updatedAtIso: '2026-10-19T14:20:00.000Z',
+    },
+    {
+      id: 'pairing-new',
+      ownerUid: 'u1',
+      trackId: 'track-green-microgrid',
+      trackTitle: '48V Microgrid & Cold-Chain Diagnostics Track',
+      domain: 'Green Energy' as const,
+      mentorId: 'mentor-green-01',
+      mentorName: 'Eng. Samuel Kariuki',
+      sprintId: 'brief-solar-clinic-01',
+      sprintTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+      sprintGoals: 'Master cell-balancing diagnostics and busbar thermal verification.',
+      preferredCadence: 'weekly-check-in' as const,
+      status: 'active' as const,
+      createdAtIso: '2026-11-04T08:30:00.000Z',
+      updatedAtIso: '2026-11-18T11:45:00.000Z',
+    },
+  ];
+
+  const collabNotes = [
+    {
+      id: 'cnote-1',
+      ownerUid: 'u1',
+      contributionId: 'contrib-solar-1',
+      briefId: 'brief-solar-clinic-01',
+      briefTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+      markdownBody: 'Verified 48V LiFePO4 voltage sag table across 16 cells.',
+      createdAtIso: '2026-11-08T10:15:00.000Z',
+      updatedAtIso: '2026-11-08T10:15:00.000Z',
+    },
+    {
+      id: 'cnote-2',
+      ownerUid: 'u1',
+      contributionId: 'contrib-clinic-1',
+      briefId: 'brief-clinic-02',
+      briefTitle: 'Rural Clinic Triage Queue & Cold-Storage Audit',
+      markdownBody: 'Approved low-literacy icon set for antenatal danger-sign intake.',
+      createdAtIso: '2026-10-16T15:10:00.000Z',
+      updatedAtIso: '2026-10-16T15:10:00.000Z',
+    },
+  ];
+
+  const contributions: BriefSubmission[] = [
+    {
+      id: 'contrib-solar-1',
+      ownerUid: 'u1',
+      briefId: 'brief-solar-clinic-01',
+      briefTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+      domain: 'Green Energy',
+      status: 'in-progress',
+      solutionNotes: 'Working on inverter load balance.',
+      hoursLogged: 6,
+      payoutUsd: 260,
+      createdAtIso: '2026-11-04T08:00:00.000Z',
+      updatedAtIso: '2026-11-18T11:45:00.000Z',
+    },
+  ];
+
+  const matchedNotesForNew = matchCollaborationNotesForPairing(
+    pairings[1],
+    collabNotes,
+    contributions
+  );
+  assert.equal(matchedNotesForNew.length, 1);
+  assert.equal(matchedNotesForNew[0].id, 'cnote-1');
+
+  const linkedContrib = findContributionForPairing(
+    pairings[1],
+    matchedNotesForNew,
+    contributions
+  );
+  assert.equal(linkedContrib?.id, 'contrib-solar-1');
+
+  const timelineDesc = buildPairingHistoryTimeline({
+    pairings,
+    collaborationNotes: collabNotes,
+    contributions,
+  });
+  assert.equal(timelineDesc.length, 2);
+  assert.equal(timelineDesc[0].pairing.id, 'pairing-new');
+  assert.equal(timelineDesc[1].pairing.id, 'pairing-old');
+
+  const filteredGreen = buildPairingHistoryTimeline({
+    pairings,
+    collaborationNotes: collabNotes,
+    contributions,
+    domainFilter: 'Green Energy',
+  });
+  assert.equal(filteredGreen.length, 1);
+  assert.equal(filteredGreen[0].pairing.id, 'pairing-new');
+
+  const summary = computePairingHistorySummary(pairings, collabNotes, contributions);
+  assert.equal(summary.totalPairings, 2);
+  assert.equal(summary.activeCount, 1);
+  assert.equal(summary.matchedCount, 1);
+  assert.equal(summary.requestedCount, 0);
+  assert.deepEqual(summary.domainsCovered, ['Green Energy', 'Healthcare Ops']);
+  assert.equal(summary.totalLinkedNotesCount, 2);
+
+  // 3. Test MentorshipSessionAgenda validation, bullet tracking, and chat sharing format
+  const invalidAgenda = validateAndFormatSessionAgenda({
+    ownerUid: 'u1',
+    sprintId: 'brief-solar-clinic-01',
+    sprintTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    sessionDateIso: '2026-11-28',
+    focusTopic: 'qa-architecture',
+    agendaTitle: 'Hi',
+    desiredOutcome: 'Short',
+    agendaItems: [],
+  });
+  assert.equal(invalidAgenda.ok, false);
+
+  const validAgenda = validateAndFormatSessionAgenda({
+    ownerUid: 'u1',
+    sprintId: 'brief-solar-clinic-01',
+    sprintTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    sessionDateIso: '2026-11-28',
+    focusTopic: 'qa-architecture',
+    agendaTitle: 'Gate 2 Working Schematic & LVD Cutoff Sync',
+    desiredOutcome: 'Lock 44.8V low-voltage disconnect cutoff and copper busbar torque checklist.',
+    agendaItems: [
+      'Review 48V LiFePO4 cell-delta baseline log across night clinic load',
+      'Verify 44.8V low-voltage disconnect threshold before vaccine chiller trip',
+      'Confirm final copper busbar torque checklist for Gate 3 handover',
+    ],
+    sharedWithMentor: true,
+    nowIso: '2026-11-25T15:00:00.000Z',
+  });
+  assert.equal(validAgenda.ok, true);
+  if (!validAgenda.ok) {
+    throw new Error('Expected validAgenda.ok to be true');
+  }
+  assert.equal(validAgenda.record.agendaItems.length, 3);
+
+  const toggledRecord = toggleAgendaItemCompletion(
+    validAgenda.record,
+    0,
+    '2026-11-25T15:02:00.000Z'
+  );
+  const progress = computeSessionAgendaProgress(toggledRecord);
+  assert.equal(progress.totalItems, 3);
+  assert.equal(progress.completedItems, 1);
+  assert.equal(progress.completionPct, 33);
+  assert.equal(progress.allCompleted, false);
+
+  const formattedChat = formatSessionAgendaForChat(toggledRecord);
+  assert.ok(
+    formattedChat.includes(
+      '📋 Session Agenda Shared: Gate 2 Working Schematic & LVD Cutoff Sync'
+    )
+  );
+  assert.ok(
+    formattedChat.includes(
+      '• [x] Review 48V LiFePO4 cell-delta baseline log across night clinic load'
+    )
+  );
+  assert.ok(
+    formattedChat.includes(
+      '• [ ] Verify 44.8V low-voltage disconnect threshold before vaccine chiller trip'
+    )
+  );
+
+  // 4. Test offline queue compaction for session agenda mutations
+  const compactedAgendas = compactOfflineQueue([
+    {
+      id: 'mut-ag-1',
+      kind: 'upsert_session_agenda',
+      payload: toggledRecord,
+      queuedAtIso: '2026-11-25T15:00:00.000Z',
+    },
+    {
+      id: 'mut-ag-2',
+      kind: 'upsert_session_agenda',
+      payload: { ...toggledRecord, agendaTitle: 'Updated Gate 2 Schematic Sync' },
+      queuedAtIso: '2026-11-25T15:05:00.000Z',
+    },
+  ]);
+  assert.equal(compactedAgendas.length, 1);
+  assert.equal(
+    compactedAgendas[0].kind === 'upsert_session_agenda' &&
+      compactedAgendas[0].payload.agendaTitle,
+    'Updated Gate 2 Schematic Sync'
+  );
+});
+
+import { parseCalendarSlotToIso } from './talentEngine';
+import type { MentorPeerReviewRecord } from '../types/kora';
+
+test('parseCalendarSlotToIso and mentor peer review offline compaction behave deterministically', () => {
+  assert.equal(
+    parseCalendarSlotToIso('2026-12-04', '14:30 UTC'),
+    '2026-12-04T14:30:00.000Z'
+  );
+  assert.equal(
+    parseCalendarSlotToIso('2026-12-04', '09:05'),
+    '2026-12-04T09:05:00.000Z'
+  );
+  // Clamps out-of-range hour safely
+  assert.equal(
+    parseCalendarSlotToIso('2026-12-04', '29:75'),
+    '2026-12-04T23:59:00.000Z'
+  );
+
+  const sampleReview: MentorPeerReviewRecord = {
+    id: 'mprev-test-1',
+    ownerUid: 'u1',
+    sprintId: 'sprint-solar-01',
+    sprintTitle: '48V Microgrid Diagnostics',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Mutua',
+    mentorRole: 'Lead Pod Mentor',
+    reviewedDate: '2026-11-26',
+    cohesionScore: 5,
+    framingScore: 4,
+    communicationScore: 5,
+    feedbackText: 'Clear handoff logs and rapid blocker escalation across the pod.',
+    recommendedAction: 'Archive thermal baseline readings in final handover doc.',
+    createdAtIso: '2026-11-26T10:00:00.000Z',
+    updatedAtIso: '2026-11-26T10:00:00.000Z',
+  };
+
+  const compactedReviews = compactOfflineQueue([
+    {
+      id: 'mut-pr-1',
+      kind: 'upsert_mentor_peer_review',
+      payload: sampleReview,
+      queuedAtIso: '2026-11-26T10:00:00.000Z',
+    },
+    {
+      id: 'mut-pr-2',
+      kind: 'upsert_mentor_peer_review',
+      payload: { ...sampleReview, framingScore: 5 },
+      queuedAtIso: '2026-11-26T10:02:00.000Z',
+    },
+    {
+      id: 'mut-pr-3',
+      kind: 'delete_mentor_peer_review',
+      reviewId: sampleReview.id,
+      queuedAtIso: '2026-11-26T10:05:00.000Z',
+    },
+  ]);
+
+  assert.equal(compactedReviews.length, 1);
+  assert.equal(compactedReviews[0].kind, 'delete_mentor_peer_review');
+});
 
 
 

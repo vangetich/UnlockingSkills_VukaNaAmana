@@ -24,6 +24,16 @@ import {
   partnerAuthRealm,
   talentAuthRealm,
 } from './src/utils/dualDoorAuth.ts';
+import {
+  createDefaultPreContractingRecord,
+  isValidDocumentFeedbackStage,
+  isValidFeedbackTone,
+  isValidStepReviewStatus,
+  isValidVerificationStepId,
+  sanitizeFeedbackMessage,
+  type PartnerApplicantFeedbackItem,
+  type PartnerPreContractingRecord,
+} from './src/utils/partnerVerification.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -77,6 +87,39 @@ async function startServer() {
   const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
 
   const consentGrantsStore = new Map<string, ConsentGrant>();
+  const partnerPostedSprintsStore: Array<{
+    id: string;
+    title: string;
+    domain: string;
+    studioDomain: 'Tech' | 'Green Energy' | 'Healthcare Ops' | 'SME Finance';
+    complexity: 'Foundational' | 'Applied' | 'Specialist';
+    organization: string;
+    locationLabel: string;
+    summary: string;
+    deliverableChecklist: string[];
+    estimatedHours: number;
+    payoutUsd: number;
+    recommendedStages: string[];
+    requiredKeywords: string[];
+    workspaceReadiness?: string[];
+    inclusiveReady?: boolean;
+    postedAtIso: string;
+  }> = [];
+  const issuedContractsStore = new Map<
+    string,
+    {
+      contractRef: string;
+      consentId: string;
+      grantId: string;
+      talentAlias: string;
+      orgName: string;
+      bridgeType: string;
+      stipendUsd: number;
+      issuedAtIso: string;
+    }
+  >();
+  const partnerVerificationStore = new Map<string, PartnerPreContractingRecord>();
+  const partnerApplicantFeedbackStore: PartnerApplicantFeedbackItem[] = [];
   const accessAuditLog: AccessAuditLogEntry[] = [];
 
   const extractBearerToken = (req: express.Request): string | null => {
@@ -1887,7 +1930,7 @@ async function startServer() {
   // 6. Sovereign Email Vault Sync (`POST /api/sync/email-vault` & `GET /api/sync/email-vault`)
   // Allows refugees and practitioners using any email service (Gmail, Outlook/Hotmail, Yahoo,
   // Proton, NGO domains) to reliably store & restore personal workspace data with Zero-Raw-ID protection.
-  app.post('/api/sync/email-vault', (req, res) => {
+  app.post('/api/sync/email-vault', requireTalentAuthOrGuard, (req, res) => {
     const body = req.body as {
       email?: string;
       displayName?: string;
@@ -1922,7 +1965,7 @@ async function startServer() {
     });
   });
 
-  app.get('/api/sync/email-vault', (req, res) => {
+  app.get('/api/sync/email-vault', requireTalentAuthOrGuard, (req, res) => {
     const email = String(req.query.email || '').trim().toLowerCase();
     if (!email || !email.includes('@')) {
       res.status(400).json({ error: 'Please provide a valid email query parameter.' });
@@ -2561,9 +2604,429 @@ async function startServer() {
     res.status(200).json({ revoked: true, consentId });
   });
 
-  app.get('/api/consent/grants', (_req, res) => {
-    const grants = Array.from(consentGrantsStore.values());
-    res.json({ grants });
+  const resolveAuthenticatedRealm = (
+    req: express.Request
+  ):
+    | { realm: 'talent'; sub: string }
+    | { realm: 'partner'; sub: string; orgId: string; orgName: string }
+    | null => {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const bearer = extractBearerToken(req);
+
+    if (bearer) {
+      const talentClaims = talentAuthRealm.verifySession(bearer);
+      if (talentClaims) return { realm: 'talent', sub: talentClaims.sub };
+      const partnerClaims = partnerAuthRealm.verifySession(bearer);
+      if (partnerClaims) {
+        return {
+          realm: 'partner',
+          sub: partnerClaims.sub,
+          orgId: partnerClaims.orgId,
+          orgName: partnerClaims.orgName,
+        };
+      }
+    }
+
+    if (cookies[TALENT_SESSION_COOKIE]) {
+      const talentClaims = talentAuthRealm.verifySession(cookies[TALENT_SESSION_COOKIE]);
+      if (talentClaims) return { realm: 'talent', sub: talentClaims.sub };
+    }
+
+    if (cookies[PARTNER_SESSION_COOKIE]) {
+      const partnerClaims = partnerAuthRealm.verifySession(cookies[PARTNER_SESSION_COOKIE]);
+      if (partnerClaims) {
+        return {
+          realm: 'partner',
+          sub: partnerClaims.sub,
+          orgId: partnerClaims.orgId,
+          orgName: partnerClaims.orgName,
+        };
+      }
+    }
+
+    return null;
+  };
+
+  app.get('/api/consent/grants', (req, res) => {
+    const actor = resolveAuthenticatedRealm(req);
+    if (!actor) {
+      res.status(401).json({ error: 'Authentication required to view consent grants.' });
+      return;
+    }
+
+    const allGrants = Array.from(consentGrantsStore.values());
+    if (actor.realm === 'partner') {
+      // Hiring Partners only ever see active, non-revoked consent grants (zero raw IDs)
+      const activeGrants = allGrants.filter((g) => g.status === 'active');
+      res.json({ grants: activeGrants, scope: 'partner-active-only' });
+      return;
+    }
+
+    // Builders see both active and revoked grants so they retain full auditability and control
+    res.json({ grants: allGrants, scope: 'builder-owner' });
+  });
+
+  app.get('/api/partner/sprints', (_req, res) => {
+    res.json({ sprints: partnerPostedSprintsStore });
+  });
+
+  app.post('/api/partner/sprints', requirePartnerAuthOrGuard, (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const actor = resolveAuthenticatedRealm(req);
+    if (!actor || actor.realm !== 'partner') {
+      res.status(401).json({ error: 'Hiring Partner authentication required to publish sprints.' });
+      return;
+    }
+
+    const body = (req.body ?? {}) as {
+      title?: string;
+      domain?: string;
+      studioDomain?: string;
+      complexity?: string;
+      organization?: string;
+      locationLabel?: string;
+      summary?: string;
+      deliverableChecklist?: string[];
+      estimatedHours?: number;
+      payoutUsd?: number;
+      recommendedStages?: string[];
+      requiredKeywords?: string[];
+      workspaceReadiness?: string[];
+      inclusiveReady?: boolean;
+    };
+
+    const title = String(body.title || '').trim().slice(0, 140);
+    if (title.length < 3) {
+      res.status(400).json({ error: 'Sprint title must be at least 3 characters.' });
+      return;
+    }
+
+    const studioDomain = VALID_DOMAINS.includes(
+      body.studioDomain as (typeof VALID_DOMAINS)[number]
+    )
+      ? (body.studioDomain as (typeof VALID_DOMAINS)[number])
+      : 'Tech';
+    const complexity: 'Foundational' | 'Applied' | 'Specialist' =
+      body.complexity === 'Foundational' || body.complexity === 'Specialist'
+        ? body.complexity
+        : 'Applied';
+    const payoutUsd = Math.max(50, Math.min(5000, Math.round(Number(body.payoutUsd) || 350)));
+    const estimatedHours = Math.max(2, Math.min(200, Math.round(Number(body.estimatedHours) || 16)));
+    const organization = String(body.organization || actor.orgName).trim().slice(0, 100);
+    const nowIso = new Date().toISOString();
+
+    const sprintRecord = {
+      id: `sprint_partner_${crypto.randomBytes(5).toString('hex')}`,
+      title,
+      domain: String(body.domain || `${studioDomain} · 7-Day Sprint`).trim().slice(0, 80),
+      studioDomain,
+      complexity,
+      organization,
+      locationLabel: String(body.locationLabel || 'Global Remote / Host Region').trim().slice(0, 80),
+      summary:
+        String(body.summary || '').trim().slice(0, 800) ||
+        'Scoped practical solution brief delivered via Vuka na Amana Cross-Age Pod.',
+      deliverableChecklist:
+        Array.isArray(body.deliverableChecklist) && body.deliverableChecklist.length > 0
+          ? body.deliverableChecklist.map((d) => String(d).trim().slice(0, 140)).filter(Boolean).slice(0, 6)
+          : ['Diagnostic assessment', 'Remediation plan', 'Handover documentation'],
+      estimatedHours,
+      payoutUsd,
+      recommendedStages:
+        Array.isArray(body.recommendedStages) && body.recommendedStages.length > 0
+          ? body.recommendedStages.map((s) => String(s)).slice(0, 4)
+          : ['18-29', '30-45', '46+'],
+      requiredKeywords:
+        Array.isArray(body.requiredKeywords) && body.requiredKeywords.length > 0
+          ? body.requiredKeywords.map((k) => String(k).trim().toLowerCase().slice(0, 40)).filter(Boolean).slice(0, 8)
+          : [studioDomain.toLowerCase(), 'problem-solving', 'verification'],
+      workspaceReadiness: Array.isArray(body.workspaceReadiness)
+        ? body.workspaceReadiness.map((w) => String(w)).slice(0, 4)
+        : [],
+      inclusiveReady: Boolean(body.inclusiveReady),
+      postedAtIso: nowIso,
+    };
+
+    partnerPostedSprintsStore.unshift(sprintRecord);
+    if (partnerPostedSprintsStore.length > 50) partnerPostedSprintsStore.pop();
+
+    partnerScaleStore.recordTelemetryEvent({
+      sdgNumber: 8,
+      unTarget: 'Targets 8.3 & 8.5',
+      eventType: 'SPRINT_COMPLETED',
+      metadata: {
+        sprintId: sprintRecord.id,
+        organization,
+        payoutUsd,
+      },
+    });
+
+    logAudit({
+      actorRole: 'partner',
+      actorId: actor.sub,
+      targetOrgId: actor.orgId,
+      action: 'PARTNER_SPRINT_PUBLISHED',
+      details: `${organization} published live sprint "${title}" ($${payoutUsd} USD) to Builder Studio Tab 3.`,
+    });
+
+    res.status(201).json({ sprint: sprintRecord, status: 'PUBLISHED' });
+  });
+
+  app.get('/api/partner/contracts', requirePartnerAuthOrGuard, (req, res) => {
+    const actor = resolveAuthenticatedRealm(req);
+    if (!actor || actor.realm !== 'partner') {
+      res.status(401).json({ error: 'Hiring Partner authentication required.' });
+      return;
+    }
+    res.json({ contracts: Array.from(issuedContractsStore.values()) });
+  });
+
+  app.post('/api/partner/contracts/issue', requirePartnerAuthOrGuard, (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const actor = resolveAuthenticatedRealm(req);
+    if (!actor || actor.realm !== 'partner') {
+      res.status(401).json({ error: 'Hiring Partner authentication required to issue contracts.' });
+      return;
+    }
+
+    const body = (req.body ?? {}) as {
+      consentId?: string;
+      grantId?: string;
+      bridgeType?: string;
+      stipendUsd?: number;
+    };
+    const consentId = String(body.consentId || body.grantId || '').trim();
+    const grant = consentGrantsStore.get(consentId);
+    if (!grant || grant.status !== 'active') {
+      res.status(403).json({
+        error: 'Cannot issue contract: active, non-revoked Consent Grant required.',
+      });
+      return;
+    }
+
+    const existingContract = issuedContractsStore.get(consentId);
+    if (existingContract) {
+      res.status(200).json({ contract: { ...existingContract, grantId: existingContract.consentId }, alreadyIssued: true });
+      return;
+    }
+
+    const contractRef = `VNA-CTR-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    const bridgeType = String(body.bridgeType || 'direct-local').trim().slice(0, 40);
+    const stipendUsd = Math.max(50, Math.min(10000, Math.round(Number(body.stipendUsd) || 390)));
+    const record = {
+      contractRef,
+      consentId,
+      grantId: consentId,
+      talentAlias: grant.talentAlias,
+      orgName: actor.orgName,
+      bridgeType,
+      stipendUsd,
+      issuedAtIso: new Date().toISOString(),
+    };
+    issuedContractsStore.set(consentId, record);
+
+    partnerScaleStore.recordTelemetryEvent({
+      sdgNumber: 17,
+      unTarget: 'Target 17.17',
+      eventType: 'COMPLIANCE_ROUTED',
+      metadata: {
+        contractRef,
+        consentId,
+        orgName: actor.orgName,
+      },
+    });
+
+    logAudit({
+      actorRole: 'partner',
+      actorId: actor.sub,
+      targetOrgId: actor.orgId,
+      action: 'COMPLIANT_CONTRACT_ISSUED',
+      details: `${actor.orgName} issued compliant sprint contract ${contractRef} under Consent Grant ${consentId} (Zero Raw IDs).`,
+    });
+
+    res.status(201).json({ contract: record, status: 'ISSUED' });
+  });
+
+  app.get('/api/partner/verification/state', (req, res) => {
+    const actor = resolveAuthenticatedRealm(req);
+    if (!actor) {
+      res.status(401).json({
+        error: 'Authentication required to view pre-contracting verification progress and feedback.',
+      });
+      return;
+    }
+
+    const activeGrantIds = new Set<string>();
+    for (const grant of consentGrantsStore.values()) {
+      if (grant.status === 'active') {
+        activeGrantIds.add(grant.consentId);
+      }
+    }
+
+    const verifications: Record<string, PartnerPreContractingRecord> = {};
+    for (const [consentId, record] of partnerVerificationStore.entries()) {
+      if (activeGrantIds.has(consentId)) {
+        verifications[consentId] = record;
+      }
+    }
+
+    const feedback = partnerApplicantFeedbackStore.filter((item) =>
+      activeGrantIds.has(item.consentId)
+    );
+
+    res.json({
+      verifications,
+      feedback,
+      scope: actor.realm === 'partner' ? 'partner-active-only' : 'builder-active-grants',
+    });
+  });
+
+  app.post('/api/partner/verification/step', requirePartnerAuthOrGuard, (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const actor = resolveAuthenticatedRealm(req);
+    if (!actor || actor.realm !== 'partner') {
+      res.status(401).json({
+        error: 'Hiring Partner authentication required to verify pre-contracting steps.',
+      });
+      return;
+    }
+
+    const body = (req.body ?? {}) as {
+      consentId?: unknown;
+      stepId?: unknown;
+      status?: unknown;
+      reviewerNote?: unknown;
+    };
+
+    const consentId = String(body.consentId ?? '').trim();
+    const grant = consentGrantsStore.get(consentId);
+    if (!grant || grant.status !== 'active') {
+      res.status(403).json({
+        error: 'Cannot update verification step: active, non-revoked Consent Grant required.',
+      });
+      return;
+    }
+
+    if (!isValidVerificationStepId(body.stepId)) {
+      res.status(400).json({ error: 'Invalid pre-contracting verification step ID.' });
+      return;
+    }
+    if (!isValidStepReviewStatus(body.status)) {
+      res.status(400).json({ error: 'Invalid verification status.' });
+      return;
+    }
+
+    const reviewerNote = sanitizeFeedbackMessage(body.reviewerNote, 500);
+    const nowIso = new Date().toISOString();
+    const existing =
+      partnerVerificationStore.get(consentId) ??
+      createDefaultPreContractingRecord(consentId, nowIso);
+
+    const updated: PartnerPreContractingRecord = {
+      consentId,
+      steps: {
+        ...existing.steps,
+        [body.stepId]: {
+          status: body.status,
+          updatedAtIso: nowIso,
+          verifiedByOrgName: actor.orgName,
+          ...(reviewerNote ? { reviewerNote } : {}),
+        },
+      },
+      updatedAtIso: nowIso,
+    };
+
+    partnerVerificationStore.set(consentId, updated);
+
+    logAudit({
+      actorRole: 'partner',
+      actorId: actor.sub,
+      targetOrgId: actor.orgId,
+      action: 'PARTNER_STEP_VERIFIED',
+      details: `${actor.orgName} updated pre-contracting step "${body.stepId}" to "${body.status}" for Consent Grant ${consentId} (Zero Raw IDs).`,
+    });
+
+    res.status(200).json({ verification: updated, status: 'UPDATED' });
+  });
+
+  app.post('/api/partner/verification/feedback', requirePartnerAuthOrGuard, (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const actor = resolveAuthenticatedRealm(req);
+    if (!actor || actor.realm !== 'partner') {
+      res.status(401).json({
+        error: 'Hiring Partner authentication required to send applicant stage feedback.',
+      });
+      return;
+    }
+
+    const body = (req.body ?? {}) as {
+      consentId?: unknown;
+      stage?: unknown;
+      tone?: unknown;
+      message?: unknown;
+    };
+
+    const consentId = String(body.consentId ?? '').trim();
+    const grant = consentGrantsStore.get(consentId);
+    if (!grant || grant.status !== 'active') {
+      res.status(403).json({
+        error: 'Cannot send feedback: active, non-revoked Consent Grant required.',
+      });
+      return;
+    }
+
+    if (!isValidDocumentFeedbackStage(body.stage)) {
+      res.status(400).json({ error: 'Invalid document processing stage.' });
+      return;
+    }
+    if (!isValidFeedbackTone(body.tone)) {
+      res.status(400).json({ error: 'Invalid feedback tone.' });
+      return;
+    }
+
+    const message = sanitizeFeedbackMessage(body.message, 800);
+    if (message.length < 5) {
+      res.status(400).json({ error: 'Please write at least 5 characters of clear stage feedback.' });
+      return;
+    }
+
+    const item: PartnerApplicantFeedbackItem = {
+      id: `pfb_${crypto.randomBytes(6).toString('hex')}`,
+      consentId,
+      talentAlias: grant.talentAlias,
+      fromOrgName: actor.orgName,
+      stage: body.stage,
+      tone: body.tone,
+      message,
+      createdAtIso: new Date().toISOString(),
+    };
+
+    partnerApplicantFeedbackStore.unshift(item);
+    if (partnerApplicantFeedbackStore.length > 200) {
+      partnerApplicantFeedbackStore.pop();
+    }
+
+    logAudit({
+      actorRole: 'partner',
+      actorId: actor.sub,
+      targetOrgId: actor.orgId,
+      action: 'PARTNER_FEEDBACK_SENT',
+      details: `${actor.orgName} sent "${body.stage}" (${body.tone}) document feedback to ${grant.talentAlias} under Consent Grant ${consentId}.`,
+    });
+
+    res.status(201).json({ feedback: item, status: 'SENT' });
   });
 
   app.get('/api/partner/dossier/:talentAlias', requirePartnerAuthOrGuard, (req, res) => {
@@ -2624,10 +3087,25 @@ async function startServer() {
     });
   });
 
-  app.get('/api/audit/logs', (_req, res) => {
+  app.get('/api/audit/logs', (req, res) => {
+    const actor = resolveAuthenticatedRealm(req);
+    if (!actor) {
+      res.status(401).json({ error: 'Authentication required to inspect audit trail.' });
+      return;
+    }
+    const scopedLogs =
+      actor.realm === 'partner'
+        ? accessAuditLog.filter(
+            (entry) =>
+              entry.actorRole === 'partner' ||
+              entry.action === 'CONSENT_GRANTED' ||
+              entry.action === 'CONSENT_REVOKED'
+          )
+        : accessAuditLog;
+
     res.json({
-      auditLogs: accessAuditLog,
-      totalEntries: accessAuditLog.length,
+      auditLogs: scopedLogs,
+      totalEntries: scopedLogs.length,
     });
   });
 

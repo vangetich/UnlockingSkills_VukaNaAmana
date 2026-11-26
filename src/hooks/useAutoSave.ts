@@ -6,6 +6,7 @@ export interface UseAutoSaveOptions<T> {
   debounceMs?: number;
   enabled?: boolean;
   syncedEmail?: string | null;
+  authToken?: string | null;
   onAutoSaved?: (savedData: T) => void;
 }
 
@@ -15,6 +16,7 @@ export function useAutoSave<T>({
   debounceMs = 5000,
   enabled = true,
   syncedEmail,
+  authToken,
   onAutoSaved,
 }: UseAutoSaveOptions<T>) {
   const dataRef = useRef(data);
@@ -31,12 +33,17 @@ export function useAutoSave<T>({
 
         if (syncedEmail && syncedEmail.includes('@')) {
           try {
+            const headers: Record<string, string> = {
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'VukaNaAmana',
+            };
+            if (authToken) {
+              headers.Authorization = `Bearer ${authToken}`;
+            }
             await fetch('/api/sync/email-vault', {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'VukaNaAmana',
-              },
+              credentials: 'same-origin',
+              headers,
               body: JSON.stringify({
                 email: syncedEmail,
                 provider: 'autosave-vault',
@@ -57,7 +64,7 @@ export function useAutoSave<T>({
         console.error('AutoSave persistence error:', err);
       }
     },
-    [key, syncedEmail, onAutoSaved]
+    [key, syncedEmail, authToken, onAutoSaved]
   );
 
   // Debounced auto-save every 5 seconds when data changes

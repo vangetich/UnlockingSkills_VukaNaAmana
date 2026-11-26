@@ -401,7 +401,7 @@ export const ComplianceCrossingSection: React.FC<ComplianceCrossingSectionProps>
                   : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
               }`}
             >
-              Hiring Partner Compliance View
+              Partner Compliance Preview
             </button>
           </div>
         </div>
@@ -860,6 +860,31 @@ export const ComplianceCrossingSection: React.FC<ComplianceCrossingSectionProps>
               3-Step Financial Readiness Checklist
             </p>
 
+            {/* Who Verifies What (Privacy Boundary) — Directly inside the 3-Step Financial Readiness Checklist */}
+            <div
+              role="note"
+              data-testid="financial-privacy-boundary-note"
+              className="rounded-xl bg-[#E7F3EE]/65 dark:bg-[#142B24]/75 border border-[#146C53]/30 dark:border-[#2EB88B]/35 px-4 py-3 flex items-start gap-2.5 text-xs leading-relaxed text-[#43484E] dark:text-[#C8CDD4]"
+            >
+              <ShieldCheck
+                className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B] shrink-0 mt-0.5"
+                aria-hidden="true"
+              />
+              <p>
+                <strong className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                  Who Verifies What (Privacy Boundary):
+                </strong>{' '}
+                Licensed payout rails or Employer of Record (EOR) compliance checks verify identity and
+                disbursement routing directly (Steps 1–2) and return only a readiness status, while tax
+                and contracting terms (Step 3) are confirmed directly between practitioner and hiring
+                partner.{' '}
+                <strong className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                  Pod mentors never view raw IDs, payout accounts, or approve financial clearance
+                </strong>
+                —their role stays strictly limited to skills and process guidance.
+              </p>
+            </div>
+
             <div className="space-y-3">
               {FINANCIAL_READINESS_CHECKLIST_ITEMS.map((item) => {
                 const isChecked =
@@ -914,7 +939,7 @@ export const ComplianceCrossingSection: React.FC<ComplianceCrossingSectionProps>
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold transition-colors whitespace-nowrap"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Verified Ready</span>
+                            <span>Self-Declared Ready</span>
                           </button>
                         ) : (
                           <button
@@ -924,7 +949,7 @@ export const ComplianceCrossingSection: React.FC<ComplianceCrossingSectionProps>
                             aria-pressed="false"
                             className="min-h-[36px] px-3.5 py-1.5 rounded-lg border border-[#146C53] dark:border-[#2EB88B] text-[#146C53] dark:text-[#2EB88B] hover:bg-[#E7F3EE] dark:hover:bg-[#142B24] text-xs font-semibold transition-colors whitespace-nowrap"
                           >
-                            Verify Step
+                            Mark Ready
                           </button>
                         )}
                       </div>
@@ -992,33 +1017,45 @@ export const ComplianceCrossingSection: React.FC<ComplianceCrossingSectionProps>
         ) : (
           <div
             data-testid="financial-partner-assurance"
-            className="rounded-xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+            className="rounded-xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-4 sm:p-5 space-y-3"
           >
-            <div className="space-y-1">
-              <p className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
-                Hiring Partner Payout Assurance · {matchedFatfTier.tierLabel}
-              </p>
-              <p className="text-sm font-medium text-[#17191C] dark:text-[#F4F2EE]">
-                Disburse via {getFinancialPayoutRailLabel(financialProgress.selectedRail)} with zero commercial-bank onboarding delays.
-              </p>
-              <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
-                {financialProgress.completedCount}/3 financial readiness gates confirmed by practitioner.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                  Partner Payout Assurance Preview · {matchedFatfTier.tierLabel}
+                </p>
+                <p className="text-sm font-medium text-[#17191C] dark:text-[#F4F2EE]">
+                  Disburse via {getFinancialPayoutRailLabel(financialProgress.selectedRail)} with zero commercial-bank onboarding delays.
+                </p>
+                <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                  {financialProgress.completedCount}/3 financial readiness gates self-declared by practitioner (pending partner check).
+                </p>
+              </div>
+              {!financialProgress.isCrossingCleared && (
+                <button
+                  type="button"
+                  onClick={() => onChangeViewMode('talent')}
+                  className="min-h-[38px] px-4 py-2 rounded-lg border border-[#146C53] dark:border-[#2EB88B] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] hover:bg-[#E7F3EE] dark:hover:bg-[#142B24] transition-colors whitespace-nowrap shrink-0 self-start sm:self-center"
+                >
+                  Open Talent Checklist
+                </button>
+              )}
             </div>
-            {!financialProgress.isCrossingCleared && (
-              <button
-                type="button"
-                onClick={() => onChangeViewMode('talent')}
-                className="min-h-[38px] px-4 py-2 rounded-lg border border-[#146C53] dark:border-[#2EB88B] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] hover:bg-[#E7F3EE] dark:hover:bg-[#142B24] transition-colors whitespace-nowrap shrink-0 self-start sm:self-center"
-              >
-                Open Talent Checklist
-              </button>
-            )}
+            <p
+              role="note"
+              data-testid="financial-privacy-boundary-note"
+              className="rounded-lg bg-[#E7F3EE]/55 dark:bg-[#142B24]/65 border border-[#146C53]/25 dark:border-[#2EB88B]/30 px-3.5 py-2.5 text-[11px] leading-relaxed text-[#43484E] dark:text-[#C8CDD4]"
+            >
+              <strong className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                Who Verifies What (Privacy Boundary):
+              </strong>{' '}
+              Licensed payout rails or EOR compliance checks verify identity and payout routing directly (never raw IDs in app); pod mentors never view financial credentials.
+            </p>
           </div>
         )}
       </div>
 
-      {/* MODULE 3: HIRING PARTNER COMPLIANCE VIEW — Zero-Friction Onboarding Dossier & Employer Liability Shield */}
+      {/* MODULE 3: HIRING PARTNER COMPLIANCE PREVIEW — Pre-Posting Onboarding Dossier */}
       {viewMode === 'partner' && (
         <div
           id="zero-friction-onboarding-dossier"
@@ -1029,7 +1066,7 @@ export const ComplianceCrossingSection: React.FC<ComplianceCrossingSectionProps>
           <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 border-b border-[#E8E3DB] dark:border-[#2C3037] pb-5">
             <div className="space-y-1.5 max-w-2xl">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#146C53] dark:text-[#2EB88B]">
-                Employer Liability Shield · Executive Onboarding Dossier
+                Pre-Posting Preview · Executive Onboarding Dossier
               </p>
               <h3 className="font-display text-xl sm:text-2xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
                 Zero-Friction Onboarding Dossier · {profile?.displayName || 'Skilled Practitioner'}

@@ -5,22 +5,38 @@ import type {
   LivingProofPortfolio,
   LockedUpskillingBridgeRecord,
   MatchedWorkApplication,
+  MenteeCompetencyBadge,
   MentorMessage,
+  MentorMilestoneFeedback,
+  MentorPairingRequest,
+  MentorPeerReviewRecord,
+  MentorRating,
+  MentorshipJournalEntry,
+  MentorshipSession,
+  MentorshipSessionAgendaRecord,
+  MentorshipTrackProgressRecord,
   OfflineMutation,
   PeerEndorsement,
   PractitionerProfile,
   SkillCapability,
   SprintCollaborationNote,
+  SprintDiscussionPost,
   SprintFeedback,
   SprintMilestoneKey,
   WorkReadyVault,
 } from '../types/kora';
 import {
   DEFAULT_SEED_CAPABILITIES,
+  DEFAULT_SEED_COLLABORATION_NOTES,
   DEFAULT_SEED_CONTRIBUTIONS,
   DEFAULT_SEED_ENDORSEMENTS,
+  DEFAULT_SEED_MENTEE_BADGES,
   DEFAULT_SEED_MENTOR_MESSAGES,
+  DEFAULT_SEED_MENTOR_PAIRINGS,
+  DEFAULT_SEED_MENTORSHIP_SESSIONS,
+  DEFAULT_SEED_MILESTONE_FEEDBACK,
   DEFAULT_SEED_PAYOUTS,
+  DEFAULT_SEED_SESSION_AGENDAS,
   DEFAULT_SEED_SPRINT_FEEDBACK,
   compactOfflineQueue,
   createInitialLivingProofPortfolio,
@@ -40,7 +56,17 @@ const STORAGE_KEYS = {
   payouts: 'kora.v1.payouts',
   sprintFeedback: 'kora.v1.sprint_feedback',
   mentorMessages: 'kora.v1.mentor_messages',
+  mentorshipSessions: 'kora.v1.mentorship_sessions',
+  mentorPairings: 'kora.v1.mentor_pairings',
+  mentorRatings: 'kora.v1.mentor_ratings',
+  mentorshipTrackProgress: 'kora.v1.mentorship_track_progress',
+  mentorshipJournal: 'kora.v1.mentorship_journal',
+  menteeCompetencyBadges: 'kora.v1.mentee_competency_badges',
+  mentorMilestoneFeedback: 'kora.v1.mentor_milestone_feedback',
+  mentorshipSessionAgendas: 'kora.v1.mentorship_session_agendas',
+  mentorPeerReviews: 'kora.v1.mentor_peer_reviews',
   collaborationNotes: 'kora.v1.collaboration_notes',
+  sprintDiscussions: 'kora.v1.sprint_discussions',
   queue: 'kora.v1.offline_queue',
   lastSync: 'kora.v1.last_sync',
   proofPortfolio: 'kora.v1.proof_portfolio',
@@ -59,7 +85,17 @@ export interface LocalWorkspaceState {
   payouts: ContractPayout[];
   sprintFeedback: SprintFeedback[];
   mentorMessages: MentorMessage[];
+  mentorshipSessions: MentorshipSession[];
+  mentorPairings: MentorPairingRequest[];
+  mentorRatings: MentorRating[];
+  mentorshipTrackProgress: MentorshipTrackProgressRecord[];
+  mentorshipJournal: MentorshipJournalEntry[];
+  menteeCompetencyBadges: MenteeCompetencyBadge[];
+  mentorMilestoneFeedback: MentorMilestoneFeedback[];
+  mentorshipSessionAgendas: MentorshipSessionAgendaRecord[];
+  mentorPeerReviews: MentorPeerReviewRecord[];
   collaborationNotes: SprintCollaborationNote[];
+  sprintDiscussions: SprintDiscussionPost[];
   queue: OfflineMutation[];
   lastSyncedIso: string | null;
 }
@@ -230,12 +266,160 @@ export function loadLocalWorkspace(autostartDemo = false): LocalWorkspaceState {
       updatedAtIso: now,
     }));
 
+  const storedMentorshipSessions = safeParseJson<MentorshipSession[] | null>(
+    typeof window !== 'undefined'
+      ? window.localStorage.getItem(STORAGE_KEYS.mentorshipSessions)
+      : null,
+    null
+  );
+  const mentorshipSessions: MentorshipSession[] =
+    storedMentorshipSessions ??
+    DEFAULT_SEED_MENTORSHIP_SESSIONS.map((s, idx) => {
+      const daysAgo = idx === 0 ? 12 : idx === 1 ? 11 : 2;
+      const ts = new Date(Date.now() - daysAgo * 86_400_000).toISOString();
+      return {
+        ...s,
+        ownerUid: profile.uid,
+        attendedAtIso: ts,
+        createdAtIso: ts,
+        updatedAtIso: ts,
+      };
+    });
+
   const storedCollabNotes = safeParseJson<SprintCollaborationNote[] | null>(
     typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.collaborationNotes) : null,
     null
   );
   const collaborationNotes: SprintCollaborationNote[] = Array.isArray(storedCollabNotes)
     ? storedCollabNotes
+    : DEFAULT_SEED_COLLABORATION_NOTES.map((n, idx) => {
+        const ts = new Date(Date.now() - (idx === 0 ? 3 : 12) * 86_400_000).toISOString();
+        return {
+          ...n,
+          ownerUid: profile.uid,
+          createdAtIso: ts,
+          updatedAtIso: ts,
+        };
+      });
+
+  const storedDiscussions = safeParseJson<SprintDiscussionPost[] | null>(
+    typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.sprintDiscussions) : null,
+    null
+  );
+  const sprintDiscussions: SprintDiscussionPost[] = Array.isArray(storedDiscussions)
+    ? storedDiscussions
+    : [];
+
+  const storedPairings = safeParseJson<MentorPairingRequest[] | null>(
+    typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.mentorPairings) : null,
+    null
+  );
+  const mentorPairings: MentorPairingRequest[] = Array.isArray(storedPairings)
+    ? storedPairings
+    : DEFAULT_SEED_MENTOR_PAIRINGS.map((p, idx) => {
+        const daysAgo = idx === 0 ? 4 : idx === 1 ? 14 : 26;
+        const ts = new Date(Date.now() - daysAgo * 86_400_000).toISOString();
+        return {
+          ...p,
+          ownerUid: profile.uid,
+          createdAtIso: ts,
+          updatedAtIso: ts,
+        };
+      });
+
+  const storedMentorRatings = safeParseJson<MentorRating[] | null>(
+    typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.mentorRatings) : null,
+    null
+  );
+  const mentorRatings: MentorRating[] = Array.isArray(storedMentorRatings)
+    ? storedMentorRatings
+    : [];
+
+  const storedTrackProgress = safeParseJson<MentorshipTrackProgressRecord[] | null>(
+    typeof window !== 'undefined'
+      ? window.localStorage.getItem(STORAGE_KEYS.mentorshipTrackProgress)
+      : null,
+    null
+  );
+  const mentorshipTrackProgress: MentorshipTrackProgressRecord[] = Array.isArray(storedTrackProgress)
+    ? storedTrackProgress
+    : [];
+
+  const storedJournal = safeParseJson<MentorshipJournalEntry[] | null>(
+    typeof window !== 'undefined'
+      ? window.localStorage.getItem(STORAGE_KEYS.mentorshipJournal)
+      : null,
+    null
+  );
+  const mentorshipJournal: MentorshipJournalEntry[] = Array.isArray(storedJournal)
+    ? storedJournal
+    : [];
+
+  const storedMenteeBadges = safeParseJson<MenteeCompetencyBadge[] | null>(
+    typeof window !== 'undefined'
+      ? window.localStorage.getItem(STORAGE_KEYS.menteeCompetencyBadges)
+      : null,
+    null
+  );
+  const menteeCompetencyBadges: MenteeCompetencyBadge[] = Array.isArray(storedMenteeBadges)
+    ? storedMenteeBadges
+    : DEFAULT_SEED_MENTEE_BADGES.map((b) => {
+        const ts = new Date(Date.now() - 10 * 86_400_000).toISOString();
+        return {
+          ...b,
+          ownerUid: profile.uid,
+          awardedAtIso: ts.slice(0, 10),
+          createdAtIso: ts,
+          updatedAtIso: ts,
+        };
+      });
+
+  const storedMilestoneFeedback = safeParseJson<MentorMilestoneFeedback[] | null>(
+    typeof window !== 'undefined'
+      ? window.localStorage.getItem(STORAGE_KEYS.mentorMilestoneFeedback)
+      : null,
+    null
+  );
+  const mentorMilestoneFeedback: MentorMilestoneFeedback[] = Array.isArray(storedMilestoneFeedback)
+    ? storedMilestoneFeedback
+    : DEFAULT_SEED_MILESTONE_FEEDBACK.map((f, idx) => {
+        const ts = new Date(Date.now() - (idx + 2) * 86_400_000).toISOString();
+        return {
+          ...f,
+          ownerUid: profile.uid,
+          createdAtIso: ts,
+          updatedAtIso: ts,
+        };
+      });
+
+  const storedSessionAgendas = safeParseJson<MentorshipSessionAgendaRecord[] | null>(
+    typeof window !== 'undefined'
+      ? window.localStorage.getItem(STORAGE_KEYS.mentorshipSessionAgendas)
+      : null,
+    null
+  );
+  const mentorshipSessionAgendas: MentorshipSessionAgendaRecord[] = Array.isArray(
+    storedSessionAgendas
+  )
+    ? storedSessionAgendas
+    : DEFAULT_SEED_SESSION_AGENDAS.map((a) => {
+        const ts = new Date(Date.now() - 86_400_000).toISOString();
+        return {
+          ...a,
+          ownerUid: profile.uid,
+          createdAtIso: ts,
+          updatedAtIso: ts,
+        };
+      });
+
+  const storedPeerReviews = safeParseJson<MentorPeerReviewRecord[] | null>(
+    typeof window !== 'undefined'
+      ? window.localStorage.getItem(STORAGE_KEYS.mentorPeerReviews)
+      : null,
+    null
+  );
+  const mentorPeerReviews: MentorPeerReviewRecord[] = Array.isArray(storedPeerReviews)
+    ? storedPeerReviews
     : [];
 
   const queue = safeParseJson<OfflineMutation[]>(
@@ -256,7 +440,17 @@ export function loadLocalWorkspace(autostartDemo = false): LocalWorkspaceState {
     payouts,
     sprintFeedback,
     mentorMessages,
+    mentorshipSessions,
+    mentorPairings,
+    mentorRatings,
+    mentorshipTrackProgress,
+    mentorshipJournal,
+    menteeCompetencyBadges,
+    mentorMilestoneFeedback,
+    mentorshipSessionAgendas,
+    mentorPeerReviews,
     collaborationNotes,
+    sprintDiscussions,
     queue,
     lastSyncedIso,
   };
@@ -311,9 +505,89 @@ export function saveLocalMentorMessages(messages: MentorMessage[]): void {
   window.localStorage.setItem(STORAGE_KEYS.mentorMessages, JSON.stringify(messages));
 }
 
+export function saveLocalMentorshipSessions(sessions: MentorshipSession[]): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(STORAGE_KEYS.mentorshipSessions, JSON.stringify(sessions));
+}
+
+export function saveLocalMentorPairings(pairings: MentorPairingRequest[]): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(STORAGE_KEYS.mentorPairings, JSON.stringify(pairings));
+}
+
+export function saveLocalMentorRatings(ratings: MentorRating[]): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(STORAGE_KEYS.mentorRatings, JSON.stringify(ratings));
+}
+
+export function saveLocalMentorshipTrackProgress(
+  records: MentorshipTrackProgressRecord[]
+): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(
+    STORAGE_KEYS.mentorshipTrackProgress,
+    JSON.stringify(records)
+  );
+}
+
+export function saveLocalMentorshipJournal(
+  entries: MentorshipJournalEntry[]
+): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(
+    STORAGE_KEYS.mentorshipJournal,
+    JSON.stringify(entries)
+  );
+}
+
+export function saveLocalMenteeCompetencyBadges(
+  badges: MenteeCompetencyBadge[]
+): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(
+    STORAGE_KEYS.menteeCompetencyBadges,
+    JSON.stringify(badges)
+  );
+}
+
+export function saveLocalMentorMilestoneFeedback(
+  items: MentorMilestoneFeedback[]
+): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(
+    STORAGE_KEYS.mentorMilestoneFeedback,
+    JSON.stringify(items)
+  );
+}
+
+export function saveLocalMentorshipSessionAgendas(
+  agendas: MentorshipSessionAgendaRecord[]
+): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(
+    STORAGE_KEYS.mentorshipSessionAgendas,
+    JSON.stringify(agendas)
+  );
+}
+
+export function saveLocalMentorPeerReviews(
+  reviews: MentorPeerReviewRecord[]
+): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(
+    STORAGE_KEYS.mentorPeerReviews,
+    JSON.stringify(reviews)
+  );
+}
+
 export function saveLocalCollaborationNotes(notes: SprintCollaborationNote[]): void {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(STORAGE_KEYS.collaborationNotes, JSON.stringify(notes));
+}
+
+export function saveLocalSprintDiscussions(posts: SprintDiscussionPost[]): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(STORAGE_KEYS.sprintDiscussions, JSON.stringify(posts));
 }
 
 export function saveOfflineQueue(queue: OfflineMutation[]): OfflineMutation[] {

@@ -1,11 +1,12 @@
 import React from 'react';
-import { ArrowRight, CheckCircle2, Clock3, ShieldCheck } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock3, Lock, ShieldCheck } from 'lucide-react';
 import type { ContractPayout, PayoutLifecycleStatus } from '../types/kora';
 import { getPayoutRailLabel } from '../utils/talentEngine';
 
 interface PayoutStatusCardProps {
   payouts: ContractPayout[];
-  onAdvancePayout: (payoutId: string) => void;
+  onAdvancePayout?: (payoutId: string) => void;
+  readOnlyPreview?: boolean;
 }
 
 const LIFECYCLE_STEPS: Array<{
@@ -37,6 +38,7 @@ function getStatusPillStyles(status: PayoutLifecycleStatus): string {
 export const PayoutStatusCard: React.FC<PayoutStatusCardProps> = ({
   payouts,
   onAdvancePayout,
+  readOnlyPreview = false,
 }) => {
   const totalEscrowUsd = payouts
     .filter((p) => p.status !== 'released')
@@ -230,7 +232,7 @@ export const PayoutStatusCard: React.FC<PayoutStatusCardProps> = ({
                   })}
                 </ol>
 
-                {/* Single Partner Action if Not Yet Released */}
+                {/* Partner-Controlled Action or Read-Only Preview Safeguard */}
                 {nextActionLabel && (
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
                     <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
@@ -238,14 +240,24 @@ export const PayoutStatusCard: React.FC<PayoutStatusCardProps> = ({
                         ? 'Milestone funds are ring-fenced in escrow awaiting deliverable sign-off.'
                         : 'Settlement instruction dispatched to the verified payout rail.'}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => onAdvancePayout(payout.id)}
-                      className="min-h-[38px] px-4 py-1.5 rounded-lg bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center gap-1.5 self-start sm:self-auto transition-colors whitespace-nowrap"
-                    >
-                      <span>{nextActionLabel}</span>
-                      <ArrowRight className="w-3.5 h-3.5 rtl:rotate-180" />
-                    </button>
+                    {!readOnlyPreview && onAdvancePayout ? (
+                      <button
+                        type="button"
+                        onClick={() => onAdvancePayout(payout.id)}
+                        className="min-h-[38px] px-4 py-1.5 rounded-lg bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center gap-1.5 self-start sm:self-auto transition-colors whitespace-nowrap"
+                      >
+                        <span>{nextActionLabel}</span>
+                        <ArrowRight className="w-3.5 h-3.5 rtl:rotate-180" />
+                      </button>
+                    ) : (
+                      <span
+                        data-testid={`payout-partner-controlled-badge-${payout.id}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[11px] font-semibold text-[#575B62] dark:text-[#A3A7AE] self-start sm:self-auto whitespace-nowrap"
+                      >
+                        <Lock className="w-3 h-3 text-[#C4622D] dark:text-[#E07B46]" aria-hidden="true" />
+                        <span>Partner &amp; Escrow Controlled (Read-Only)</span>
+                      </span>
+                    )}
                   </div>
                 )}
               </article>

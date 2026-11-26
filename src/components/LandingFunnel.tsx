@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowRight,
   ArrowUp,
   ArrowUpDown,
+  Check,
   CheckCircle2,
   Globe,
+  HelpCircle,
   Keyboard,
   Mic,
   Moon,
@@ -15,6 +17,7 @@ import {
   Square,
   Sun,
   Users,
+  X,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { AgeStage, LocaleCode, ThemeMode } from '../types/kora';
@@ -23,7 +26,7 @@ import {
   getStageLabel,
   type TranslationDictionary,
 } from '../utils/i18n';
-import { AGE_STAGE_PATHWAYS } from '../utils/talentEngine';
+import { AGE_STAGE_PATHWAYS, AGE_GROUP_PROBLEM_IDEAS } from '../utils/talentEngine';
 import { useSpeechInput } from '../hooks/useSpeechInput';
 import {
   RippleConstellationMotif,
@@ -239,6 +242,35 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
 }) => {
   const [selectedStage, setSelectedStage] = useState<AgeStage>(initialStage);
   const [problemStatement, setProblemStatement] = useState<string>(initialProblem);
+  const [isHelperPinned, setIsHelperPinned] = useState<boolean>(false);
+  const [isHelperHovered, setIsHelperHovered] = useState<boolean>(false);
+  const showProblemHelper = isHelperPinned || isHelperHovered;
+  const problemHelperRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!showProblemHelper) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        problemHelperRef.current &&
+        !problemHelperRef.current.contains(event.target as Node)
+      ) {
+        setIsHelperPinned(false);
+        setIsHelperHovered(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsHelperPinned(false);
+        setIsHelperHovered(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showProblemHelper]);
 
   const handleSelectStage = (stage: AgeStage) => {
     setSelectedStage(stage);
@@ -513,15 +545,73 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               onSubmit={handleHeroSubmit}
               className="mt-7 max-w-2xl mx-auto rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-5 sm:p-7 text-start shadow-[0_12px_36px_rgba(23,25,28,0.04)] dark:shadow-none"
             >
-              <label
-                htmlFor="landing-problem-input"
-                className="block font-display text-lg sm:text-xl font-medium text-[#17191C] dark:text-[#F4F2EE]"
-              >
-                {t.problemInputLabel}
-              </label>
+              <div className="flex items-start justify-between gap-2">
+                <label
+                  htmlFor="landing-problem-input"
+                  className="block font-display text-lg sm:text-xl font-medium text-[#17191C] dark:text-[#F4F2EE]"
+                >
+                  {t.problemInputLabel}
+                </label>
+
+                {/* '?' Helper Tooltip explaining Pod Sprint matching impact */}
+                <div
+                  ref={problemHelperRef}
+                  className="relative shrink-0"
+                  onMouseEnter={() => setIsHelperHovered(true)}
+                  onMouseLeave={() => setIsHelperHovered(false)}
+                >
+                  <button
+                    type="button"
+                    data-testid="problem-input-helper-btn"
+                    aria-label="Why describing specific real-world problems improves Pod Sprint matching"
+                    aria-expanded={showProblemHelper}
+                    aria-controls="problem-matching-helper-tooltip"
+                    onClick={() => setIsHelperPinned((prev) => !prev)}
+                    onFocus={() => setIsHelperHovered(true)}
+                    onBlur={() => setIsHelperHovered(false)}
+                    className={`min-h-[36px] min-w-[36px] rounded-lg border inline-flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] cursor-pointer ${
+                      showProblemHelper
+                        ? 'bg-[#E7F3EE] dark:bg-[#132922] border-[#146C53] dark:border-[#2EB88B] text-[#146C53] dark:text-[#2EB88B]'
+                        : 'bg-[#FAF8F5] dark:bg-[#121315] border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#146C53] dark:hover:text-[#2EB88B] hover:border-[#146C53]/50 dark:hover:border-[#2EB88B]/50'
+                    }`}
+                  >
+                    <HelpCircle className="w-4 h-4" aria-hidden="true" />
+                  </button>
+
+                  {showProblemHelper && (
+                    <div
+                      id="problem-matching-helper-tooltip"
+                      role="tooltip"
+                      data-testid="problem-input-helper-tooltip"
+                      className="absolute end-0 top-full mt-2 z-30 w-72 sm:w-80 max-w-[calc(100vw-3rem)] rounded-xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5 shadow-[0_12px_32px_rgba(23,25,28,0.12)] dark:shadow-[0_12px_32px_rgba(0,0,0,0.45)] text-start"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                          Why specific problems improve your match
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsHelperPinned(false);
+                            setIsHelperHovered(false);
+                          }}
+                          aria-label="Close helper tooltip"
+                          className="p-0.5 rounded text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" aria-hidden="true" />
+                        </button>
+                      </div>
+                      <p className="mt-1.5 text-xs leading-relaxed text-[#575B62] dark:text-[#A3A7AE]">
+                        Describing concrete, real-world problems you know how to solve—rather than broad job titles—helps our matching engine connect your proven skills directly to scoped Pod Sprints, domain mentors, and paid partner briefs.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
 
               <textarea
                 id="landing-problem-input"
+                aria-describedby={showProblemHelper ? 'problem-matching-helper-tooltip' : undefined}
                 value={problemStatement}
                 onChange={(e) => handleChangeProblem(e.target.value)}
                 placeholder={t.problemInputPlaceholder}
@@ -536,29 +626,51 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
                 </p>
               )}
 
-              {/* GSMA Non-Voice Inclusion: Equal Type or Quick-Pick Parity */}
+              {/* Dynamic Age-Stage Clickable Problem Example Chips (GSMA Non-Voice Inclusion Parity) */}
               <div
                 data-testid="landing-quick-pick-parity"
-                className="mt-3 flex flex-wrap items-center gap-1.5"
+                className="mt-3.5 pt-3 border-t border-[#E8E3DB]/80 dark:border-[#2C3037]/80 space-y-2"
               >
-                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#575B62] dark:text-[#A3A7AE] me-1">
-                  <Keyboard className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" />
-                  <span>Type or Quick-Pick (voice optional):</span>
-                </span>
-                {[
-                  '48V solar microgrid & battery diagnostics',
-                  'Community clinic cold-chain & triage logistics',
-                  'Small business bookkeeping & inventory systems',
-                ].map((starter) => (
-                  <button
-                    key={starter}
-                    type="button"
-                    onClick={() => handleChangeProblem(starter)}
-                    className="min-h-[34px] px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-[11px] font-medium text-[#17191C] dark:text-[#F4F2EE] transition-colors cursor-pointer"
-                  >
-                    {starter}
-                  </button>
-                ))}
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                  <span className="inline-flex items-center gap-1.5 font-medium">
+                    <Keyboard className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B] shrink-0" aria-hidden="true" />
+                    <span>
+                      Starter ideas for <strong className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">{activeStageMeta.title}</strong>
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>Click to pre-populate</span>
+                  </span>
+                </div>
+
+                <div
+                  data-testid="age-stage-problem-examples"
+                  role="group"
+                  aria-label={`Problem examples for ${activeStageMeta.title}`}
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  {(AGE_GROUP_PROBLEM_IDEAS[selectedStage] || AGE_GROUP_PROBLEM_IDEAS['18-29']).map((starter) => {
+                    const isSelected = problemStatement.trim() === starter.trim();
+                    return (
+                      <button
+                        key={starter}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => {
+                          handleChangeProblem(starter);
+                          document.getElementById('landing-problem-input')?.focus();
+                        }}
+                        className={`min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 text-start transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B] cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#E7F3EE] dark:bg-[#132922] border-[#146C53] dark:border-[#2EB88B] text-[#146C53] dark:text-[#2EB88B]'
+                            : 'bg-[#FAF8F5] dark:bg-[#121315] border-[#E8E3DB] dark:border-[#2C3037] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] dark:hover:border-[#2EB88B]'
+                        }`}
+                      >
+                        {isSelected && <Check className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
+                        <span>{starter}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

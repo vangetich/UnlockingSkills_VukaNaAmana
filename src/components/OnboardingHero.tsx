@@ -7,6 +7,7 @@ import {
   type TranslationDictionary,
 } from '../utils/i18n';
 import { VoiceInput, VoiceTextarea } from './VoiceField';
+import { AGE_GROUP_PROBLEM_IDEAS } from '../utils/talentEngine';
 
 interface OnboardingHeroProps {
   initialProblem: string;
@@ -28,13 +29,6 @@ interface OnboardingHeroProps {
 }
 
 const STAGES: AgeStage[] = ['15-17', '18-29', '30-45', '46+'];
-
-const EXAMPLE_PROMPTS = [
-  '48V solar inverter diagnostics & battery balancing',
-  'Gravity-fed water filtration calibration',
-  'Cold-chain refrigeration retrofit & maintenance',
-  'Multilingual clinical triage localization',
-];
 
 export const OnboardingHero: React.FC<OnboardingHeroProps> = ({
   initialProblem,
@@ -147,7 +141,8 @@ export const OnboardingHero: React.FC<OnboardingHeroProps> = ({
               />
 
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[#5C5852] dark:text-[#A8A298]">
-                {EXAMPLE_PROMPTS.map((example) => (
+                <span className="font-medium text-[#1C1B18] dark:text-[#F2EFE9]">Suggested for {ageStage}:</span>
+                {(AGE_GROUP_PROBLEM_IDEAS[ageStage] || AGE_GROUP_PROBLEM_IDEAS['18-29']).map((example) => (
                   <button
                     key={example}
                     type="button"

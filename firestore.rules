@@ -407,6 +407,153 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidMentorshipSession(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'mentorId',
+          'mentorName',
+          'focusTopic',
+          'durationMinutes',
+          'status',
+          'takeawayNote',
+          'attendedAtIso',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'mentorId',
+          'mentorName',
+          'focusTopic',
+          'durationMinutes',
+          'status',
+          'takeawayNote',
+          'attendedAtIso',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.sprintId is string && isValidId(data.sprintId) &&
+        data.sprintTitle is string && data.sprintTitle.size() >= 2 && data.sprintTitle.size() <= 160 &&
+        data.mentorId is string && isValidId(data.mentorId) &&
+        data.mentorName is string && data.mentorName.size() >= 2 && data.mentorName.size() <= 80 &&
+        data.focusTopic is string && data.focusTopic.size() <= 32 && data.focusTopic in ['qa-architecture', 'technical-unblocker', 'handover-rubric', 'career-rpl'] &&
+        data.durationMinutes is int && data.durationMinutes >= 15 && data.durationMinutes <= 60 &&
+        data.status is string && data.status.size() <= 16 && data.status in ['attended', 'scheduled'] &&
+        data.takeawayNote is string && data.takeawayNote.size() >= 1 && data.takeawayNote.size() <= 600 &&
+        data.attendedAtIso is string && data.attendedAtIso.size() >= 10 && data.attendedAtIso.size() <= 40 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMentorPairing(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'trackId',
+          'trackTitle',
+          'domain',
+          'mentorId',
+          'mentorName',
+          'preferredCadence',
+          'sprintGoals',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'trackId',
+          'trackTitle',
+          'domain',
+          'mentorId',
+          'mentorName',
+          'sprintId',
+          'sprintTitle',
+          'preferredCadence',
+          'sprintGoals',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.trackId is string && data.trackId.size() <= 64 && isValidId(data.trackId) &&
+        data.trackTitle is string && data.trackTitle.size() >= 2 && data.trackTitle.size() <= 120 &&
+        data.domain is string && data.domain.size() <= 32 && data.domain in ['Tech', 'Green Energy', 'Healthcare Ops', 'SME Finance'] &&
+        data.mentorId is string && isValidId(data.mentorId) &&
+        data.mentorName is string && data.mentorName.size() >= 2 && data.mentorName.size() <= 80 &&
+        (!('sprintId' in data) || (data.sprintId is string && isValidId(data.sprintId))) &&
+        (!('sprintTitle' in data) || (data.sprintTitle is string && data.sprintTitle.size() >= 2 && data.sprintTitle.size() <= 160)) &&
+        data.preferredCadence is string && data.preferredCadence.size() <= 32 && data.preferredCadence in ['weekly-check-in', 'milestone-gates', 'async-review'] &&
+        data.sprintGoals is string && data.sprintGoals.size() >= 10 && data.sprintGoals.size() <= 800 &&
+        data.status is string && data.status.size() <= 24 && data.status in ['requested', 'matched', 'active'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMentorRating(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'trackId',
+          'trackTitle',
+          'domain',
+          'mentorId',
+          'mentorName',
+          'rating',
+          'comment',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'trackId',
+          'trackTitle',
+          'domain',
+          'mentorId',
+          'mentorName',
+          'rating',
+          'comment',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.trackId is string && data.trackId.size() <= 64 && isValidId(data.trackId) &&
+        data.trackTitle is string && data.trackTitle.size() >= 2 && data.trackTitle.size() <= 120 &&
+        data.domain is string && data.domain.size() <= 32 && data.domain in ['Tech', 'Green Energy', 'Healthcare Ops', 'SME Finance'] &&
+        data.mentorId is string && isValidId(data.mentorId) &&
+        data.mentorName is string && data.mentorName.size() >= 2 && data.mentorName.size() <= 80 &&
+        data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+        data.comment is string && data.comment.size() >= 5 && data.comment.size() <= 500 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMentorshipTrackProgress(data, userId, trackId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'trackId',
+          'completedObjectiveIds',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'trackId',
+          'completedObjectiveIds',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.trackId is string && data.trackId == trackId && data.trackId.size() <= 64 && isValidId(data.trackId) &&
+        data.completedObjectiveIds is list && data.completedObjectiveIds.size() <= 10 &&
+        (data.completedObjectiveIds.size() == 0 || (data.completedObjectiveIds[0] is string && data.completedObjectiveIds[0].size() <= 64)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
     function isValidCollaborationNote(data, userId) {
       return data.keys().hasAll([
           'ownerUid',
@@ -431,6 +578,297 @@ service cloud.firestore {
         data.briefId is string && isValidId(data.briefId) &&
         data.briefTitle is string && data.briefTitle.size() >= 2 && data.briefTitle.size() <= 160 &&
         data.markdownBody is string && data.markdownBody.size() >= 1 && data.markdownBody.size() <= 4000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMentorshipJournalEntry(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'contributionId',
+          'briefId',
+          'briefTitle',
+          'mentorId',
+          'mentorName',
+          'sessionDateIso',
+          'focusTopic',
+          'reflectionTitle',
+          'reflectionBody',
+          'nextActionStep',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'contributionId',
+          'briefId',
+          'briefTitle',
+          'mentorId',
+          'mentorName',
+          'sessionDateIso',
+          'focusTopic',
+          'reflectionTitle',
+          'reflectionBody',
+          'nextActionStep',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.contributionId is string && isValidId(data.contributionId) &&
+        data.briefId is string && isValidId(data.briefId) &&
+        data.briefTitle is string && data.briefTitle.size() >= 2 && data.briefTitle.size() <= 160 &&
+        data.mentorId is string && isValidId(data.mentorId) &&
+        data.mentorName is string && data.mentorName.size() >= 2 && data.mentorName.size() <= 80 &&
+        data.sessionDateIso is string && data.sessionDateIso.size() >= 10 && data.sessionDateIso.size() <= 40 &&
+        data.focusTopic is string && data.focusTopic.size() <= 32 && data.focusTopic in ['qa-architecture', 'technical-unblocker', 'handover-rubric', 'career-rpl'] &&
+        data.reflectionTitle is string && data.reflectionTitle.size() >= 2 && data.reflectionTitle.size() <= 140 &&
+        data.reflectionBody is string && data.reflectionBody.size() >= 5 && data.reflectionBody.size() <= 3000 &&
+        data.nextActionStep is string && data.nextActionStep.size() <= 500 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMenteeCompetencyBadge(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'domain',
+          'mentorId',
+          'mentorName',
+          'mentorRole',
+          'badgeTitle',
+          'skillCategory',
+          'competencyLevel',
+          'citationNote',
+          'verificationCode',
+          'awardedAtIso',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'domain',
+          'mentorId',
+          'mentorName',
+          'mentorRole',
+          'badgeTitle',
+          'skillCategory',
+          'competencyLevel',
+          'performanceRating',
+          'evaluatedCompetencies',
+          'citationNote',
+          'verificationCode',
+          'awardedAtIso',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.sprintId is string && isValidId(data.sprintId) &&
+        data.sprintTitle is string && data.sprintTitle.size() >= 2 && data.sprintTitle.size() <= 160 &&
+        data.domain is string && data.domain.size() <= 32 && data.domain in ['Tech', 'Green Energy', 'Healthcare Ops', 'SME Finance'] &&
+        data.mentorId is string && isValidId(data.mentorId) &&
+        data.mentorName is string && data.mentorName.size() >= 2 && data.mentorName.size() <= 80 &&
+        data.mentorRole is string && data.mentorRole.size() >= 2 && data.mentorRole.size() <= 120 &&
+        data.badgeTitle is string && data.badgeTitle.size() >= 2 && data.badgeTitle.size() <= 120 &&
+        data.skillCategory is string && data.skillCategory.size() >= 2 && data.skillCategory.size() <= 80 &&
+        data.competencyLevel is string && data.competencyLevel.size() <= 32 && data.competencyLevel in ['field-ready', 'specialist-verified', 'pod-lead-endorsed'] &&
+        (!('performanceRating' in data) || (data.performanceRating is int && data.performanceRating >= 1 && data.performanceRating <= 5)) &&
+        (!('evaluatedCompetencies' in data) || (
+          data.evaluatedCompetencies is list &&
+          data.evaluatedCompetencies.size() <= 8 &&
+          (data.evaluatedCompetencies.size() == 0 || (data.evaluatedCompetencies[0] is string && data.evaluatedCompetencies[0].size() <= 80))
+        )) &&
+        data.citationNote is string && data.citationNote.size() >= 5 && data.citationNote.size() <= 600 &&
+        data.verificationCode is string && data.verificationCode.size() <= 64 && isValidId(data.verificationCode) &&
+        data.awardedAtIso is string && data.awardedAtIso.size() >= 10 && data.awardedAtIso.size() <= 40 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMentorMilestoneFeedback(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'milestoneKey',
+          'mentorId',
+          'mentorName',
+          'rating',
+          'readinessStatus',
+          'strengthsNote',
+          'constructiveFeedback',
+          'nextMilestoneAction',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'milestoneKey',
+          'mentorId',
+          'mentorName',
+          'rating',
+          'readinessStatus',
+          'strengthsNote',
+          'constructiveFeedback',
+          'nextMilestoneAction',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.sprintId is string && isValidId(data.sprintId) &&
+        data.sprintTitle is string && data.sprintTitle.size() >= 2 && data.sprintTitle.size() <= 160 &&
+        data.milestoneKey is string && data.milestoneKey.size() <= 32 && data.milestoneKey in ['analysis-complete', 'draft-ready', 'final-submission'] &&
+        data.mentorId is string && isValidId(data.mentorId) &&
+        data.mentorName is string && data.mentorName.size() >= 2 && data.mentorName.size() <= 80 &&
+        data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+        data.readinessStatus is string && data.readinessStatus.size() <= 24 && data.readinessStatus in ['approved', 'needs-revision', 'exemplary'] &&
+        data.strengthsNote is string && data.strengthsNote.size() >= 3 && data.strengthsNote.size() <= 500 &&
+        data.constructiveFeedback is string && data.constructiveFeedback.size() >= 5 && data.constructiveFeedback.size() <= 1000 &&
+        data.nextMilestoneAction is string && data.nextMilestoneAction.size() <= 500 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMentorshipSessionAgenda(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'mentorId',
+          'mentorName',
+          'sessionDateIso',
+          'focusTopic',
+          'agendaTitle',
+          'agendaItems',
+          'completedItemIndices',
+          'desiredOutcome',
+          'sharedWithMentor',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'sessionId',
+          'mentorId',
+          'mentorName',
+          'sessionDateIso',
+          'focusTopic',
+          'agendaTitle',
+          'agendaItems',
+          'completedItemIndices',
+          'desiredOutcome',
+          'sharedWithMentor',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.sprintId is string && isValidId(data.sprintId) &&
+        data.sprintTitle is string && data.sprintTitle.size() >= 2 && data.sprintTitle.size() <= 160 &&
+        (!('sessionId' in data) || (data.sessionId is string && isValidId(data.sessionId))) &&
+        data.mentorId is string && isValidId(data.mentorId) &&
+        data.mentorName is string && data.mentorName.size() >= 2 && data.mentorName.size() <= 80 &&
+        data.sessionDateIso is string && data.sessionDateIso.size() >= 10 && data.sessionDateIso.size() <= 40 &&
+        data.focusTopic is string && data.focusTopic.size() <= 32 && data.focusTopic in ['qa-architecture', 'technical-unblocker', 'handover-rubric', 'career-rpl'] &&
+        data.agendaTitle is string && data.agendaTitle.size() >= 2 && data.agendaTitle.size() <= 140 &&
+        data.agendaItems is list && data.agendaItems.size() >= 1 && data.agendaItems.size() <= 10 &&
+        data.agendaItems[0] is string && data.agendaItems[0].size() >= 1 && data.agendaItems[0].size() <= 240 &&
+        data.completedItemIndices is list && data.completedItemIndices.size() <= 10 &&
+        (data.completedItemIndices.size() == 0 || (data.completedItemIndices[0] is int && data.completedItemIndices[0] >= 0 && data.completedItemIndices[0] < 10)) &&
+        data.desiredOutcome is string && data.desiredOutcome.size() <= 400 &&
+        data.sharedWithMentor is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMentorPeerReview(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'mentorId',
+          'mentorName',
+          'mentorRole',
+          'reviewedDate',
+          'cohesionScore',
+          'framingScore',
+          'communicationScore',
+          'feedbackText',
+          'recommendedAction',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'sprintId',
+          'sprintTitle',
+          'mentorId',
+          'mentorName',
+          'mentorRole',
+          'reviewedDate',
+          'cohesionScore',
+          'framingScore',
+          'communicationScore',
+          'feedbackText',
+          'recommendedAction',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.sprintId is string && isValidId(data.sprintId) &&
+        data.sprintTitle is string && data.sprintTitle.size() >= 2 && data.sprintTitle.size() <= 160 &&
+        data.mentorId is string && isValidId(data.mentorId) &&
+        data.mentorName is string && data.mentorName.size() >= 2 && data.mentorName.size() <= 80 &&
+        data.mentorRole is string && data.mentorRole.size() >= 2 && data.mentorRole.size() <= 120 &&
+        data.reviewedDate is string && data.reviewedDate.size() >= 10 && data.reviewedDate.size() <= 40 &&
+        data.cohesionScore is int && data.cohesionScore >= 1 && data.cohesionScore <= 5 &&
+        data.framingScore is int && data.framingScore >= 1 && data.framingScore <= 5 &&
+        data.communicationScore is int && data.communicationScore >= 1 && data.communicationScore <= 5 &&
+        data.feedbackText is string && data.feedbackText.size() >= 5 && data.feedbackText.size() <= 1000 &&
+        data.recommendedAction is string && data.recommendedAction.size() <= 400 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSprintDiscussionPost(data, sprintId) {
+      return data.keys().hasAll([
+          'sprintId',
+          'authorUid',
+          'authorName',
+          'authorRole',
+          'deliverableTag',
+          'body',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'sprintId',
+          'parentId',
+          'authorUid',
+          'authorName',
+          'authorRole',
+          'deliverableTag',
+          'body',
+          'resourceUrl',
+          'resourceLabel',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.sprintId is string && data.sprintId == sprintId && isValidId(data.sprintId) &&
+        (!('parentId' in data) || (data.parentId is string && isValidId(data.parentId))) &&
+        data.authorUid is string && data.authorUid == request.auth.uid && isValidId(data.authorUid) &&
+        data.authorName is string && data.authorName.size() >= 2 && data.authorName.size() <= 80 &&
+        data.authorRole is string && data.authorRole.size() >= 2 && data.authorRole.size() <= 80 &&
+        data.deliverableTag is string && data.deliverableTag.size() >= 2 && data.deliverableTag.size() <= 140 &&
+        data.body is string && data.body.size() >= 1 && data.body.size() <= 1200 &&
+        (!('resourceUrl' in data) || (data.resourceUrl is string && data.resourceUrl.size() >= 8 && data.resourceUrl.size() <= 500 && data.resourceUrl.matches('^https?://[^\\s]+$'))) &&
+        (!('resourceLabel' in data) || (data.resourceLabel is string && data.resourceLabel.size() >= 1 && data.resourceLabel.size() <= 120)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -614,7 +1052,7 @@ service cloud.firestore {
           isValidPeerEndorsement(incoming(), userId) &&
           (
             (incoming().status == 'requested' && incoming().endorsementText.size() == 0) ||
-            (incoming().status == 'verified' && incoming().endorsementText.size() >= 10)
+            (incoming().sourceTab == 'verify' && incoming().status == 'verified' && incoming().endorsementText.size() >= 10)
           ) &&
           incoming().createdAt == request.time &&
           incoming().updatedAt == request.time &&
@@ -632,7 +1070,7 @@ service cloud.firestore {
           incoming().updatedAt == request.time &&
           hasActiveParentProfile(userId) &&
           (
-            (incoming().status == 'verified' && incoming().endorsementText.size() >= 10 && incoming().diff(existing()).affectedKeys().hasOnly(['endorsementText', 'status', 'updatedAt'])) ||
+            (existing().sourceTab == 'verify' && incoming().status == 'verified' && incoming().endorsementText.size() >= 10 && incoming().diff(existing()).affectedKeys().hasOnly(['endorsementText', 'status', 'updatedAt'])) ||
             (incoming().status == 'requested' && incoming().diff(existing()).affectedKeys().hasOnly(['collaboratorName', 'collaboratorRole', 'organization', 'capabilityTitle', 'updatedAt']))
           );
         allow delete: if isVerifiedUser() &&
@@ -668,10 +1106,8 @@ service cloud.firestore {
           incoming().updatedAt == request.time &&
           hasActiveParentProfile(userId) &&
           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'payoutRail', 'updatedAt']) &&
-          (
-            (existing().status == 'escrow-held' && incoming().status == 'processing') ||
-            (existing().status == 'processing' && incoming().status == 'released')
-          );
+          existing().status == 'escrow-held' &&
+          incoming().status == 'processing';
         allow delete: if false;
       }
 
@@ -705,6 +1141,131 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      match /mentorshipSessions/{sessionId} {
+        allow get: if isValidId(userId) && isValidId(sessionId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(sessionId) &&
+          isOwner(userId) &&
+          isValidMentorshipSession(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(sessionId) &&
+          isOwner(userId) &&
+          isValidMentorshipSession(incoming(), userId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().sprintId == existing().sprintId &&
+          incoming().mentorId == existing().mentorId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['focusTopic', 'durationMinutes', 'status', 'takeawayNote', 'attendedAtIso', 'updatedAt']);
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(sessionId) &&
+          isOwner(userId) &&
+          existing().ownerUid == request.auth.uid &&
+          hasActiveParentProfile(userId);
+      }
+
+      match /mentorPairings/{pairingId} {
+        allow get: if isValidId(userId) && isValidId(pairingId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(pairingId) &&
+          isOwner(userId) &&
+          isValidMentorPairing(incoming(), userId) &&
+          incoming().status == 'requested' &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(pairingId) &&
+          isOwner(userId) &&
+          isValidMentorPairing(incoming(), userId) &&
+          existing().status != 'active' &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().trackId == existing().trackId &&
+          incoming().domain == existing().domain &&
+          incoming().mentorId == existing().mentorId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['preferredCadence', 'sprintGoals', 'sprintId', 'sprintTitle', 'updatedAt']) ||
+            (existing().status == 'requested' && incoming().status == 'matched' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+          );
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(pairingId) &&
+          isOwner(userId) &&
+          existing().ownerUid == request.auth.uid &&
+          hasActiveParentProfile(userId);
+      }
+
+      match /mentorRatings/{ratingId} {
+        allow get: if isValidId(userId) && isValidId(ratingId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(ratingId) &&
+          isOwner(userId) &&
+          isValidMentorRating(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(ratingId) &&
+          isOwner(userId) &&
+          isValidMentorRating(incoming(), userId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().trackId == existing().trackId &&
+          incoming().domain == existing().domain &&
+          incoming().mentorId == existing().mentorId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt']);
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(ratingId) &&
+          isOwner(userId) &&
+          existing().ownerUid == request.auth.uid &&
+          hasActiveParentProfile(userId);
+      }
+
+      match /mentorshipTrackProgress/{trackId} {
+        allow get: if isValidId(userId) && isValidId(trackId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(trackId) &&
+          isOwner(userId) &&
+          isValidMentorshipTrackProgress(incoming(), userId, trackId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(trackId) &&
+          isOwner(userId) &&
+          isValidMentorshipTrackProgress(incoming(), userId, trackId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().trackId == existing().trackId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['completedObjectiveIds', 'updatedAt']);
+        allow delete: if false;
+      }
+
       match /collaborationNotes/{noteId} {
         allow get: if isValidId(userId) && isValidId(noteId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
         allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
@@ -735,6 +1296,238 @@ service cloud.firestore {
           existing().ownerUid == request.auth.uid &&
           hasActiveParentProfile(userId);
       }
+
+      match /mentorshipJournal/{entryId} {
+        allow get: if isValidId(userId) && isValidId(entryId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(entryId) &&
+          isOwner(userId) &&
+          isValidMentorshipJournalEntry(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(entryId) &&
+          isOwner(userId) &&
+          isValidMentorshipJournalEntry(incoming(), userId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().contributionId == existing().contributionId &&
+          incoming().briefId == existing().briefId &&
+          incoming().mentorId == existing().mentorId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'sessionDateIso',
+            'focusTopic',
+            'reflectionTitle',
+            'reflectionBody',
+            'nextActionStep',
+            'updatedAt'
+          ]);
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(entryId) &&
+          isOwner(userId) &&
+          existing().ownerUid == request.auth.uid &&
+          hasActiveParentProfile(userId);
+      }
+
+      match /menteeCompetencyBadges/{badgeId} {
+        allow get: if isValidId(userId) && isValidId(badgeId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(badgeId) &&
+          isOwner(userId) &&
+          isValidMenteeCompetencyBadge(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(badgeId) &&
+          isOwner(userId) &&
+          isValidMenteeCompetencyBadge(incoming(), userId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().sprintId == existing().sprintId &&
+          incoming().domain == existing().domain &&
+          incoming().mentorId == existing().mentorId &&
+          incoming().verificationCode == existing().verificationCode &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'badgeTitle',
+            'skillCategory',
+            'competencyLevel',
+            'citationNote',
+            'updatedAt'
+          ]);
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(badgeId) &&
+          isOwner(userId) &&
+          existing().ownerUid == request.auth.uid &&
+          hasActiveParentProfile(userId);
+      }
+
+      match /mentorMilestoneFeedback/{feedbackId} {
+        allow get: if isValidId(userId) && isValidId(feedbackId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(feedbackId) &&
+          isOwner(userId) &&
+          isValidMentorMilestoneFeedback(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(feedbackId) &&
+          isOwner(userId) &&
+          isValidMentorMilestoneFeedback(incoming(), userId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().sprintId == existing().sprintId &&
+          incoming().milestoneKey == existing().milestoneKey &&
+          incoming().mentorId == existing().mentorId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'rating',
+            'readinessStatus',
+            'strengthsNote',
+            'constructiveFeedback',
+            'nextMilestoneAction',
+            'updatedAt'
+          ]);
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(feedbackId) &&
+          isOwner(userId) &&
+          existing().ownerUid == request.auth.uid &&
+          hasActiveParentProfile(userId);
+      }
+
+      match /mentorshipSessionAgendas/{agendaId} {
+        allow get: if isValidId(userId) && isValidId(agendaId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(agendaId) &&
+          isOwner(userId) &&
+          isValidMentorshipSessionAgenda(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(agendaId) &&
+          isOwner(userId) &&
+          isValidMentorshipSessionAgenda(incoming(), userId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().sprintId == existing().sprintId &&
+          incoming().mentorId == existing().mentorId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'sessionId',
+            'sessionDateIso',
+            'focusTopic',
+            'agendaTitle',
+            'agendaItems',
+            'completedItemIndices',
+            'desiredOutcome',
+            'sharedWithMentor',
+            'updatedAt'
+          ]);
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(agendaId) &&
+          isOwner(userId) &&
+          existing().ownerUid == request.auth.uid &&
+          hasActiveParentProfile(userId);
+      }
+
+      match /mentorPeerReviews/{reviewId} {
+        allow get: if isValidId(userId) && isValidId(reviewId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(reviewId) &&
+          isOwner(userId) &&
+          isValidMentorPeerReview(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(reviewId) &&
+          isOwner(userId) &&
+          isValidMentorPeerReview(incoming(), userId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().sprintId == existing().sprintId &&
+          incoming().mentorId == existing().mentorId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'mentorName',
+            'mentorRole',
+            'reviewedDate',
+            'cohesionScore',
+            'framingScore',
+            'communicationScore',
+            'feedbackText',
+            'recommendedAction',
+            'updatedAt'
+          ]);
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(reviewId) &&
+          isOwner(userId) &&
+          existing().ownerUid == request.auth.uid &&
+          hasActiveParentProfile(userId);
+      }
+    }
+
+    match /pods/{sprintId}/discussions/{postId} {
+      allow get: if isValidId(sprintId) &&
+        isValidId(postId) &&
+        isSignedIn() &&
+        existing().sprintId == sprintId &&
+        hasActiveParentProfile(request.auth.uid);
+      allow list: if isSignedIn() &&
+        existing().sprintId == sprintId;
+      allow create: if isVerifiedUser() &&
+        isValidId(sprintId) &&
+        isValidId(postId) &&
+        isValidSprintDiscussionPost(incoming(), sprintId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        hasActiveParentProfile(request.auth.uid);
+      allow update: if isVerifiedUser() &&
+        isValidId(sprintId) &&
+        isValidId(postId) &&
+        isValidSprintDiscussionPost(incoming(), sprintId) &&
+        existing().authorUid == request.auth.uid &&
+        incoming().authorUid == existing().authorUid &&
+        incoming().sprintId == existing().sprintId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        hasActiveParentProfile(request.auth.uid) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['body', 'deliverableTag', 'resourceUrl', 'resourceLabel', 'updatedAt']);
+      allow delete: if isVerifiedUser() &&
+        isValidId(sprintId) &&
+        isValidId(postId) &&
+        existing().authorUid == request.auth.uid &&
+        hasActiveParentProfile(request.auth.uid);
     }
   }
 }

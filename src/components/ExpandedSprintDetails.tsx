@@ -32,8 +32,12 @@ import type {
   BriefSubmission,
   ContractPayout,
   MentorMessage,
+  MentorPeerReviewRecord,
+  MentorshipJournalEntry,
+  MentorshipSession,
   PodMentorProfile,
   SprintCollaborationNote,
+  SprintDiscussionPost,
   SprintFeedback,
   SprintMilestoneKey,
   WorkReadyVault,
@@ -51,9 +55,21 @@ import {
 } from '../utils/pdfReceipt';
 import { MarkdownPreview } from '../utils/markdown';
 import {
+  SprintDiscussionBoard,
+  type CreateSprintDiscussionInput,
+} from './SprintDiscussionBoard';
+import {
   SprintFeedbackModal,
   type SprintFeedbackDraftInput,
 } from './SprintFeedbackModal';
+import {
+  MentorshipJournal,
+  type SaveMentorshipJournalInput,
+} from './MentorshipJournal';
+import {
+  MentorPeerReview,
+  type MentorPeerReviewDraft,
+} from './MentorPeerReview';
 
 export interface ExpandedSprintSummary {
   contributionId: string;
@@ -457,10 +473,15 @@ interface ExpandedSprintDetailsProps {
   payouts: ContractPayout[];
   sprintFeedback: SprintFeedback[];
   mentorMessages?: MentorMessage[];
+  mentorshipSessions?: MentorshipSession[];
+  mentorshipJournal?: MentorshipJournalEntry[];
   collaborationNotes?: SprintCollaborationNote[];
+  mentorPeerReviews?: MentorPeerReviewRecord[];
+  sprintDiscussions?: SprintDiscussionPost[];
   sprintMilestonesByBrief?: Record<string, SprintMilestoneKey[]>;
   vault?: WorkReadyVault;
   practitionerName?: string;
+  currentUserUid?: string;
   onClose: () => void;
   onOpenInSolve?: (briefId: string) => void;
   onMessageMentor?: (
@@ -472,6 +493,12 @@ interface ExpandedSprintDetailsProps {
   onAddSprintFeedback?: (input: SprintFeedbackDraftInput) => void;
   onSaveCollaborationNote?: (input: CollaborationNoteSaveInput) => void;
   onDeleteCollaborationNote?: (noteId: string) => void;
+  onSaveMentorshipJournalEntry?: (input: SaveMentorshipJournalInput) => void;
+  onDeleteMentorshipJournalEntry?: (entryId: string) => void;
+  onCreateSprintDiscussionPost?: (input: CreateSprintDiscussionInput) => void;
+  onDeleteSprintDiscussionPost?: (sprintId: string, postId: string) => void;
+  onSaveMentorPeerReview?: (draft: MentorPeerReviewDraft) => void;
+  onDeleteMentorPeerReview?: (reviewId: string) => void;
 }
 
 export const ExpandedSprintDetails: React.FC<ExpandedSprintDetailsProps> = ({
@@ -479,16 +506,27 @@ export const ExpandedSprintDetails: React.FC<ExpandedSprintDetailsProps> = ({
   payouts,
   sprintFeedback,
   mentorMessages = [],
+  mentorshipSessions = [],
+  mentorshipJournal = [],
   collaborationNotes = [],
+  mentorPeerReviews = [],
+  sprintDiscussions = [],
   sprintMilestonesByBrief,
   vault,
   practitionerName,
+  currentUserUid = 'local-practitioner',
   onClose,
   onOpenInSolve,
   onMessageMentor,
   onAddSprintFeedback,
   onSaveCollaborationNote,
   onDeleteCollaborationNote,
+  onSaveMentorshipJournalEntry,
+  onDeleteMentorshipJournalEntry,
+  onCreateSprintDiscussionPost,
+  onDeleteSprintDiscussionPost,
+  onSaveMentorPeerReview,
+  onDeleteMentorPeerReview,
 }) => {
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [copiedDeepLink, setCopiedDeepLink] = useState(false);
@@ -568,6 +606,38 @@ export const ExpandedSprintDetails: React.FC<ExpandedSprintDetailsProps> = ({
     return buildSprintDeepLink(origin, summary.briefId, summary.contributionId);
   }, [summary]);
 
+  const journeyTimeline = useMemo(() => {
+    if (!contribution || !summary) return [];
+    return buildSprintJourneyTimeline(contribution, summary);
+  }, [contribution, summary]);
+
+  const podContextMeta = useMemo(() => {
+    if (!summary) {
+      return {
+        deliverables: ['Shared Deliverable 01', 'Pod QA Review & Handover'],
+        podLeadRole: 'Pod Lead',
+        podDeliveryRole: 'Pod Delivery Member',
+      };
+    }
+    const matchedSprint = SOLUTION_SPRINTS.find((s) => s.id === summary.briefId);
+    const matchedBrief = SEED_BRIEFS.find((b) => b.id === summary.briefId);
+    const deliverables =
+      matchedSprint?.deliverableChecklist && matchedSprint.deliverableChecklist.length > 0
+        ? matchedSprint.deliverableChecklist
+        : matchedBrief?.deliverableChecklist && matchedBrief.deliverableChecklist.length > 0
+          ? matchedBrief.deliverableChecklist
+          : [
+              'Baseline operational measurements & constraints',
+              'Working deliverable draft for pod QA sign-off',
+              'Final handover package for partner execution',
+            ];
+    return {
+      deliverables,
+      podLeadRole: matchedSprint?.podLeadRole ?? 'Pod Lead',
+      podDeliveryRole: matchedSprint?.podDeliveryRole ?? 'Pod Delivery Member',
+    };
+  }, [summary]);
+
   if (!contribution || !summary) return null;
 
   const writeClipboard = async (text: string): Promise<boolean> => {
@@ -630,11 +700,6 @@ export const ExpandedSprintDetails: React.FC<ExpandedSprintDetailsProps> = ({
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
   };
-
-  const journeyTimeline = useMemo(() => {
-    if (!contribution || !summary) return [];
-    return buildSprintJourneyTimeline(contribution, summary);
-  }, [contribution, summary]);
 
   const handleOpenMentorFromDetails = () => {
     if (!onMessageMentor) return;
@@ -1073,6 +1138,24 @@ export const ExpandedSprintDetails: React.FC<ExpandedSprintDetailsProps> = ({
             </div>
           </section>
 
+          {/* Pod Sprint Discussion Board */}
+          <SprintDiscussionBoard
+            sprintId={summary.briefId}
+            briefTitle={summary.briefTitle}
+            deliverables={podContextMeta.deliverables}
+            posts={sprintDiscussions}
+            mentorName={summary.assignedMentor.name}
+            mentorRole={summary.assignedMentor.roleTitle}
+            podLeadRole={podContextMeta.podLeadRole}
+            podDeliveryRole={podContextMeta.podDeliveryRole}
+            currentUserUid={currentUserUid}
+            currentUserName={practitionerName || 'Practitioner'}
+            currentUserRole={podContextMeta.podDeliveryRole}
+            anchorIso={summary.updatedAtIso}
+            onCreatePost={onCreateSprintDiscussionPost}
+            onDeletePost={onDeleteSprintDiscussionPost}
+          />
+
           {/* Mentor Feedback & Pod Thread */}
           <section
             data-testid="expanded-sprint-mentor-feedback"
@@ -1418,6 +1501,29 @@ export const ExpandedSprintDetails: React.FC<ExpandedSprintDetailsProps> = ({
               </div>
             )}
           </section>
+
+          {/* Private Mentorship Journal & Mentor-to-Mentee Rating Rubric */}
+          <MentorshipJournal
+            contributionId={summary.contributionId}
+            briefId={summary.briefId}
+            briefTitle={summary.briefTitle}
+            assignedMentor={summary.assignedMentor}
+            journalEntries={mentorshipJournal}
+            mentorshipSessions={mentorshipSessions}
+            onSaveJournalEntry={onSaveMentorshipJournalEntry}
+            onDeleteJournalEntry={onDeleteMentorshipJournalEntry}
+          />
+
+          {/* Mentor-Led Team Dynamics Peer Review */}
+          <MentorPeerReview
+            sprintId={summary.briefId}
+            sprintTitle={summary.briefTitle}
+            assignedMentor={summary.assignedMentor}
+            collaborationNote={existingNote}
+            reviews={mentorPeerReviews}
+            onAddReview={onSaveMentorPeerReview}
+            onDeleteReview={onDeleteMentorPeerReview}
+          />
 
           {/* Final Payout Breakdown */}
           <section

@@ -705,6 +705,794 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "SprintDiscussionPost": {
+      "title": "SprintDiscussionPost",
+      "description": "Threaded pod discussion question, reply, or shared deliverable resource link within a sprint pod.",
+      "type": "object",
+      "properties": {
+        "sprintId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "parentId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "authorUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "authorRole": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "deliverableTag": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 140
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        },
+        "resourceUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "resourceLabel": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "sprintId",
+        "authorUid",
+        "authorName",
+        "authorRole",
+        "deliverableTag",
+        "body",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MentorshipSession": {
+      "title": "MentorshipSession",
+      "description": "Structured mentoring QA or advisory session logged or scheduled between a practitioner and assigned Senior Specialist.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "mentorId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "mentorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "focusTopic": {
+          "type": "string",
+          "enum": ["qa-architecture", "technical-unblocker", "handover-rubric", "career-rpl"],
+          "maxLength": 32
+        },
+        "durationMinutes": {
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 60
+        },
+        "status": {
+          "type": "string",
+          "enum": ["attended", "scheduled"],
+          "maxLength": 16
+        },
+        "takeawayNote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "attendedAtIso": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "sprintId",
+        "sprintTitle",
+        "mentorId",
+        "mentorName",
+        "focusTopic",
+        "durationMinutes",
+        "status",
+        "takeawayNote",
+        "attendedAtIso",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MentorPairingRequest": {
+      "title": "MentorPairingRequest",
+      "description": "Formal domain mentorship track pairing request submitted by a practitioner for their active sprint goals.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "trackId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 64
+        },
+        "trackTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "domain": {
+          "type": "string",
+          "enum": ["Tech", "Green Energy", "Healthcare Ops", "SME Finance"],
+          "maxLength": 32
+        },
+        "mentorId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "mentorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "sprintId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "preferredCadence": {
+          "type": "string",
+          "enum": ["weekly-check-in", "milestone-gates", "async-review"],
+          "maxLength": 32
+        },
+        "sprintGoals": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 800
+        },
+        "status": {
+          "type": "string",
+          "enum": ["requested", "matched", "active"],
+          "maxLength": 24
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "trackId",
+        "trackTitle",
+        "domain",
+        "mentorId",
+        "mentorName",
+        "preferredCadence",
+        "sprintGoals",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MentorRating": {
+      "title": "MentorRating",
+      "description": "Practitioner accountability rating (1-5 scale) and short comment for a mentorship track and assigned mentor.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "trackId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 64
+        },
+        "trackTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "domain": {
+          "type": "string",
+          "enum": ["Tech", "Green Energy", "Healthcare Ops", "SME Finance"],
+          "maxLength": 32
+        },
+        "mentorId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "mentorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "rating": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "comment": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "trackId",
+        "trackTitle",
+        "domain",
+        "mentorId",
+        "mentorName",
+        "rating",
+        "comment",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MentorshipTrackProgress": {
+      "title": "MentorshipTrackProgress",
+      "description": "Practitioner learning objective mastery checklist synced with the Mentorship Progress Bar for a domain mentorship track.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "trackId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 64
+        },
+        "completedObjectiveIds": {
+          "type": "array",
+          "description": "Bounded list (max 10) of completed mentorship learning objective IDs."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "trackId",
+        "completedObjectiveIds",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MentorshipJournalEntry": {
+      "title": "MentorshipJournalEntry",
+      "description": "Owner-private, dated reflection documented by a practitioner after a mentorship session to track personal growth and technical takeaways.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "contributionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "briefId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "briefTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "mentorId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "mentorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "sessionDateIso": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "focusTopic": {
+          "type": "string",
+          "enum": ["qa-architecture", "technical-unblocker", "handover-rubric", "career-rpl"],
+          "maxLength": 32
+        },
+        "reflectionTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 140
+        },
+        "reflectionBody": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 3000
+        },
+        "nextActionStep": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "contributionId",
+        "briefId",
+        "briefTitle",
+        "mentorId",
+        "mentorName",
+        "sessionDateIso",
+        "focusTopic",
+        "reflectionTitle",
+        "reflectionBody",
+        "nextActionStep",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MenteeCompetencyBadge": {
+      "title": "MenteeCompetencyBadge",
+      "description": "Digital skill badge awarded by a mentor to a mentee upon successful completion of a Pod Sprint, displayed as an earned achievement in the mentee's CompetencyPassport.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "domain": {
+          "type": "string",
+          "enum": ["Tech", "Green Energy", "Healthcare Ops", "SME Finance"],
+          "maxLength": 32
+        },
+        "mentorId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "mentorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "mentorRole": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "badgeTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "skillCategory": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "competencyLevel": {
+          "type": "string",
+          "enum": ["field-ready", "specialist-verified", "pod-lead-endorsed"],
+          "maxLength": 32
+        },
+        "performanceRating": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "evaluatedCompetencies": {
+          "type": "array",
+          "description": "Bounded list (max 8) of specific competencies evaluated by the mentor upon sprint completion."
+        },
+        "citationNote": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 600
+        },
+        "verificationCode": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 64
+        },
+        "awardedAtIso": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "sprintId",
+        "sprintTitle",
+        "domain",
+        "mentorId",
+        "mentorName",
+        "mentorRole",
+        "badgeTitle",
+        "skillCategory",
+        "competencyLevel",
+        "citationNote",
+        "verificationCode",
+        "awardedAtIso",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MentorMilestoneFeedback": {
+      "title": "MentorMilestoneFeedback",
+      "description": "Structured milestone rating (1-5 scale) and constructive feedback provided by a mentor for a mentee on a specific project milestone.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "milestoneKey": {
+          "type": "string",
+          "enum": ["analysis-complete", "draft-ready", "final-submission"],
+          "maxLength": 32
+        },
+        "mentorId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "mentorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "rating": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "readinessStatus": {
+          "type": "string",
+          "enum": ["approved", "needs-revision", "exemplary"],
+          "maxLength": 24
+        },
+        "strengthsNote": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 500
+        },
+        "constructiveFeedback": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 1000
+        },
+        "nextMilestoneAction": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "sprintId",
+        "sprintTitle",
+        "milestoneKey",
+        "mentorId",
+        "mentorName",
+        "rating",
+        "readinessStatus",
+        "strengthsNote",
+        "constructiveFeedback",
+        "nextMilestoneAction",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MentorshipSessionAgendaRecord": {
+      "title": "MentorshipSessionAgendaRecord",
+      "description": "Bulleted session agenda created and shared by a practitioner with their mentor prior to a scheduled mentorship session.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "sessionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "mentorId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "mentorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "sessionDateIso": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "focusTopic": {
+          "type": "string",
+          "enum": ["qa-architecture", "technical-unblocker", "handover-rubric", "career-rpl"],
+          "maxLength": 32
+        },
+        "agendaTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 140
+        },
+        "agendaItems": {
+          "type": "array",
+          "description": "Bounded list (max 10) of bulleted discussion topics for the scheduled mentorship session."
+        },
+        "completedItemIndices": {
+          "type": "array",
+          "description": "Bounded list (max 10) of 0-based indices of agenda items checked off during the session."
+        },
+        "desiredOutcome": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "sharedWithMentor": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "sprintId",
+        "sprintTitle",
+        "mentorId",
+        "mentorName",
+        "sessionDateIso",
+        "focusTopic",
+        "agendaTitle",
+        "agendaItems",
+        "completedItemIndices",
+        "desiredOutcome",
+        "sharedWithMentor",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MentorPeerReview": {
+      "title": "MentorPeerReview",
+      "description": "Formative mentor-led peer review evaluating sprint teamwork cohesion, problem framing, and communication dynamics.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sprintTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "mentorId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "mentorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "mentorRole": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "reviewedDate": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "cohesionScore": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "framingScore": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "communicationScore": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "feedbackText": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 1000
+        },
+        "recommendedAction": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "sprintId",
+        "sprintTitle",
+        "mentorId",
+        "mentorName",
+        "mentorRole",
+        "reviewedDate",
+        "cohesionScore",
+        "framingScore",
+        "communicationScore",
+        "feedbackText",
+        "recommendedAction",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -744,9 +1532,49 @@
       "schema": { "$ref": "#/entities/MentorMessage" },
       "description": "Pod mentorship messaging thread records between a practitioner and assigned Senior Specialist."
     },
+    "/users/{userId}/mentorshipSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/MentorshipSession" },
+      "description": "Structured mentoring sessions logged or scheduled for sprint QA and velocity tracking."
+    },
+    "/users/{userId}/mentorPairings/{pairingId}": {
+      "schema": { "$ref": "#/entities/MentorPairingRequest" },
+      "description": "Formal mentorship track pairing requests tied to practitioner active sprint goals."
+    },
+    "/users/{userId}/mentorRatings/{ratingId}": {
+      "schema": { "$ref": "#/entities/MentorRating" },
+      "description": "Practitioner 5-point mentorship ratings and feedback comments for track accountability."
+    },
+    "/users/{userId}/mentorshipTrackProgress/{trackId}": {
+      "schema": { "$ref": "#/entities/MentorshipTrackProgress" },
+      "description": "Synced learning objective mastery records per mentorship track."
+    },
+    "/users/{userId}/mentorshipJournal/{entryId}": {
+      "schema": { "$ref": "#/entities/MentorshipJournalEntry" },
+      "description": "Owner-private, dated reflections on mentorship sessions for a deeper record of practitioner growth."
+    },
+    "/users/{userId}/menteeCompetencyBadges/{badgeId}": {
+      "schema": { "$ref": "#/entities/MenteeCompetencyBadge" },
+      "description": "Digital skill badges awarded by mentors upon Pod Sprint completion and displayed in the mentee's CompetencyPassport."
+    },
+    "/users/{userId}/mentorMilestoneFeedback/{feedbackId}": {
+      "schema": { "$ref": "#/entities/MentorMilestoneFeedback" },
+      "description": "Structured milestone ratings and constructive mentor feedback across project milestones."
+    },
+    "/users/{userId}/mentorshipSessionAgendas/{agendaId}": {
+      "schema": { "$ref": "#/entities/MentorshipSessionAgendaRecord" },
+      "description": "Bulleted pre-session agendas created and shared with mentors to keep scheduled sessions focused and tracked."
+    },
     "/users/{userId}/collaborationNotes/{noteId}": {
       "schema": { "$ref": "#/entities/CollaborationNote" },
       "description": "Owner-private markdown reflections on sprint team dynamics and collaboration."
+    },
+    "/users/{userId}/mentorPeerReviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/MentorPeerReview" },
+      "description": "Formative mentor peer reviews evaluating sprint teamwork cohesion, problem framing, and communication."
+    },
+    "/pods/{sprintId}/discussions/{postId}": {
+      "schema": { "$ref": "#/entities/SprintDiscussionPost" },
+      "description": "Shared sprint pod discussion threads and deliverable resource links across pod members."
     }
   }
 }

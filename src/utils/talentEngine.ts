@@ -24,7 +24,15 @@ import type {
   LockedUpskillingBridgeRecord,
   MatchedWorkMode,
   MatchedWorkOpportunity,
+  MenteeCompetencyBadge,
   MentorMessage,
+  MentorMilestoneFeedback,
+  MentorPairingCadence,
+  MentorPairingRequest,
+  MentorshipSession,
+  MentorshipSessionAgendaRecord,
+  MentorshipSessionFocus,
+  MentorshipTrackSpec,
   MilestoneBadge,
   OfflineMutation,
   OnboardingPackResult,
@@ -47,6 +55,7 @@ import type {
   SkillTrackId,
   SkillTrackOption,
   SolutionSprint,
+  SprintCollaborationNote,
   SprintComplexityLevel,
   SprintDueAlert,
   SprintFeedback,
@@ -738,7 +747,17 @@ export function compactOfflineQueue(queue: OfflineMutation[]): OfflineMutation[]
   const latestPayoutIdx = new Map<string, number>();
   const latestFeedbackIdx = new Map<string, number>();
   const latestMentorMessageIdx = new Map<string, number>();
+  const latestMentorshipSessionIdx = new Map<string, number>();
+  const latestMentorPairingIdx = new Map<string, number>();
+  const latestMentorRatingIdx = new Map<string, number>();
+  const latestTrackProgressIdx = new Map<string, number>();
+  const latestJournalIdx = new Map<string, number>();
+  const latestMenteeBadgeIdx = new Map<string, number>();
+  const latestMilestoneFeedbackIdx = new Map<string, number>();
+  const latestSessionAgendaIdx = new Map<string, number>();
+  const latestPeerReviewIdx = new Map<string, number>();
   const latestCollabNoteIdx = new Map<string, number>();
+  const latestDiscussionIdx = new Map<string, number>();
 
   queue.forEach((item, index) => {
     if (item.kind === 'upsert_profile') {
@@ -763,10 +782,48 @@ export function compactOfflineQueue(queue: OfflineMutation[]): OfflineMutation[]
       latestFeedbackIdx.set(item.payload.id, index);
     } else if (item.kind === 'upsert_mentor_message') {
       latestMentorMessageIdx.set(item.payload.id, index);
+    } else if (item.kind === 'upsert_mentorship_session') {
+      latestMentorshipSessionIdx.set(item.payload.id, index);
+    } else if (item.kind === 'delete_mentorship_session') {
+      latestMentorshipSessionIdx.set(item.sessionId, index);
+    } else if (item.kind === 'upsert_mentor_pairing') {
+      latestMentorPairingIdx.set(item.payload.id, index);
+    } else if (item.kind === 'delete_mentor_pairing') {
+      latestMentorPairingIdx.set(item.pairingId, index);
+    } else if (item.kind === 'upsert_mentor_rating') {
+      latestMentorRatingIdx.set(item.payload.id, index);
+    } else if (item.kind === 'delete_mentor_rating') {
+      latestMentorRatingIdx.set(item.ratingId, index);
+    } else if (item.kind === 'upsert_track_progress') {
+      latestTrackProgressIdx.set(item.payload.trackId, index);
+    } else if (item.kind === 'upsert_mentorship_journal') {
+      latestJournalIdx.set(item.payload.id, index);
+    } else if (item.kind === 'delete_mentorship_journal') {
+      latestJournalIdx.set(item.entryId, index);
+    } else if (item.kind === 'upsert_mentee_badge') {
+      latestMenteeBadgeIdx.set(item.payload.id, index);
+    } else if (item.kind === 'delete_mentee_badge') {
+      latestMenteeBadgeIdx.set(item.badgeId, index);
+    } else if (item.kind === 'upsert_milestone_feedback') {
+      latestMilestoneFeedbackIdx.set(item.payload.id, index);
+    } else if (item.kind === 'delete_milestone_feedback') {
+      latestMilestoneFeedbackIdx.set(item.feedbackId, index);
+    } else if (item.kind === 'upsert_session_agenda') {
+      latestSessionAgendaIdx.set(item.payload.id, index);
+    } else if (item.kind === 'delete_session_agenda') {
+      latestSessionAgendaIdx.set(item.agendaId, index);
+    } else if (item.kind === 'upsert_mentor_peer_review') {
+      latestPeerReviewIdx.set(item.payload.id, index);
+    } else if (item.kind === 'delete_mentor_peer_review') {
+      latestPeerReviewIdx.set(item.reviewId, index);
     } else if (item.kind === 'upsert_collaboration_note') {
       latestCollabNoteIdx.set(item.payload.id, index);
     } else if (item.kind === 'delete_collaboration_note') {
       latestCollabNoteIdx.set(item.noteId, index);
+    } else if (item.kind === 'upsert_sprint_discussion') {
+      latestDiscussionIdx.set(item.payload.id, index);
+    } else if (item.kind === 'delete_sprint_discussion') {
+      latestDiscussionIdx.set(item.postId, index);
     }
   });
 
@@ -782,17 +839,81 @@ export function compactOfflineQueue(queue: OfflineMutation[]): OfflineMutation[]
     if (item.kind === 'upsert_payout') return latestPayoutIdx.get(item.payload.id) === index;
     if (item.kind === 'upsert_sprint_feedback') return latestFeedbackIdx.get(item.payload.id) === index;
     if (item.kind === 'upsert_mentor_message') return latestMentorMessageIdx.get(item.payload.id) === index;
+    if (item.kind === 'upsert_mentorship_session') return latestMentorshipSessionIdx.get(item.payload.id) === index;
+    if (item.kind === 'delete_mentorship_session') return latestMentorshipSessionIdx.get(item.sessionId) === index;
+    if (item.kind === 'upsert_mentor_pairing') return latestMentorPairingIdx.get(item.payload.id) === index;
+    if (item.kind === 'delete_mentor_pairing') return latestMentorPairingIdx.get(item.pairingId) === index;
+    if (item.kind === 'upsert_mentor_rating') return latestMentorRatingIdx.get(item.payload.id) === index;
+    if (item.kind === 'delete_mentor_rating') return latestMentorRatingIdx.get(item.ratingId) === index;
+    if (item.kind === 'upsert_track_progress') return latestTrackProgressIdx.get(item.payload.trackId) === index;
+    if (item.kind === 'upsert_mentorship_journal') return latestJournalIdx.get(item.payload.id) === index;
+    if (item.kind === 'delete_mentorship_journal') return latestJournalIdx.get(item.entryId) === index;
+    if (item.kind === 'upsert_mentee_badge') return latestMenteeBadgeIdx.get(item.payload.id) === index;
+    if (item.kind === 'delete_mentee_badge') return latestMenteeBadgeIdx.get(item.badgeId) === index;
+    if (item.kind === 'upsert_milestone_feedback') return latestMilestoneFeedbackIdx.get(item.payload.id) === index;
+    if (item.kind === 'delete_milestone_feedback') return latestMilestoneFeedbackIdx.get(item.feedbackId) === index;
+    if (item.kind === 'upsert_session_agenda') return latestSessionAgendaIdx.get(item.payload.id) === index;
+    if (item.kind === 'delete_session_agenda') return latestSessionAgendaIdx.get(item.agendaId) === index;
+    if (item.kind === 'upsert_mentor_peer_review') return latestPeerReviewIdx.get(item.payload.id) === index;
+    if (item.kind === 'delete_mentor_peer_review') return latestPeerReviewIdx.get(item.reviewId) === index;
     if (item.kind === 'upsert_collaboration_note') return latestCollabNoteIdx.get(item.payload.id) === index;
     if (item.kind === 'delete_collaboration_note') return latestCollabNoteIdx.get(item.noteId) === index;
+    if (item.kind === 'upsert_sprint_discussion') return latestDiscussionIdx.get(item.payload.id) === index;
+    if (item.kind === 'delete_sprint_discussion') return latestDiscussionIdx.get(item.postId) === index;
     return true;
   });
 }
 
+/**
+ * Converts a YYYY-MM-DD calendar date and a human time label (e.g. "14:00 UTC", "09:30")
+ * into a deterministic UTC ISO-8601 timestamp string.
+ */
+export function parseCalendarSlotToIso(dateYmd: string, timeLabel: string): string {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateYmd.trim());
+  const timeMatch = /(\d{1,2}):(\d{2})/.exec(timeLabel.trim());
+  const now = new Date();
+  const year = dateMatch ? Number(dateMatch[1]) : now.getUTCFullYear();
+  const month = dateMatch ? Math.min(12, Math.max(1, Number(dateMatch[2]))) - 1 : now.getUTCMonth();
+  const day = dateMatch ? Math.min(31, Math.max(1, Number(dateMatch[3]))) : now.getUTCDate();
+  const hours = timeMatch ? Math.min(23, Math.max(0, Number(timeMatch[1]))) : 14;
+  const minutes = timeMatch ? Math.min(59, Math.max(0, Number(timeMatch[2]))) : 0;
+  return new Date(Date.UTC(year, month, day, hours, minutes, 0, 0)).toISOString();
+}
+
+export const AGE_STAGE_LABELS: Record<AgeStage, string> = {
+  '15-17': '15–17yrs Emerging Builder',
+  '18-29': '18–29yrs Early-Career',
+  '30-45': '30–45yrs Specialist',
+  '46+': '46+ Master Practitioner',
+};
+
 export function normalizeAgeStage(raw?: string | null): AgeStage {
-  if (raw === '15-17' || raw === '15-19') return '15-17';
-  if (raw === '18-29' || raw === '20-29') return '18-29';
-  if (raw === '46+') return '46+';
+  if (!raw) return '30-45';
+  const trimmed = raw.trim();
+  if (
+    trimmed === '15-17' ||
+    trimmed === '15-19' ||
+    trimmed.startsWith('15') ||
+    trimmed.includes('Emerging Builder')
+  ) {
+    return '15-17';
+  }
+  if (
+    trimmed === '18-29' ||
+    trimmed === '20-29' ||
+    trimmed.startsWith('18') ||
+    trimmed.includes('Early-Career')
+  ) {
+    return '18-29';
+  }
+  if (trimmed === '46+' || trimmed.startsWith('46') || trimmed.includes('Master Practitioner')) {
+    return '46+';
+  }
   return '30-45';
+}
+
+export function getAgeStageLabel(stage?: AgeStage | string | null): string {
+  return AGE_STAGE_LABELS[normalizeAgeStage(stage)];
 }
 
 export function normalizeLocale(raw?: string | null): 'en' | 'sw' | 'fr' | 'ar' {
@@ -814,7 +935,7 @@ export interface AgeStagePathway {
 export const AGE_STAGE_PATHWAYS: Record<AgeStage, AgeStagePathway> = {
   '15-17': {
     stage: '15-17',
-    shortLabel: '15–17 Emerging Builder',
+    shortLabel: '15–17yrs Emerging Builder',
     headline: 'Micro-Badges, Guided Sprints & Protected Mentorship',
     summary:
       'Turn hands-on curiosity into portable proof without waiting years for formal transcripts. Pair with accredited 46+ Master Practitioners on structured, safe community challenges.',
@@ -825,7 +946,7 @@ export const AGE_STAGE_PATHWAYS: Record<AgeStage, AgeStagePathway> = {
   },
   '18-29': {
     stage: '18-29',
-    shortLabel: '18–29 Early-Career',
+    shortLabel: '18–29yrs Early-Career',
     headline: 'Independent Paid Briefs & Rapid Micro-Bridging',
     summary:
       'Convert practical skill into Living Competency Passports accepted by regional and remote hiring partners, backed by targeted fee-waiver bridging modules.',
@@ -836,7 +957,7 @@ export const AGE_STAGE_PATHWAYS: Record<AgeStage, AgeStagePathway> = {
   },
   '30-45': {
     stage: '30-45',
-    shortLabel: '30–45 Specialist',
+    shortLabel: '30–45yrs Specialist',
     headline: 'Scoped Systems Delivery & Multi-Brief Leadership',
     summary:
       'Step directly into high-trust diagnostic, engineering, clinical operations, and SME finance contracts where real-world execution outranks displaced paperwork.',
@@ -856,6 +977,29 @@ export const AGE_STAGE_PATHWAYS: Record<AgeStage, AgeStagePathway> = {
     mentorshipRole: 'Accredited mentor leading Cross-Age Solution Pods',
     typicalFirstBrief: 'Biosand Hydraulic Audit & Junior QA Sign-Off · $540+',
   },
+};
+
+export const AGE_GROUP_PROBLEM_IDEAS: Record<AgeStage, string[]> = {
+  '15-17': [
+    'Local community organization & youth study groups',
+    'Basic digital literacy & peer tech support',
+    'Building solar phone charging stations for local community study groups',
+  ],
+  '18-29': [
+    'Automated spreadsheet reporting & data workflows',
+    'Social media content strategy & digital outreach',
+    'Developing open-source mobile money ledger APIs for agricultural co-ops',
+  ],
+  '30-45': [
+    'Complex project management & multi-team coordination',
+    'Infrastructure maintenance & system reliability',
+    'Architecting resilient off-grid microgrid energy management systems',
+  ],
+  '46+': [
+    'Strategic crisis response & emergency operations',
+    'Mentorship & institutional legacy planning',
+    'Advising cross-generational technical apprenticeships & standards',
+  ],
 };
 
 export function createInitialProfile(partial?: Partial<PractitionerProfile>): PractitionerProfile {
@@ -1187,10 +1331,48 @@ export function getUserPodSeat(ageStage: AgeStage): 'lead' | 'delivery' {
   return ageStage === '30-45' || ageStage === '46+' ? 'lead' : 'delivery';
 }
 
+export function convertProblemBriefToSolutionSprint(brief: ProblemBrief): SolutionSprint {
+  const durationMatch = brief.domain.split('·')[1]?.trim();
+  const studioDomain: StudioDomain =
+    brief.studioDomain === 'Tech' ||
+    brief.studioDomain === 'Green Energy' ||
+    brief.studioDomain === 'Healthcare Ops' ||
+    brief.studioDomain === 'SME Finance'
+      ? brief.studioDomain
+      : 'Tech';
+  return {
+    id: brief.id,
+    title: brief.title,
+    partnerOrg: brief.organization,
+    partnerType: 'Local SME',
+    durationLabel: durationMatch || '7-Day Sprint',
+    estimatedHours: brief.estimatedHours || 16,
+    payoutUsd: brief.payoutUsd || 350,
+    domain: studioDomain,
+    studioDomain,
+    complexity: brief.complexity || 'Applied',
+    locationLabel: brief.locationLabel || 'Global Remote / Host Region',
+    painPoint: brief.summary,
+    deliverableChecklist:
+      brief.deliverableChecklist && brief.deliverableChecklist.length > 0
+        ? brief.deliverableChecklist
+        : ['Diagnostic assessment', 'Remediation plan', 'Handover documentation'],
+    podLeadRole: `${studioDomain} Specialist Lead & QA Reviewer`,
+    podDeliveryRole: `${studioDomain} Pod Delivery & Documentation Partner`,
+    requiredKeywords:
+      brief.requiredKeywords && brief.requiredKeywords.length > 0
+        ? brief.requiredKeywords
+        : [studioDomain.toLowerCase(), 'problem-solving'],
+    workspaceReadiness: brief.workspaceReadiness,
+    inclusiveReady: brief.inclusiveReady ?? Boolean(brief.workspaceReadiness?.length),
+  };
+}
+
 export function rankSolutionSprints(
   profile: PractitionerProfile,
   capabilities: SkillCapability[],
-  passport: CompetencyPassport | null
+  passport: CompetencyPassport | null,
+  extraPartnerBriefs: ProblemBrief[] = []
 ): RankedSolutionSprint[] {
   const userPodSeat = getUserPodSeat(profile.ageStage);
   const passportSkills = passport?.verifiedSkills.map((s) => s.name) ?? [];
@@ -1206,7 +1388,15 @@ export function rankSolutionSprints(
     .join(' ')
     .toLowerCase();
 
-  return SOLUTION_SPRINTS.map((sprint) => {
+  const seedIds = new Set(SOLUTION_SPRINTS.map((s) => s.id));
+  const seedBriefIds = new Set(SEED_BRIEFS.map((b) => b.id));
+  const livePartnerSprints = extraPartnerBriefs
+    .filter((b) => !seedIds.has(b.id) && !seedBriefIds.has(b.id))
+    .map(convertProblemBriefToSolutionSprint);
+
+  const combinedSprints: SolutionSprint[] = [...livePartnerSprints, ...SOLUTION_SPRINTS];
+
+  return combinedSprints.map((sprint) => {
     let score = 46;
     const matchedKeywords: string[] = [];
 
@@ -2525,6 +2715,317 @@ export const DEFAULT_SEED_MENTOR_MESSAGES: Omit<
   MentorMessage,
   'ownerUid' | 'createdAtIso' | 'updatedAtIso'
 >[] = [];
+
+export const MENTORSHIP_FOCUS_LABELS: Record<MentorshipSessionFocus, string> = {
+  'qa-architecture': 'QA Architecture Review',
+  'technical-unblocker': 'Technical Unblocker',
+  'handover-rubric': 'Handover & Rubric Check',
+  'career-rpl': 'Career / RPL Guidance',
+};
+
+export const MENTOR_PAIRING_CADENCE_LABELS: Record<MentorPairingCadence, string> = {
+  'weekly-check-in': 'Weekly Live Pod Check-In (30m)',
+  'milestone-gates': 'Milestone Gate QA Reviews (15m/gate)',
+  'async-review': 'Async Artifact & Rubric Reviews (<24h)',
+};
+
+export const MENTORSHIP_TRACKS: MentorshipTrackSpec[] = [
+  {
+    id: 'track-green-energy',
+    domain: 'Green Energy',
+    title: 'Solar Microgrid & Cold-Chain QA Track',
+    subtitle:
+      'Field inverter diagnostics, 48V LiFePO4 balancing, and agricultural cold-room thermal audits.',
+    mentorId: 'mentor-green-01',
+    recommendedCadence: 'milestone-gates',
+    cadenceLabel: 'Milestone Gate Reviews · 15–30m/gate',
+    keyMilestones: [
+      'Inverter fault-log & busbar resistance audit',
+      '48V hysteresis & compressor staging verification',
+      'Site technician handover SOP sign-off',
+    ],
+    expectedOutcomes: [
+      'Higher milestone acceptance on energy/agritech sprints',
+      'Senior Master Practitioner co-signature for Living Proof',
+    ],
+  },
+  {
+    id: 'track-healthcare-ops',
+    domain: 'Healthcare Ops',
+    title: 'Clinical Triage & Cold-Chain Compliance Track',
+    subtitle:
+      'WHO vaccine storage QA, multilingual clinic intake SOPs, and maternal care escalation rubrics.',
+    mentorId: 'mentor-health-02',
+    recommendedCadence: 'weekly-check-in',
+    cadenceLabel: 'Weekly Clinical Desk Sync · 30m',
+    keyMilestones: [
+      '2°C–8°C excursion log & corrective protocol check',
+      'Bilingual clinical shift-handover phrasing review',
+      'NGO medical director final rubric sign-off',
+    ],
+    expectedOutcomes: [
+      'Verified healthcare SOP compliance signals',
+      'Direct readiness for NGO and regional clinic fellowships',
+    ],
+  },
+  {
+    id: 'track-tech',
+    domain: 'Tech',
+    title: 'Offline-First Systems & Sync Architecture Track',
+    subtitle:
+      '2G-resilient PWA queues, TypeScript contract testing, and idempotent client-cloud conflict resolution.',
+    mentorId: 'mentor-tech-03',
+    recommendedCadence: 'async-review',
+    cadenceLabel: 'Async PR & Architecture Reviews · <24h',
+    keyMilestones: [
+      'Queue compaction & idempotency edge-case review',
+      'Deterministic unit test coverage for offline state',
+      'Deployment & security boundary walkthrough',
+    ],
+    expectedOutcomes: [
+      'Production-grade code review endorsements',
+      'Stronger remote engineering pod qualification',
+    ],
+  },
+  {
+    id: 'track-sme-finance',
+    domain: 'SME Finance',
+    title: 'Working Capital & Ledger Audit Track',
+    subtitle:
+      '13-week rolling cash-flow models, supplier staging schedules, and artisan cooperative margin audits.',
+    mentorId: 'mentor-finance-04',
+    recommendedCadence: 'milestone-gates',
+    cadenceLabel: 'Milestone Gate Audits · 15–30m/gate',
+    keyMilestones: [
+      'Receivables aging & Friday liquidity buffer check',
+      'Supplier cadence & mobile-money reconciliation',
+      'Partner cooperative financial brief handover',
+    ],
+    expectedOutcomes: [
+      'Audit-ready SME ledger templates in Proof Ledger',
+      'Faster escrow release on financial advisory sprints',
+    ],
+  },
+];
+
+export function getMentorshipTrackForDomain(domain?: string): MentorshipTrackSpec {
+  const normalized = (domain ?? '').trim().toLowerCase();
+  const exact = MENTORSHIP_TRACKS.find(
+    (track) => track.domain.toLowerCase() === normalized
+  );
+  if (exact) return exact;
+  if (normalized.includes('health') || normalized.includes('clinic')) return MENTORSHIP_TRACKS[1];
+  if (normalized.includes('tech') || normalized.includes('code') || normalized.includes('sync')) {
+    return MENTORSHIP_TRACKS[2];
+  }
+  if (normalized.includes('finance') || normalized.includes('sme') || normalized.includes('ledger')) {
+    return MENTORSHIP_TRACKS[3];
+  }
+  return MENTORSHIP_TRACKS[0];
+}
+
+export const DEFAULT_SEED_MENTORSHIP_SESSIONS: Omit<
+  MentorshipSession,
+  'ownerUid' | 'attendedAtIso' | 'createdAtIso' | 'updatedAtIso'
+>[] = [
+  {
+    id: 'msess-seed-1',
+    sprintId: 'brief-coldchain-03',
+    sprintTitle: 'Solar-Direct Cold-Chain Compressor Retrofit Plan',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    focusTopic: 'qa-architecture',
+    durationMinutes: 30,
+    status: 'attended',
+    takeawayNote:
+      'Verified 48V compressor inrush staging and low-draw defrost hysteresis curve prior to field handover.',
+  },
+  {
+    id: 'msess-seed-2',
+    sprintId: 'brief-coldchain-03',
+    sprintTitle: 'Solar-Direct Cold-Chain Compressor Retrofit Plan',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    focusTopic: 'handover-rubric',
+    durationMinutes: 15,
+    status: 'attended',
+    takeawayNote:
+      'Co-signed Nakuru site technician handover checklist and thermal gasket acceptance criteria.',
+  },
+  {
+    id: 'msess-seed-3',
+    sprintId: 'sprint-solar-coldchain-01',
+    sprintTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    focusTopic: 'technical-unblocker',
+    durationMinutes: 30,
+    status: 'attended',
+    takeawayNote:
+      'Isolated 02:30 inverter voltage sag pattern to high-resistance cell #6 in Cold-Room #2 CSV telemetry.',
+  },
+];
+
+export const DEFAULT_SEED_MENTEE_BADGES: Omit<
+  MenteeCompetencyBadge,
+  'ownerUid' | 'awardedAtIso' | 'createdAtIso' | 'updatedAtIso'
+>[] = [
+  {
+    id: 'mbadge-seed-1',
+    sprintId: 'brief-coldchain-03',
+    sprintTitle: 'Solar-Direct Cold-Chain Compressor Retrofit Plan',
+    domain: 'Green Energy',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    mentorRole: 'Senior Microgrid & Cold-Chain Specialist',
+    badgeTitle: '48V Cold-Chain Thermal & Compressor Retrofit Specialist',
+    skillCategory: 'Cold-Chain & Microgrid Systems',
+    competencyLevel: 'specialist-verified',
+    performanceRating: 5,
+    evaluatedCompetencies: [
+      'Thermal Loss & Defrost Hysteresis Accuracy',
+      'Low-Draw Compressor Retrofit Specification',
+      'Site Technician Handover Rigor',
+    ],
+    citationNote:
+      'Verified thermal loss calculation accuracy, low-draw defrost hysteresis curve, and site technician handover readiness across all 3 pod milestones.',
+    verificationCode: 'KORA-BADGE-CC03-8941',
+  },
+];
+
+export const DEFAULT_SEED_MILESTONE_FEEDBACK: Omit<
+  MentorMilestoneFeedback,
+  'ownerUid' | 'createdAtIso' | 'updatedAtIso'
+>[] = [
+  {
+    id: 'mmfb-seed-1',
+    sprintId: 'sprint-solar-coldchain-01',
+    sprintTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+    milestoneKey: 'analysis-complete',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    rating: 5,
+    readinessStatus: 'exemplary',
+    strengthsNote:
+      'Methodical isolation of the 02:30 voltage sag in Cold-Room #2 CSV telemetry to high-resistance cell #6 and clear busbar resistance table.',
+    constructiveFeedback:
+      'Include ambient night-time temperature delta column in the cell-balance table so the field technician can compare seasonal compressor load.',
+    nextMilestoneAction:
+      'Proceed to Milestone 2 (Working Deliverable & Pod QA Review) and attach the updated busbar torque schedule.',
+  },
+  {
+    id: 'mmfb-seed-2',
+    sprintId: 'brief-coldchain-03',
+    sprintTitle: 'Solar-Direct Cold-Chain Compressor Retrofit Plan',
+    milestoneKey: 'final-submission',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    rating: 5,
+    readinessStatus: 'approved',
+    strengthsNote:
+      'Complete thermal loss audit, gasket replacement spec, and low-draw thermostat wiring schematic co-signed for Nakuru site deployment.',
+    constructiveFeedback:
+      'Excellent documentation rigor. Ready for competency badge endorsement in the Living Competency Passport.',
+    nextMilestoneAction:
+      'Pod Sprint closed and verified — digital skill badge issued to Competency Passport.',
+  },
+];
+
+export const DEFAULT_SEED_MENTOR_PAIRINGS: Omit<
+  MentorPairingRequest,
+  'ownerUid' | 'createdAtIso' | 'updatedAtIso'
+>[] = [
+  {
+    id: 'mpair-seed-1',
+    trackId: 'track-green-energy',
+    trackTitle: 'Green Energy & Microgrid Diagnostics Track',
+    domain: 'Green Energy',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    sprintId: 'sprint-solar-coldchain-01',
+    sprintTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+    preferredCadence: 'milestone-gates',
+    sprintGoals:
+      'Isolate the 02:30 inverter low-voltage disconnect on Cold-Room #2, validate cell-level resistance tables, and co-sign the Nakuru technician stabilization SOP.',
+    status: 'active',
+  },
+  {
+    id: 'mpair-seed-2',
+    trackId: 'track-green-energy',
+    trackTitle: 'Green Energy & Microgrid Diagnostics Track',
+    domain: 'Green Energy',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    sprintId: 'brief-coldchain-03',
+    sprintTitle: 'Solar-Direct Cold-Chain Compressor Retrofit Plan',
+    preferredCadence: 'weekly-check-in',
+    sprintGoals:
+      'Complete 48V DC compressor inrush staging audit, thermal gasket replacement bill-of-materials, and low-draw defrost hysteresis curve verification.',
+    status: 'matched',
+  },
+  {
+    id: 'mpair-seed-3',
+    trackId: 'track-tech-systems',
+    trackTitle: 'Offline-First Systems & Edge Telemetry Track',
+    domain: 'Tech',
+    mentorId: 'mentor-tech-01',
+    mentorName: 'Grace Wanjiku',
+    sprintId: 'sprint-remote-sync-03',
+    sprintTitle: '2G-Resilient Clinic Inventory Sync & Idempotency Queue',
+    preferredCadence: 'async-review',
+    sprintGoals:
+      'Architect deterministic client-side mutation compaction and idempotent retry envelopes for intermittent 2G clinic supply reporting.',
+    status: 'requested',
+  },
+];
+
+export const DEFAULT_SEED_COLLABORATION_NOTES: Omit<
+  SprintCollaborationNote,
+  'ownerUid' | 'createdAtIso' | 'updatedAtIso'
+>[] = [
+  {
+    id: 'cnote-seed-1',
+    contributionId: 'contrib-seed-1',
+    briefId: 'sprint-solar-coldchain-01',
+    briefTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+    markdownBody:
+      '### Pod Collaboration Note · Cold-Room #2 Voltage Sag Audit\n- **Root Cause Isolated**: Cell #6 on String B shows 18.4 mΩ internal resistance under 42A compressor inrush at 02:30 EAT.\n- **Mentor Sign-Off (Eng. Samuel Kariuki)**: Approved busbar torque schedule (14 Nm) and secondary contactor staging delay (4.5s).\n- **Handover Checklist**: Attached thermal imaging baseline and LVD threshold recalibration table (45.2V cutoff).',
+  },
+  {
+    id: 'cnote-seed-2',
+    contributionId: 'contrib-seed-2',
+    briefId: 'brief-coldchain-03',
+    briefTitle: 'Solar-Direct Cold-Chain Compressor Retrofit Plan',
+    markdownBody:
+      '### Pod Collaboration Note · Nakuru Vaccine Cold-Box Retrofit\n- **Thermal Envelope Audit**: Replaced degraded EPDM door gasket; verified 22% reduction in overnight parasitic thermal gain.\n- **Defrost Hysteresis**: Tuned low-draw DC thermostat differential to 1.8°C to prevent midnight battery deep-cycling.\n- **QA Verification**: Co-signed by Eng. Samuel Kariuki for final partner payout release.',
+  },
+];
+
+export const DEFAULT_SEED_SESSION_AGENDAS: Omit<
+  MentorshipSessionAgendaRecord,
+  'ownerUid' | 'createdAtIso' | 'updatedAtIso'
+>[] = [
+  {
+    id: 'magenda-seed-1',
+    sprintId: 'sprint-solar-coldchain-01',
+    sprintTitle: '48V Cold-Storage & Solar Microgrid Diagnostics Sprint',
+    mentorId: 'mentor-green-01',
+    mentorName: 'Eng. Samuel Kariuki',
+    sessionId: 'msess-seed-3',
+    sessionDateIso: '2026-11-26',
+    focusTopic: 'technical-unblocker',
+    agendaTitle: 'Milestone 2 Pre-Handover Voltage Sag & Busbar Torque Review',
+    desiredOutcome:
+      'Get mentor sign-off on the Cell #6 bypass jumper plan and confirm the 14 Nm busbar torque table before final partner submission.',
+    agendaItems: [
+      'Walk through 02:30 Cold-Room #2 CSV voltage sag telemetry & Cell #6 mΩ readings',
+      'Verify 4.5-second secondary compressor contactor delay staging schematic',
+      'Confirm Nakuru site technician lockout-tagout and gasket checklist items',
+    ],
+    completedItemIndices: [0, 1],
+    sharedWithMentor: true,
+  },
+];
 
 export const COMPLIANCE_COUNTRY_PRESETS = [
   { id: 'Kenya', label: 'Kenya', region: 'East Africa' },
