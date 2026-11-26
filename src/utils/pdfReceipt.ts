@@ -797,6 +797,271 @@ export function exportSprintReportPdf(params: SprintSummaryReportPdfInput): {
   return { filename, reportId, byteLength: bytes.byteLength };
 }
 
+export interface ApplicantComplianceReportPdfInput {
+  talentAlias: string;
+  consentId: string;
+  orgName: string;
+  issuedAtIso?: string;
+  verificationSteps: {
+    identityAuth: { status: string; updatedAtIso?: string; reviewerNote?: string };
+    competencyProof: { status: string; updatedAtIso?: string; reviewerNote?: string };
+    payoutRail: { status: string; updatedAtIso?: string; reviewerNote?: string };
+  };
+  overallStatus: string;
+  verifiedCount: number;
+  totalCount: number;
+  auditLogsCount: number;
+  feedbackHistory?: Array<{ stage: string; tone: string; message: string; createdAtIso?: string }>;
+  latestAuditAction?: string;
+  latestAuditTime?: string;
+}
+
+export function buildApplicantComplianceReportPdfBytes(
+  params: ApplicantComplianceReportPdfInput
+): Uint8Array {
+  const {
+    talentAlias,
+    consentId,
+    orgName,
+    issuedAtIso = new Date().toISOString(),
+    verificationSteps,
+    overallStatus,
+    verifiedCount,
+    totalCount,
+    auditLogsCount,
+    feedbackHistory = [],
+    latestAuditAction = 'CONSENT_GRANTED',
+    latestAuditTime = issuedAtIso,
+  } = params;
+
+  const dateLabel = issuedAtIso.slice(0, 10);
+  const reportRef = `VNA-CMP-${consentId.replace(/[^a-zA-Z0-9]/g, '').slice(-8)}-${dateLabel.replace(/-/g, '')}`;
+
+  const lines: PdfLineSpec[] = [
+    {
+      text: 'VUKA NA AMANA - HIRING PARTNER COMPLIANCE REVIEW',
+      font: 'F2',
+      size: 13,
+      gapAfter: 4,
+      colorRgb: [0.08, 0.42, 0.33],
+    },
+    {
+      text: 'APPLICANT VERIFICATION & AUDIT COMPLIANCE REPORT',
+      font: 'F2',
+      size: 10,
+      gapAfter: 8,
+      colorRgb: [0.15, 0.17, 0.2],
+    },
+    {
+      text: `Report Reference: ${reportRef}   |   Issued: ${dateLabel} ${issuedAtIso.slice(11, 19)} UTC`,
+      font: 'F3',
+      size: 8.5,
+      gapAfter: 10,
+      colorRgb: [0.38, 0.42, 0.48],
+    },
+    {
+      text: '--------------------------------------------------------------------------------',
+      font: 'F3',
+      size: 8.5,
+      gapAfter: 10,
+      colorRgb: [0.75, 0.77, 0.8],
+    },
+    {
+      text: '1. APPLICANT IDENTIFICATION & ACCESS GRANT BOUNDARIES',
+      font: 'F2',
+      size: 9.5,
+      gapAfter: 5,
+      colorRgb: [0.08, 0.42, 0.33],
+    },
+    {
+      text: `Applicant Alias: ${talentAlias}   |   Consent Token: ${consentId}`,
+      font: 'F2',
+      size: 9,
+      gapAfter: 4,
+      colorRgb: [0.15, 0.17, 0.2],
+    },
+    {
+      text: `Reviewing Entity: ${orgName}   |   Framework: Zero Raw ID (Agency-First Vault)`,
+      font: 'F1',
+      size: 8.5,
+      gapAfter: 4,
+      colorRgb: [0.3, 0.32, 0.36],
+    },
+    {
+      text: 'Privacy Standard: No national ID or refugee serials stored. Fully revocable by applicant.',
+      font: 'F1',
+      size: 8,
+      gapAfter: 10,
+      colorRgb: [0.45, 0.48, 0.52],
+    },
+    {
+      text: '2. PRE-STAGE 3 INDIVIDUAL MILESTONE VERIFICATION STATUS',
+      font: 'F2',
+      size: 9.5,
+      gapAfter: 5,
+      colorRgb: [0.08, 0.42, 0.33],
+    },
+    {
+      text: `Overall Progress: ${verifiedCount} of ${totalCount} Milestones Verified (${overallStatus})`,
+      font: 'F2',
+      size: 9,
+      gapAfter: 6,
+      colorRgb: [0.15, 0.17, 0.2],
+    },
+    {
+      text: `[Step 01] Identity & Work Authorization: ${verificationSteps.identityAuth.status.toUpperCase()}`,
+      font: 'F2',
+      size: 8.5,
+      gapAfter: 3,
+      colorRgb: verificationSteps.identityAuth.status === 'verified' ? [0.08, 0.42, 0.33] : [0.75, 0.4, 0.1],
+    },
+    {
+      text: `  Note: ${verificationSteps.identityAuth.reviewerNote || 'Zero Raw ID checked against host-country work permit framework.'}`,
+      font: 'F1',
+      size: 8,
+      gapAfter: 5,
+      colorRgb: [0.35, 0.38, 0.42],
+    },
+    {
+      text: `[Step 02] Living Competency Proof: ${verificationSteps.competencyProof.status.toUpperCase()}`,
+      font: 'F2',
+      size: 8.5,
+      gapAfter: 3,
+      colorRgb: verificationSteps.competencyProof.status === 'verified' ? [0.08, 0.42, 0.33] : [0.75, 0.4, 0.1],
+    },
+    {
+      text: `  Note: ${verificationSteps.competencyProof.reviewerNote || 'Living Proof Portfolio & practical competency evidence verified.'}`,
+      font: 'F1',
+      size: 8,
+      gapAfter: 5,
+      colorRgb: [0.35, 0.38, 0.42],
+    },
+    {
+      text: `[Step 03] FATF Tiered Payout Rail: ${verificationSteps.payoutRail.status.toUpperCase()}`,
+      font: 'F2',
+      size: 8.5,
+      gapAfter: 3,
+      colorRgb: verificationSteps.payoutRail.status === 'verified' ? [0.08, 0.42, 0.33] : [0.75, 0.4, 0.1],
+    },
+    {
+      text: `  Note: ${verificationSteps.payoutRail.reviewerNote || 'Mobile Money / EOR disbursement rail cleared under FATF Tiered KYC.'}`,
+      font: 'F1',
+      size: 8,
+      gapAfter: 10,
+      colorRgb: [0.35, 0.38, 0.42],
+    },
+    {
+      text: '3. ACCESS AUDIT TRAIL & PERMISSION LOG SUMMARY',
+      font: 'F2',
+      size: 9.5,
+      gapAfter: 5,
+      colorRgb: [0.08, 0.42, 0.33],
+    },
+    {
+      text: `Total Audit Events Recorded: ${auditLogsCount}   |   Latest Event: ${latestAuditAction}`,
+      font: 'F1',
+      size: 8.5,
+      gapAfter: 4,
+      colorRgb: [0.15, 0.17, 0.2],
+    },
+    {
+      text: `Timestamp: ${latestAuditTime}   |   Vault State: Active Cryptographic Session`,
+      font: 'F3',
+      size: 8,
+      gapAfter: 10,
+      colorRgb: [0.35, 0.38, 0.42],
+    },
+    {
+      text: '4. MILESTONE FEEDBACK & STAGE COMMUNICATIONS',
+      font: 'F2',
+      size: 9.5,
+      gapAfter: 5,
+      colorRgb: [0.08, 0.42, 0.33],
+    },
+  ];
+
+  if (feedbackHistory.length === 0) {
+    lines.push({
+      text: 'No formal stage feedback recorded yet. Pre-contracting review in progress.',
+      font: 'F1',
+      size: 8,
+      gapAfter: 10,
+      colorRgb: [0.45, 0.48, 0.52],
+    });
+  } else {
+    for (const fb of feedbackHistory.slice(0, 3)) {
+      lines.push(
+        {
+          text: `[${fb.stage.toUpperCase()}] Tone: ${fb.tone.toUpperCase()}  |  ${(fb.createdAtIso || dateLabel).slice(0, 10)}`,
+          font: 'F2',
+          size: 8,
+          gapAfter: 2,
+          colorRgb: [0.2, 0.22, 0.26],
+        },
+        {
+          text: `  Message: "${fb.message.slice(0, 90)}${fb.message.length > 90 ? '...' : ''}"`,
+          font: 'F1',
+          size: 7.5,
+          gapAfter: 4,
+          colorRgb: [0.35, 0.38, 0.42],
+        }
+      );
+    }
+  }
+
+  lines.push(
+    {
+      text: '--------------------------------------------------------------------------------',
+      font: 'F3',
+      size: 8.5,
+      gapAfter: 6,
+      colorRgb: [0.75, 0.77, 0.8],
+    },
+    {
+      text: 'REGULATORY COMPLIANCE & PRIVACY ATTESTATION',
+      font: 'F2',
+      size: 8.5,
+      gapAfter: 3,
+      colorRgb: [0.15, 0.17, 0.2],
+    },
+    {
+      text: 'This document certifies that the verification status and audit records have been',
+      font: 'F1',
+      size: 7.5,
+      gapAfter: 2,
+      colorRgb: [0.4, 0.42, 0.46],
+    },
+    {
+      text: 'compiled under strict Zero-Raw-ID standards conforming to GDPR Art. 9, UNHCR Personal',
+      font: 'F1',
+      size: 7.5,
+      gapAfter: 2,
+      colorRgb: [0.4, 0.42, 0.46],
+    },
+    {
+      text: 'Data Protection Policy, and ILO Recommendation No. 195 on Human Resources Development.',
+      font: 'F1',
+      size: 7.5,
+      gapAfter: 2,
+      colorRgb: [0.4, 0.42, 0.46],
+    }
+  );
+
+  return buildSinglePagePdfFromLines(lines);
+}
+
+export function exportApplicantComplianceReportPdf(
+  params: ApplicantComplianceReportPdfInput
+): { filename: string; bytes: Uint8Array } {
+  const dateStamp = (params.issuedAtIso || new Date().toISOString()).slice(0, 10);
+  const aliasSlug = params.talentAlias.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'applicant';
+  const consentSlug = params.consentId.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const filename = `vuka-compliance-report-${aliasSlug}-${consentSlug}-${dateStamp}.pdf`;
+  const bytes = buildApplicantComplianceReportPdfBytes(params);
+  downloadPdfBlob(bytes, filename);
+  return { filename, bytes };
+}
+
 export function downloadPdfBlob(bytes: Uint8Array, filename: string): void {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);

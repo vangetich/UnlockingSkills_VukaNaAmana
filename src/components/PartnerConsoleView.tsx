@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   AlertCircle,
   ArrowRight,
+  Bell,
   BookOpen,
   Briefcase,
   Building2,
@@ -12,6 +13,7 @@ import {
   Clock,
   Download,
   FileCheck2,
+  FileText,
   Globe,
   HelpCircle,
   Layers,
@@ -32,6 +34,7 @@ import {
 import { motion } from 'motion/react';
 import type {
   ActiveAuthSession,
+  AccessAuditLogEntry,
   ConsentGrant,
   LocaleCode,
   PractitionerProfile,
@@ -51,7 +54,9 @@ import {
   PARTNER_FEEDBACK_TEMPLATES,
   PARTNER_PRE_CONTRACTING_STEPS,
   PRE_CONTRACTING_STAGE3_REVIEW_ITEMS,
+  buildAccessAuditLogCsv,
   computePartnerPreContractingProgress,
+  createDefaultPreContractingRecord,
   getFeedbackStageMeta,
   type DocumentFeedbackStage,
   type PartnerApplicantFeedbackItem,
@@ -60,6 +65,7 @@ import {
   type PartnerStepReviewStatus,
   type PartnerVerificationStepId,
 } from '../utils/partnerVerification';
+import { exportApplicantComplianceReportPdf } from '../utils/pdfReceipt';
 import { WovenBridgeArcsMotif } from './ResilienceMotifs';
 import { useAutoSave } from '../hooks/useAutoSave';
 import { EndSessionPopover, type EndSessionDetails } from './EndSessionPopover';
@@ -70,6 +76,7 @@ interface PartnerConsoleViewProps {
   sprints: ProblemBrief[];
   onPostSprint: (sprint: Omit<ProblemBrief, 'id'>) => void;
   consentedGrants: ConsentGrant[];
+  auditLogs?: AccessAuditLogEntry[];
   issuedContractsByGrantId?: Record<string, { contractRef: string; bridgeType: string; issuedAtIso: string }>;
   onIssueContract: (grantId: string, bridgeType?: string) => void;
   verificationsByGrantId?: Record<string, PartnerPreContractingRecord>;
@@ -116,6 +123,7 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
   sprints,
   onPostSprint,
   consentedGrants,
+  auditLogs = [],
   issuedContractsByGrantId = {},
   onIssueContract,
   verificationsByGrantId = {},
@@ -189,7 +197,268 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
   >({});
   const [selectedBridge, setSelectedBridge] = useState<'direct-local' | 'scoped-remote' | 'eor-fiscal-host'>('direct-local');
   const [agreementStatusBanner, setAgreementStatusBanner] = useState<string | null>(null);
+  const [bulkSelectedConsentIds, setBulkSelectedConsentIds] = useState<string[]>([]);
+  const [bulkTargetStepId, setBulkTargetStepId] = useState<PartnerVerificationStepId>('identityAuth');
   const activeConsentedGrants = consentedGrants.filter((g) => g.status === 'active');
+
+  const handleBulkApprove = () => {
+    if (bulkSelectedConsentIds.length === 0) return;
+    const stepSpec = PARTNER_PRE_CONTRACTING_STEPS.find((s) => s.id === bulkTargetStepId) ?? PARTNER_PRE_CONTRACTING_STEPS[0];
+    for (const consentId of bulkSelectedConsentIds) {
+      onUpdateVerificationStep?.(consentId, bulkTargetStepId, 'verified', `Bulk verified: ${stepSpec.title} approved by ${orgName}.`);
+      onSendApplicantFeedback?.({
+        consentId,
+        stage: stepSpec.feedbackStage,
+        tone: 'approved',
+        message: `Bulk update from ${orgName}: your ${stepSpec.milestoneLabel} milestone has been verified in batch review.`,
+      });
+    }
+    setAgreementStatusBanner(`Successfully bulk-approved ${stepSpec.title} for ${bulkSelectedConsentIds.length} applicant(s).`);
+    setBulkSelectedConsentIds([]);
+  };
+
+  const [auditFilter, setAuditFilter] = useState<'all' | 'granted' | 'revoked'>('all');
+  const [auditSearchTerm, setAuditSearchTerm] = useState('');
+  const [auditStartDate, setAuditStartDate] = useState('');
+  const [auditEndDate, setAuditEndDate] = useState('');
+  const [auditExportNotice, setAuditExportNotice] = useState<string | null>(null);
+
+  const synthesizedVaultAuditEntries = useMemo(() => {
+    const list: Array<{
+      id: string;
+      timestampIso: string;
+      action: 'CONSENT_GRANTED' | 'CONSENT_REVOKED';
+      talentAlias: string;
+      consentId: string;
+      details: string;
+      actorRole: 'builder' | 'partner' | 'system';
+    }> = [];
+
+    for (const grant of consentedGrants) {
+      if (grant.grantedAtIso) {
+        list.push({
+          id: `grant-active-${grant.consentId}`,
+          timestampIso: grant.grantedAtIso,
+          action: 'CONSENT_GRANTED',
+          talentAlias: grant.talentAlias,
+          consentId: grant.consentId,
+          details: `Applicant granted living proof dossier access (${grant.consentId}) under agency-first cryptographic boundaries.`,
+          actorRole: 'builder',
+        });
+      }
+      if (grant.status === 'revoked' && grant.revokedAtIso) {
+        list.push({
+          id: `grant-revoked-${grant.consentId}`,
+          timestampIso: grant.revokedAtIso,
+          action: 'CONSENT_REVOKED',
+          talentAlias: grant.talentAlias,
+          consentId: grant.consentId,
+          details: `Applicant revoked data vault permissions. All dossier access and contact channels immediately sealed.`,
+          actorRole: 'builder',
+        });
+      }
+    }
+
+    for (const log of auditLogs) {
+      if (log.action === 'CONSENT_GRANTED' || log.action === 'CONSENT_REVOKED') {
+        const matchingGrant = consentedGrants.find(
+          (g) => g.consentId === log.actorId || (log.details && log.details.includes(g.consentId))
+        );
+        const talentAlias = matchingGrant ? matchingGrant.talentAlias : log.actorId || 'Skilled Applicant';
+        const consentId = matchingGrant ? matchingGrant.consentId : log.actorId;
+        const exists = list.some(
+          (item) => item.action === log.action && item.consentId === consentId
+        );
+        if (!exists) {
+          list.push({
+            id: log.entryId,
+            timestampIso: log.timestampIso,
+            action: log.action,
+            talentAlias,
+            consentId,
+            details: log.details || (log.action === 'CONSENT_GRANTED' ? 'Vault access granted' : 'Vault access revoked'),
+            actorRole: log.actorRole,
+          });
+        }
+      }
+    }
+
+    return list.sort(
+      (a, b) => new Date(b.timestampIso).getTime() - new Date(a.timestampIso).getTime()
+    );
+  }, [consentedGrants, auditLogs]);
+
+  const filteredVaultAuditEntries = synthesizedVaultAuditEntries.filter((item) => {
+    if (auditFilter === 'granted' && item.action !== 'CONSENT_GRANTED') return false;
+    if (auditFilter === 'revoked' && item.action !== 'CONSENT_REVOKED') return false;
+    if (auditStartDate) {
+      const itemDate = item.timestampIso.slice(0, 10);
+      if (itemDate < auditStartDate) return false;
+    }
+    if (auditEndDate) {
+      const itemDate = item.timestampIso.slice(0, 10);
+      if (itemDate > auditEndDate) return false;
+    }
+    if (auditSearchTerm.trim()) {
+      const q = auditSearchTerm.toLowerCase();
+      const matchAlias = item.talentAlias.toLowerCase().includes(q);
+      const matchToken = item.consentId.toLowerCase().includes(q);
+      const matchDetails = item.details.toLowerCase().includes(q);
+      const matchAction = (item.action === 'CONSENT_GRANTED' ? 'granted' : 'revoked').includes(q);
+      if (!matchAlias && !matchToken && !matchDetails && !matchAction) return false;
+    }
+    return true;
+  });
+
+  const isAuditFilterActive = Boolean(
+    auditSearchTerm.trim() || auditStartDate || auditEndDate || auditFilter !== 'all'
+  );
+
+  const handleApplyDatePreset = (preset: 'all' | 'today' | '7d' | '30d') => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (preset === 'all') {
+      setAuditStartDate('');
+      setAuditEndDate('');
+    } else if (preset === 'today') {
+      setAuditStartDate(today);
+      setAuditEndDate(today);
+    } else if (preset === '7d') {
+      const past7 = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+      setAuditStartDate(past7);
+      setAuditEndDate(today);
+    } else if (preset === '30d') {
+      const past30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      setAuditStartDate(past30);
+      setAuditEndDate(today);
+    }
+  };
+
+  const handleClearAuditFilters = () => {
+    setAuditSearchTerm('');
+    setAuditStartDate('');
+    setAuditEndDate('');
+    setAuditFilter('all');
+  };
+
+  const handleExportAuditLogCsv = () => {
+    const exportList = filteredVaultAuditEntries.length > 0 ? filteredVaultAuditEntries : synthesizedVaultAuditEntries;
+    if (exportList.length === 0) return;
+    const csvContent = buildAccessAuditLogCsv(exportList);
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.setAttribute('download', `vuka-access-audit-log-${dateStamp}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+    setAuditExportNotice(`Successfully exported ${exportList.length} vault audit record${exportList.length === 1 ? '' : 's'} to CSV.`);
+    setTimeout(() => setAuditExportNotice(null), 5000);
+  };
+
+  const [pdfDownloadingConsentId, setPdfDownloadingConsentId] = useState<string | null>(null);
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
+  const [alertsPanelOpen, setAlertsPanelOpen] = useState(false);
+
+  const complianceAlerts = useMemo(() => {
+    const alerts: Array<{
+      id: string;
+      type: 'new_submission' | 'step_completed';
+      consentId: string;
+      talentAlias: string;
+      title: string;
+      description: string;
+      timestampIso: string;
+    }> = [];
+
+    for (const grant of activeConsentedGrants) {
+      const rec = verificationsByGrantId[grant.consentId];
+      const prog = computePartnerPreContractingProgress(rec);
+
+      if (prog.pendingCount > 0 || prog.clarificationCount > 0) {
+        alerts.push({
+          id: `pending-${grant.consentId}`,
+          type: 'new_submission',
+          consentId: grant.consentId,
+          talentAlias: grant.talentAlias,
+          title: `${grant.talentAlias}: Documents ready for milestone review`,
+          description: `Action needed on: ${prog.missingStepNumbers.map((n) => `Step ${n}`).join(', ')}.`,
+          timestampIso: grant.grantedAtIso,
+        });
+      }
+
+      if (prog.verifiedCount > 0) {
+        alerts.push({
+          id: `verified-${grant.consentId}`,
+          type: 'step_completed',
+          consentId: grant.consentId,
+          talentAlias: grant.talentAlias,
+          title: `${grant.talentAlias}: ${prog.verifiedCount}/3 verification milestone(s) completed`,
+          description: prog.isReadyForStage3
+            ? '100% verified! File is clear for compliant Stage 3 contracting.'
+            : `${prog.verifiedCount} milestone verified under Zero Raw ID framework.`,
+          timestampIso: grant.grantedAtIso,
+        });
+      }
+    }
+
+    return alerts.filter((a) => !dismissedNotificationIds.includes(a.id));
+  }, [activeConsentedGrants, verificationsByGrantId, dismissedNotificationIds]);
+
+  const handleDownloadApplicantPdfReport = (grant: ConsentGrant) => {
+    const rec = verificationsByGrantId[grant.consentId] ?? createDefaultPreContractingRecord(grant.consentId);
+    const prog = computePartnerPreContractingProgress(rec);
+    const grantAuditLogs = synthesizedVaultAuditEntries.filter((e) => e.consentId === grant.consentId);
+    const grantFeedback = applicantFeedback.filter((fb) => fb.consentId === grant.consentId);
+
+    setPdfDownloadingConsentId(grant.consentId);
+    try {
+      exportApplicantComplianceReportPdf({
+        talentAlias: grant.talentAlias,
+        consentId: grant.consentId,
+        orgName,
+        issuedAtIso: new Date().toISOString(),
+        verificationSteps: {
+          identityAuth: {
+            status: rec.steps.identityAuth?.status ?? 'pending',
+            updatedAtIso: rec.steps.identityAuth?.updatedAtIso ?? undefined,
+            reviewerNote: rec.steps.identityAuth?.reviewerNote,
+          },
+          competencyProof: {
+            status: rec.steps.competencyProof?.status ?? 'pending',
+            updatedAtIso: rec.steps.competencyProof?.updatedAtIso ?? undefined,
+            reviewerNote: rec.steps.competencyProof?.reviewerNote,
+          },
+          payoutRail: {
+            status: rec.steps.payoutRail?.status ?? 'pending',
+            updatedAtIso: rec.steps.payoutRail?.updatedAtIso ?? undefined,
+            reviewerNote: rec.steps.payoutRail?.reviewerNote,
+          },
+        },
+        overallStatus: prog.isReadyForStage3 ? 'Ready for Stage 3' : `${prog.verifiedCount}/3 Verified`,
+        verifiedCount: prog.verifiedCount,
+        totalCount: prog.totalCount,
+        auditLogsCount: grantAuditLogs.length,
+        feedbackHistory: grantFeedback.map((fb) => ({
+          stage: fb.stage,
+          tone: fb.tone,
+          message: fb.message,
+          createdAtIso: fb.createdAtIso,
+        })),
+        latestAuditAction: grantAuditLogs[0]?.action ?? 'CONSENT_GRANTED',
+        latestAuditTime: grantAuditLogs[0]?.timestampIso ?? grant.grantedAtIso,
+      });
+      setAgreementStatusBanner(`Formal compliance PDF report downloaded for ${grant.talentAlias} (${grant.consentId}).`);
+    } catch (err) {
+      console.error('Failed to export PDF report', err);
+    } finally {
+      setTimeout(() => setPdfDownloadingConsentId(null), 1800);
+    }
+  };
 
   const filteredReviewGrants = activeConsentedGrants.filter((grant) => {
     const prog = computePartnerPreContractingProgress(verificationsByGrantId[grant.consentId]);
@@ -425,6 +694,19 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
               >
                 <Icon className="w-3.5 h-3.5" />
                 <span>{tab.label}</span>
+                {tab.id === 'talent' && complianceAlerts.length > 0 && (
+                  <span
+                    data-testid="partner-tab-talent-notification-badge"
+                    aria-label={`${complianceAlerts.length} pending compliance alerts`}
+                    className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-mono-tabular font-bold leading-none ${
+                      isActive
+                        ? 'bg-white/20 text-white dark:bg-[#121315]/20 dark:text-[#121315]'
+                        : 'bg-[#C4622D] text-white dark:bg-[#E07B46] dark:text-[#121315]'
+                    }`}
+                  >
+                    {complianceAlerts.length}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -748,6 +1030,38 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                 <div className="flex flex-wrap items-center gap-2.5 shrink-0">
                   <button
                     type="button"
+                    onClick={() => setAlertsPanelOpen((prev) => !prev)}
+                    aria-expanded={alertsPanelOpen}
+                    data-testid="compliance-realtime-notification-badge"
+                    className={`min-h-[40px] px-3.5 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap ${
+                      complianceAlerts.length > 0
+                        ? 'border-[#C4622D]/40 dark:border-[#E07B46]/45 bg-[#FDF4EF] dark:bg-[#2A1B14] text-[#C4622D] dark:text-[#E07B46] hover:bg-[#F9E7DC] dark:hover:bg-[#382319]'
+                        : 'border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] text-[#575B62] dark:text-[#A3A7AE]'
+                    }`}
+                  >
+                    <span className="relative inline-flex items-center">
+                      <Bell className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      {complianceAlerts.length > 0 && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#C4622D] dark:bg-[#E07B46] animate-ping"
+                        />
+                      )}
+                    </span>
+                    <span>
+                      {complianceAlerts.length > 0
+                        ? `${complianceAlerts.length} Live Alert${complianceAlerts.length === 1 ? '' : 's'}`
+                        : 'All Caught Up'}
+                    </span>
+                    {complianceAlerts.length > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-[#C4622D] text-white dark:bg-[#E07B46] dark:text-[#121315] text-[10px] font-mono-tabular font-bold leading-none">
+                        {complianceAlerts.length}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => setUnderstandingModalOpen(true)}
                     data-testid="review-understanding-verification-btn"
                     className="min-h-[40px] px-4 py-2 rounded-xl border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-[#E7F3EE]/60 dark:bg-[#142B24]/70 hover:bg-[#D5EBE2] dark:hover:bg-[#1C3B31] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
@@ -757,6 +1071,99 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                   </button>
                 </div>
               </div>
+
+              {alertsPanelOpen && (
+                <div
+                  data-testid="compliance-notification-feed"
+                  role="region"
+                  aria-label="Real-time applicant document and verification alerts"
+                  className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#C4622D]/35 dark:border-[#E07B46]/35 p-4 space-y-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-[#C4622D] dark:text-[#E07B46]" aria-hidden="true" />
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-[#17191C] dark:text-[#F4F2EE]">
+                        Real-Time Submission &amp; Milestone Alerts
+                      </h3>
+                    </div>
+                    {complianceAlerts.length > 0 && (
+                      <button
+                        type="button"
+                        data-testid="compliance-dismiss-all-alerts-btn"
+                        onClick={() =>
+                          setDismissedNotificationIds((prev) => [
+                            ...prev,
+                            ...complianceAlerts.map((a) => a.id),
+                          ])
+                        }
+                        className="text-[11px] font-semibold text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] underline cursor-pointer"
+                      >
+                        Mark all reviewed
+                      </button>
+                    )}
+                  </div>
+
+                  {complianceAlerts.length === 0 ? (
+                    <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                      No pending document submissions or unreviewed milestone changes right now.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {complianceAlerts.map((alert) => (
+                        <div
+                          key={alert.id}
+                          data-testid={`compliance-alert-item-${alert.id}`}
+                          className="rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
+                        >
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
+                                  alert.type === 'new_submission'
+                                    ? 'bg-[#FDF4EF] dark:bg-[#2A1B14] text-[#C4622D] dark:text-[#E07B46]'
+                                    : 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+                                }`}
+                              >
+                                {alert.type === 'new_submission' ? 'Document Ready' : 'Step Completed'}
+                              </span>
+                              <span className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                                {alert.title}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                              {alert.description}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedReviewGrantId(alert.consentId);
+                                setReviewFilter('all');
+                                setAlertsPanelOpen(false);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B] font-semibold text-[11px] hover:bg-[#D5EBE2] dark:hover:bg-[#1C3B31] cursor-pointer"
+                            >
+                              Inspect File
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Dismiss alert for ${alert.talentAlias}`}
+                              onClick={() =>
+                                setDismissedNotificationIds((prev) => [...prev, alert.id])
+                              }
+                              className="px-2 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] text-[11px] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] cursor-pointer"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {activeConsentedGrants.length === 0 ? (
                 <div
@@ -783,6 +1190,146 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                 </div>
               ) : (
                 <div className="space-y-5">
+                  {/* Verification Milestone Summary Graph */}
+                  {(() => {
+                    const totalActive = activeConsentedGrants.length;
+                    const identityVerified = activeConsentedGrants.filter(
+                      (g) => verificationsByGrantId[g.consentId]?.steps?.identityAuth?.status === 'verified'
+                    ).length;
+                    const financialVerified = activeConsentedGrants.filter(
+                      (g) => verificationsByGrantId[g.consentId]?.steps?.payoutRail?.status === 'verified'
+                    ).length;
+                    const contractingVerified = activeConsentedGrants.filter(
+                      (g) => verificationsByGrantId[g.consentId]?.steps?.competencyProof?.status === 'verified'
+                    ).length;
+
+                    const identityPct = totalActive > 0 ? Math.round((identityVerified / totalActive) * 100) : 0;
+                    const financialPct = totalActive > 0 ? Math.round((financialVerified / totalActive) * 100) : 0;
+                    const contractingPct = totalActive > 0 ? Math.round((contractingVerified / totalActive) * 100) : 0;
+
+                    return (
+                      <div
+                        data-testid="verification-milestone-summary-graph"
+                        className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-4 sm:p-5 space-y-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE] inline-flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" aria-hidden="true" />
+                            <span>Milestone Verification Distribution Across Active Dossiers ({totalActive})</span>
+                          </span>
+                          <span className="text-[11px] font-mono-tabular text-[#575B62] dark:text-[#A3A7AE]">
+                            Real-time Partner Console Metrics
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          {[
+                            {
+                              label: 'Identity (Step 1)',
+                              verified: identityVerified,
+                              pct: identityPct,
+                              color: 'bg-[#146C53] dark:bg-[#2EB88B]',
+                            },
+                            {
+                              label: 'Financial (Step 3)',
+                              verified: financialVerified,
+                              pct: financialPct,
+                              color: 'bg-[#146C53] dark:bg-[#2EB88B]',
+                            },
+                            {
+                              label: 'Contracting (Step 2)',
+                              verified: contractingVerified,
+                              pct: contractingPct,
+                              color: 'bg-[#146C53] dark:bg-[#2EB88B]',
+                            },
+                          ].map((m) => (
+                            <div
+                              key={m.label}
+                              className="rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-3 space-y-1.5 text-xs"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">{m.label}</span>
+                                <span className="font-mono-tabular font-bold text-[#146C53] dark:text-[#2EB88B]">
+                                  {m.pct}%
+                                </span>
+                              </div>
+                              <div
+                                role="progressbar"
+                                aria-label={`${m.label} verification percentage`}
+                                aria-valuenow={m.pct}
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                className="w-full h-2 rounded-full bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] overflow-hidden"
+                              >
+                                <div
+                                  className={`h-full transition-all duration-300 ${m.color}`}
+                                  style={{ width: `${m.pct}%` }}
+                                />
+                              </div>
+                              <p className="text-[10px] text-[#575B62] dark:text-[#A3A7AE]">
+                                {m.verified} of {totalActive} applicants verified
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {/* Bulk Approve Batch Verification Toolbar */}
+                  <div
+                    data-testid="partner-bulk-approve-toolbar"
+                    className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="inline-flex items-center gap-1.5 font-semibold text-[#17191C] dark:text-[#F4F2EE] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={
+                            activeConsentedGrants.length > 0 &&
+                            bulkSelectedConsentIds.length === activeConsentedGrants.length
+                          }
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setBulkSelectedConsentIds(activeConsentedGrants.map((g) => g.consentId));
+                            } else {
+                              setBulkSelectedConsentIds([]);
+                            }
+                          }}
+                          data-testid="bulk-select-all-checkbox"
+                          className="rounded border-[#146C53] text-[#146C53] focus:ring-[#146C53] cursor-pointer"
+                        />
+                        <span>Select All ({activeConsentedGrants.length})</span>
+                      </label>
+
+                      <select
+                        value={bulkTargetStepId}
+                        onChange={(e) => setBulkTargetStepId(e.target.value as PartnerVerificationStepId)}
+                        data-testid="bulk-target-step-select"
+                        className="min-h-[34px] px-2.5 py-1 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE]"
+                      >
+                        <option value="identityAuth">Identity (Step 1)</option>
+                        <option value="competencyProof">Contracting (Step 2)</option>
+                        <option value="payoutRail">Financial (Step 3)</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono-tabular text-[#575B62] dark:text-[#A3A7AE]">
+                        {bulkSelectedConsentIds.length} selected
+                      </span>
+                      <button
+                        type="button"
+                        disabled={bulkSelectedConsentIds.length === 0}
+                        data-testid="partner-bulk-approve-btn"
+                        onClick={handleBulkApprove}
+                        className="min-h-[36px] px-4 py-1.5 rounded-lg bg-[#146C53] hover:bg-[#0F5642] disabled:opacity-50 dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>Bulk Approve Selected</span>
+                      </button>
+                    </div>
+                  </div>
+
                   {/* Filter & Applicant Switcher Strip */}
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                     <div
@@ -830,24 +1377,54 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                             verificationsByGrantId[grant.consentId]
                           );
                           const isSelected = selectedReviewGrant?.consentId === grant.consentId;
+                          const isChecked = bulkSelectedConsentIds.includes(grant.consentId);
                           return (
-                            <button
+                            <div
                               key={grant.consentId}
-                              type="button"
-                              aria-pressed={isSelected}
-                              data-testid={`review-select-applicant-${grant.consentId}`}
-                              onClick={() => setSelectedReviewGrantId(grant.consentId)}
-                              className={`min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer ${
+                              className={`inline-flex items-center rounded-lg border text-xs font-semibold overflow-hidden transition-colors ${
                                 isSelected
-                                  ? 'bg-[#E7F3EE] dark:bg-[#142B24] border-[#146C53] dark:border-[#2EB88B] text-[#146C53] dark:text-[#2EB88B]'
-                                  : 'bg-[#FAF8F5] dark:bg-[#121315] border-[#E8E3DB] dark:border-[#2C3037] text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53]/50'
+                                  ? 'bg-[#E7F3EE] dark:bg-[#142B24] border-[#146C53] dark:border-[#2EB88B]'
+                                  : 'bg-[#FAF8F5] dark:bg-[#121315] border-[#E8E3DB] dark:border-[#2C3037]'
                               }`}
                             >
-                              <span>{grant.talentAlias}</span>
-                              <span className="font-mono-tabular text-[11px] opacity-85">
-                                {prog.verifiedCount}/3
-                              </span>
-                            </button>
+                              <label
+                                className="px-2 py-1.5 flex items-center justify-center cursor-pointer border-r border-[#E8E3DB]/60 dark:border-[#2C3037]/60 hover:bg-black/5 dark:hover:bg-white/5"
+                                title={`Select ${grant.talentAlias} for bulk approval`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  data-testid={`bulk-select-${grant.consentId}`}
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setBulkSelectedConsentIds((prev) => [...prev, grant.consentId]);
+                                    } else {
+                                      setBulkSelectedConsentIds((prev) =>
+                                        prev.filter((id) => id !== grant.consentId)
+                                      );
+                                    }
+                                  }}
+                                  className="w-3.5 h-3.5 rounded border-[#146C53] text-[#146C53] focus:ring-[#146C53] cursor-pointer"
+                                />
+                                <span className="sr-only">Select {grant.talentAlias}</span>
+                              </label>
+                              <button
+                                type="button"
+                                aria-pressed={isSelected}
+                                data-testid={`review-select-applicant-${grant.consentId}`}
+                                onClick={() => setSelectedReviewGrantId(grant.consentId)}
+                                className={`min-h-[36px] px-2.5 py-1.5 inline-flex items-center gap-2 cursor-pointer ${
+                                  isSelected
+                                    ? 'text-[#146C53] dark:text-[#2EB88B]'
+                                    : 'text-[#17191C] dark:text-[#F4F2EE] hover:text-[#146C53] dark:hover:text-[#2EB88B]'
+                                }`}
+                              >
+                                <span>{grant.talentAlias}</span>
+                                <span className="font-mono-tabular text-[11px] opacity-85">
+                                  {prog.verifiedCount}/3
+                                </span>
+                              </button>
+                            </div>
                           );
                         })}
                       </div>
@@ -900,19 +1477,36 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                               </span>
                             </div>
 
-                            <button
-                              type="button"
-                              data-testid="review-proceed-stage3-btn"
-                              onClick={() => setActiveTab('compliance')}
-                              className="min-h-[36px] px-3.5 py-1.5 rounded-lg border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-white dark:bg-[#1A1C20] hover:bg-[#E7F3EE] dark:hover:bg-[#142B24] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
-                            >
-                              <span>
-                                {activeProgress.isReadyForStage3
-                                  ? 'Proceed to 3. Compliance & Contracting'
-                                  : 'Open Stage 3 Overview'}
-                              </span>
-                              <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                            </button>
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                data-testid="review-download-pdf-report-btn"
+                                onClick={() => handleDownloadApplicantPdfReport(selectedReviewGrant)}
+                                className="min-h-[36px] px-3.5 py-1.5 rounded-lg bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+                                title="Compile current verification status, audit logs, and feedback history into a formal compliance PDF report"
+                              >
+                                <FileText className="w-3.5 h-3.5" aria-hidden="true" />
+                                <span>
+                                  {pdfDownloadingConsentId === selectedReviewGrant.consentId
+                                    ? 'PDF Report Downloaded'
+                                    : 'Download PDF Report'}
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                data-testid="review-proceed-stage3-btn"
+                                onClick={() => setActiveTab('compliance')}
+                                className="min-h-[36px] px-3.5 py-1.5 rounded-lg border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-white dark:bg-[#1A1C20] hover:bg-[#E7F3EE] dark:hover:bg-[#142B24] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+                              >
+                                <span>
+                                  {activeProgress.isReadyForStage3
+                                    ? 'Proceed to 3. Compliance & Contracting'
+                                    : 'Open Stage 3 Overview'}
+                                </span>
+                                <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                              </button>
+                            </div>
                           </div>
 
                           {/* 3-Row Milestone Table: Identity, Financial, Contracting */}
@@ -1678,6 +2272,363 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Access Audit Log Section */}
+            <section
+              id="partner-access-audit-log"
+              aria-labelledby="access-audit-log-heading"
+              data-testid="partner-access-audit-log"
+              className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-8 space-y-6"
+            >
+              <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 pb-6 border-b border-[#E8E3DB] dark:border-[#2C3037]">
+                <div className="space-y-1.5 max-w-2xl">
+                  <div className="inline-flex items-center gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#146C53] dark:text-[#2EB88B]">
+                      DATA VAULT GOVERNANCE &amp; TRANSPARENCY
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B] border border-[#146C53]/20 dark:border-[#2EB88B]/20">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#146C53] dark:bg-[#2EB88B] animate-pulse" />
+                      Live Stream
+                    </span>
+                  </div>
+                  <h2
+                    id="access-audit-log-heading"
+                    className="font-display text-xl sm:text-2xl font-medium tracking-tight text-[#17191C] dark:text-[#F4F2EE]"
+                  >
+                    Access Audit Log
+                  </h2>
+                  <p className="text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
+                    Real-time immutable audit trail recording when skilled practitioners grant or revoke partner access to their living proof dossiers. Ensures strict adherence to digital agency principles and the platform’s Zero Raw ID privacy boundary.
+                  </p>
+                </div>
+
+                {/* Audit summary metrics & Export CSV button */}
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                    <div className="px-3.5 py-2.5 rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-center">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[#575B62] dark:text-[#A3A7AE]">
+                        Active Grants
+                      </p>
+                      <p className="text-base sm:text-lg font-bold text-[#146C53] dark:text-[#2EB88B] font-mono-tabular">
+                        {consentedGrants.filter((g) => g.status === 'active').length}
+                      </p>
+                    </div>
+                    <div className="px-3.5 py-2.5 rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-center">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[#575B62] dark:text-[#A3A7AE]">
+                        Revoked Vaults
+                      </p>
+                      <p className="text-base sm:text-lg font-bold text-amber-600 dark:text-amber-400 font-mono-tabular">
+                        {consentedGrants.filter((g) => g.status === 'revoked').length}
+                      </p>
+                    </div>
+                    <div className="px-3.5 py-2.5 rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-center">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[#575B62] dark:text-[#A3A7AE]">
+                        Total Events
+                      </p>
+                      <p className="text-base sm:text-lg font-bold text-[#17191C] dark:text-[#F4F2EE] font-mono-tabular">
+                        {synthesizedVaultAuditEntries.length}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    data-testid="partner-audit-export-csv-btn"
+                    onClick={handleExportAuditLogCsv}
+                    disabled={synthesizedVaultAuditEntries.length === 0}
+                    className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-[#E7F3EE]/80 dark:bg-[#142B24] hover:bg-[#D5EBE2] dark:hover:bg-[#1C3B31] disabled:opacity-50 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] inline-flex items-center gap-2 transition-colors cursor-pointer"
+                    title="Export compliance audit log to CSV"
+                  >
+                    <Download className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>Export CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              {auditExportNotice && (
+                <div
+                  data-testid="partner-audit-export-toast"
+                  className="rounded-xl bg-[#E7F3EE] dark:bg-[#142B24] border border-[#146C53]/35 dark:border-[#2EB88B]/40 p-3 flex items-center justify-between text-xs text-[#146C53] dark:text-[#2EB88B]"
+                >
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    <span>{auditExportNotice}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAuditExportNotice(null)}
+                    className="text-[11px] underline font-medium cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              {/* Filters, Date Range, and Search Controls */}
+              <div className="space-y-3">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                  <div
+                    role="group"
+                    aria-label="Filter audit events by action type"
+                    className="inline-flex flex-wrap items-center gap-1.5"
+                  >
+                    {(
+                      [
+                        { id: 'all', label: `All Events (${synthesizedVaultAuditEntries.length})` },
+                        {
+                          id: 'granted',
+                          label: `Access Granted (${
+                            synthesizedVaultAuditEntries.filter((e) => e.action === 'CONSENT_GRANTED').length
+                          })`,
+                        },
+                        {
+                          id: 'revoked',
+                          label: `Access Revoked (${
+                            synthesizedVaultAuditEntries.filter((e) => e.action === 'CONSENT_REVOKED').length
+                          })`,
+                        },
+                      ] as const
+                    ).map((opt) => {
+                      const active = auditFilter === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          aria-pressed={active}
+                          data-testid={`audit-filter-${opt.id}`}
+                          onClick={() => setAuditFilter(opt.id)}
+                          className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                            active
+                              ? 'bg-[#146C53] text-white dark:bg-[#2EB88B] dark:text-[#121315]'
+                              : 'bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="relative max-w-sm w-full">
+                    <Search
+                      className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#575B62] dark:text-[#A3A7AE]"
+                      aria-hidden="true"
+                    />
+                    <input
+                      type="search"
+                      value={auditSearchTerm}
+                      onChange={(e) => setAuditSearchTerm(e.target.value)}
+                      placeholder="Search by applicant, token ID, or action..."
+                      data-testid="partner-audit-search-input"
+                      className="w-full min-h-[36px] pl-8 pr-3 py-1.5 rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-xs text-[#17191C] dark:text-[#F4F2EE] placeholder:text-[#575B62]/60 focus:outline-hidden focus:border-[#146C53]"
+                    />
+                  </div>
+                </div>
+
+                {/* Date-Range Filter Bar & Quick Presets */}
+                <div
+                  data-testid="partner-audit-date-range-bar"
+                  className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-[#17191C] dark:text-[#F4F2EE] text-[11px] uppercase tracking-wider">
+                      Date Range:
+                    </span>
+                    <label className="inline-flex items-center gap-1.5 text-[#575B62] dark:text-[#A3A7AE]">
+                      <span className="text-[11px]">From</span>
+                      <input
+                        type="date"
+                        value={auditStartDate}
+                        onChange={(e) => setAuditStartDate(e.target.value)}
+                        data-testid="audit-start-date-input"
+                        className="min-h-[32px] px-2 py-1 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                      />
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 text-[#575B62] dark:text-[#A3A7AE]">
+                      <span className="text-[11px]">To</span>
+                      <input
+                        type="date"
+                        value={auditEndDate}
+                        onChange={(e) => setAuditEndDate(e.target.value)}
+                        data-testid="audit-end-date-input"
+                        className="min-h-[32px] px-2 py-1 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-xs text-[#17191C] dark:text-[#F4F2EE]"
+                      />
+                    </label>
+
+                    {/* Presets */}
+                    <div className="flex items-center gap-1 pl-1">
+                      <button
+                        type="button"
+                        data-testid="audit-date-preset-all"
+                        onClick={() => handleApplyDatePreset('all')}
+                        className={`px-2 py-1 rounded-md text-[11px] font-medium cursor-pointer transition-colors ${
+                          !auditStartDate && !auditEndDate
+                            ? 'bg-[#146C53]/15 text-[#146C53] dark:bg-[#2EB88B]/20 dark:text-[#2EB88B] font-semibold'
+                            : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
+                        }`}
+                      >
+                        All Time
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="audit-date-preset-today"
+                        onClick={() => handleApplyDatePreset('today')}
+                        className="px-2 py-1 rounded-md text-[11px] font-medium text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] cursor-pointer"
+                      >
+                        Today
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="audit-date-preset-7d"
+                        onClick={() => handleApplyDatePreset('7d')}
+                        className="px-2 py-1 rounded-md text-[11px] font-medium text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] cursor-pointer"
+                      >
+                        Last 7 Days
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="audit-date-preset-30d"
+                        onClick={() => handleApplyDatePreset('30d')}
+                        className="px-2 py-1 rounded-md text-[11px] font-medium text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] cursor-pointer"
+                      >
+                        Last 30 Days
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono-tabular text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                      Showing {filteredVaultAuditEntries.length} of {synthesizedVaultAuditEntries.length} events
+                    </span>
+                    {isAuditFilterActive && (
+                      <button
+                        type="button"
+                        data-testid="audit-clear-filters-btn"
+                        onClick={handleClearAuditFilters}
+                        className="px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] font-semibold text-[#146C53] dark:text-[#2EB88B] text-[11px] hover:border-[#146C53] cursor-pointer"
+                      >
+                        Clear Filters
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Real-time audit log entries list */}
+              {filteredVaultAuditEntries.length === 0 ? (
+                <div
+                  data-testid="audit-log-empty-state"
+                  className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-8 text-center space-y-2"
+                >
+                  <Lock className="w-6 h-6 mx-auto text-[#575B62] dark:text-[#A3A7AE]" aria-hidden="true" />
+                  <p className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                    No audit records match the current filter
+                  </p>
+                  <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE] max-w-sm mx-auto">
+                    {isAuditFilterActive
+                      ? 'No events match your selected search query or date range.'
+                      : 'When applicants grant or revoke permissions to their living proof dossiers, their cryptographic audit receipts appear here immediately.'}
+                  </p>
+                  {isAuditFilterActive && (
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={handleClearAuditFilters}
+                        data-testid="audit-empty-clear-filters-btn"
+                        className="px-3 py-1.5 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] font-semibold text-xs text-[#146C53] dark:text-[#2EB88B] cursor-pointer"
+                      >
+                        Reset Search &amp; Date Range
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="divide-y divide-[#E8E3DB] dark:divide-[#2C3037] border border-[#E8E3DB] dark:border-[#2C3037] rounded-xl overflow-hidden bg-white dark:bg-[#1A1C20]">
+                  {filteredVaultAuditEntries.map((entry) => {
+                    const isGranted = entry.action === 'CONSENT_GRANTED';
+                    return (
+                      <div
+                        key={entry.id}
+                        data-testid={`audit-log-entry-${entry.id}`}
+                        className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#FAF8F5]/80 dark:hover:bg-[#121315]/50 transition-colors"
+                      >
+                        <div className="flex items-start gap-3.5">
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                              isGranted
+                                ? 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+                                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'
+                            }`}
+                          >
+                            {isGranted ? (
+                              <ShieldCheck className="w-4 h-4" aria-hidden="true" />
+                            ) : (
+                              <Lock className="w-4 h-4" aria-hidden="true" />
+                            )}
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                  isGranted
+                                    ? 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+                                    : 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300'
+                                }`}
+                              >
+                                {isGranted ? 'Access Granted' : 'Access Revoked'}
+                              </span>
+                              <span className="font-semibold text-xs text-[#17191C] dark:text-[#F4F2EE]">
+                                {entry.talentAlias}
+                              </span>
+                              <span className="font-mono-tabular text-[11px] px-1.5 py-0.5 rounded-md bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE]">
+                                {entry.consentId}
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
+                              {entry.details}
+                            </p>
+
+                            <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                              <span className="inline-flex items-center gap-1 font-mono-tabular">
+                                <Clock className="w-3 h-3 text-[#146C53] dark:text-[#2EB88B]" aria-hidden="true" />
+                                {new Date(entry.timestampIso).toLocaleString(undefined, {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit',
+                                })}
+                              </span>
+                              <span>•</span>
+                              <span>Actor: {entry.actorRole === 'builder' ? 'Talented Builder' : entry.actorRole}</span>
+                              <span>•</span>
+                              <span className="text-[#146C53] dark:text-[#2EB88B] font-medium">
+                                Zero Raw ID Enforced
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 sm:self-center pl-12 sm:pl-0">
+                          <span
+                            className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border ${
+                              isGranted
+                                ? 'border-[#146C53]/30 bg-[#E7F3EE]/50 text-[#146C53] dark:border-[#2EB88B]/30 dark:bg-[#142B24]/50 dark:text-[#2EB88B]'
+                                : 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300'
+                            }`}
+                          >
+                            {isGranted ? 'Dossier Readable' : 'Vault Locked'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </div>
         )}
 

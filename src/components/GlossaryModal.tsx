@@ -6,7 +6,9 @@ import {
   ChevronDown,
   ChevronUp,
   HelpCircle,
+  Link2,
   Search,
+  Sparkles,
   X,
 } from 'lucide-react';
 import type { PortalRealm, WorkspaceTab } from '../types/kora';
@@ -464,11 +466,94 @@ const FILTER_OPTIONS: Array<{ id: GlossaryFilterTab; label: string }> = [
   { id: 'partners', label: 'For Hiring Partners' },
 ];
 
+export interface HowItWorksStepItem {
+  id: string;
+  stepNumber: string;
+  title: string;
+  summary: string;
+  audience: string;
+  relatedFaqId: string;
+  relatedFaqLabel: string;
+  keywords: string;
+}
+
+export const HOW_IT_WORKS_STEPS: HowItWorksStepItem[] = [
+  {
+    id: 'step-verify',
+    stepNumber: '01',
+    title: 'Stage 1 · Verify (Living Competency Passport)',
+    summary:
+      'Describe real problem-solving in voice or text—no formal diplomas needed. Generates a server-signed Living Competency Passport (VNA-2026-XXXX) across the 4-Tier Trust Ladder.',
+    audience: 'Talented Builders',
+    relatedFaqId: 'faq-paperless-verify',
+    relatedFaqLabel: 'FAQ: How paperless verification works',
+    keywords: 'stage 1 verify competency passport paperless diploma voice uqp rpl trust ladder',
+  },
+  {
+    id: 'step-unlock',
+    stepNumber: '02',
+    title: 'Stage 2 · Unlock (Sequential Readiness & Zero-Raw-ID Vault)',
+    summary:
+      'Complete work-authorization, contracting, and FATF tiered-KYC payout readiness sequentially. Private serial numbers stay locked inside your vault under the Who Verifies What Privacy Boundary.',
+    audience: 'Builders & Partners',
+    relatedFaqId: 'faq-privacy-boundary',
+    relatedFaqLabel: 'FAQ: Who Verifies What & Zero-Raw-ID',
+    keywords: 'stage 2 unlock sequential privacy boundary zero raw id kyc consent grant vault',
+  },
+  {
+    id: 'step-solve',
+    stepNumber: '03',
+    title: 'Stage 3 · Solve (Pod Sprints, Upskilling & Mentorship)',
+    summary:
+      'Pair your Living Proof Portfolio with paid Cross-Age Pod Sprints or 65%–90% Upskilling Bridges, backed by Formal Mentorship Tracks and spontaneous Sprint-Based Guidance.',
+    audience: 'Shared',
+    relatedFaqId: 'faq-choose-support',
+    relatedFaqLabel: 'FAQ: Formal Mentorship vs. Sprint Guidance',
+    keywords: 'stage 3 solve pod sprint living proof upskilling bridge mentor mentee formal guidance',
+  },
+  {
+    id: 'step-pulse',
+    stepNumber: '04',
+    title: 'Stage 4 · Pulse (UN SDG Telemetry & Escrow Payouts)',
+    summary:
+      'Every verified milestone updates live UN SDG indicators (SDGs 4, 8, 10, 16, 17), releases milestone escrow to Mobile Money or EOR rails, and exports printable compliance receipts.',
+    audience: 'Shared',
+    relatedFaqId: 'faq-offline-pulse',
+    relatedFaqLabel: 'FAQ: Offline PWA & SDG payouts',
+    keywords: 'stage 4 pulse sdg telemetry escrow payout mobile money offline pwa csv pdf',
+  },
+  {
+    id: 'step-cleared',
+    stepNumber: '05',
+    title: 'Stage 5 · Cleared (Durable Solutions & Mobility Dossier)',
+    summary:
+      'Convert verified sprint history into a 3-year Cleared Future Dossier spanning local integration (Kenya Shirika Plan) or zero-fee UNHCR Complementary Pathways.',
+    audience: 'Talented Builders',
+    relatedFaqId: 'faq-cleared-pathway',
+    relatedFaqLabel: 'FAQ: Stage 5 Cleared & Scam-Free Rule',
+    keywords: 'stage 5 cleared shirika plan unhcr complementary pathways mobility dossier scam free',
+  },
+  {
+    id: 'step-partner-review',
+    stepNumber: '06',
+    title: 'Partner Console · Individual 3-Step Review, Bulk Approve & Audit Log',
+    summary:
+      'Hiring Partners verify Identity, Financial, and Contracting individually before Stage 3, send stage feedback, batch-approve eligible steps, inspect live Access Audit Logs, and export PDF/CSV reports.',
+    audience: 'Hiring Partners',
+    relatedFaqId: 'faq-partner-audit-pdf',
+    relatedFaqLabel: 'FAQ: Pre-Stage 3 Verification, Audit Logs & PDF Reports',
+    keywords: 'partner console bulk approve access audit log pdf csv report verification alerts stage 3',
+  },
+];
+
 export interface MentorshipFaqItem {
   id: string;
   question: string;
   answer: string;
   bestStage: string;
+  category: 'how-it-works' | 'compliance' | 'mentorship';
+  relatedHowItWorksStepId: string;
+  relatedHowItWorksLabel: string;
 }
 
 export const MENTORSHIP_VS_GUIDANCE_FAQ: MentorshipFaqItem[] = [
@@ -478,6 +563,9 @@ export const MENTORSHIP_VS_GUIDANCE_FAQ: MentorshipFaqItem[] = [
     answer:
       'Choose a Formal Mentorship Track when you want structured, multi-sprint capability growth—such as mastering a domain track, following a milestone roadmap, setting recurring session agendas, and earning Tier 2/3 competency endorsements. Choose Sprint-Based Guidance when you need fast, targeted help on an active deliverable—like isolating a technical blocker, requesting a quick screen-share QA review, or tightening pod handoff notes.',
     bestStage: 'Stage 3 · Solve & Stage 4 · Pulse',
+    category: 'mentorship',
+    relatedHowItWorksStepId: 'step-solve',
+    relatedHowItWorksLabel: 'How It Works: Stage 3 · Solve & Mentorship',
   },
   {
     id: 'faq-combine-both',
@@ -485,14 +573,78 @@ export const MENTORSHIP_VS_GUIDANCE_FAQ: MentorshipFaqItem[] = [
     answer:
       'Yes—the two modes are designed to complement each other. Many practitioners stay enrolled in one Formal Mentorship Track for long-term career and systems growth while using Sprint-Based Guidance inside the Mentor Messaging Drawer whenever a live partner brief requires immediate troubleshooting or pre-submission verification.',
     bestStage: 'Stage 3 · Solve',
+    category: 'mentorship',
+    relatedHowItWorksStepId: 'step-solve',
+    relatedHowItWorksLabel: 'How It Works: Stage 3 · Solve & Mentorship',
   },
   {
     id: 'faq-prepare-sessions',
     question: 'How should I prepare differently for a mentorship session vs. a quick sprint check-in?',
     answer:
-      'For Formal Mentorship sessions, draft a 2-to-3 bullet agenda in the Agenda tab beforehand and review your Growth Roadmap milestones. For Sprint-Based Guidance, share the exact blocker, two options you already considered, or ask for a brief screen share so your mentor can unblock you in minutes.',
+      'For Formal Mentorship sessions, draft a 2-to-3 bullet agenda in the Agenda tab beforehand and review your Growth Roadmap milestones. For Sprint-Based Guidance, share the exact blocker, two options you already considered, or ask for a brief screen share (guided by the Mentorship Success Tips toggle) so your mentor can unblock you in minutes.',
     bestStage: 'Mentor Messaging Drawer',
+    category: 'mentorship',
+    relatedHowItWorksStepId: 'step-solve',
+    relatedHowItWorksLabel: 'How It Works: Stage 3 · Solve & Mentorship',
   },
+];
+
+export const PLATFORM_WORKFLOW_FAQS: MentorshipFaqItem[] = [
+  {
+    id: 'faq-paperless-verify',
+    question: 'How does Stage 1 Verify work without paper diplomas or transcripts?',
+    answer:
+      'In Stage 1 (Verify), practitioners explain how they solve a real-world problem in voice or text. The Competency Engine evaluates your reasoning and issues a tamper-evident Living Competency Passport (VNA-2026-XXXX) aligned with UNESCO UQP and ILO Recognition of Prior Learning (RPL), advancing across the 4-Tier Trust Ladder.',
+    bestStage: 'Stage 1 · Verify',
+    category: 'how-it-works',
+    relatedHowItWorksStepId: 'step-verify',
+    relatedHowItWorksLabel: 'How It Works: Stage 1 · Verify',
+  },
+  {
+    id: 'faq-privacy-boundary',
+    question: 'Who Verifies What (Privacy Boundary), and why should I follow stages sequentially?',
+    answer:
+      'Following Stages 1 through 5 sequentially ensures your Living Competency Passport is minted before compliance tokens are shared, reducing processing delays. Under the Who Verifies What Privacy Boundary, Hiring Partners verify only your consented Identity status, Financial rail readiness, and Contracting milestones—your raw national/refugee ID numbers and payout credentials remain strictly encrypted inside your private vault.',
+    bestStage: 'Stage 2 · Unlock & Partner Console',
+    category: 'compliance',
+    relatedHowItWorksStepId: 'step-unlock',
+    relatedHowItWorksLabel: 'How It Works: Stage 2 · Unlock Privacy Boundary',
+  },
+  {
+    id: 'faq-partner-audit-pdf',
+    question: 'How do Hiring Partners verify steps before Stage 3, bulk approve, and audit vault access?',
+    answer:
+      'Inside Tab 2 of the Hiring Partner Console (Compliance & Verification Review), partners review each applicant’s Identity, Financial, and Contracting milestones individually with real-time progress bars, milestone distribution charts, live submission alerts, and instant feedback messaging. Partners can batch-verify eligible steps via Bulk Approve, monitor real-time grant/revoke timestamps with search and date-range filters in the Access Audit Log, export CSV audit trails, and generate formal PDF Compliance Reports.',
+    bestStage: 'Partner Console · Tab 2 & Tab 3',
+    category: 'compliance',
+    relatedHowItWorksStepId: 'step-partner-review',
+    relatedHowItWorksLabel: 'How It Works: Partner Review & Audit Log',
+  },
+  {
+    id: 'faq-offline-pulse',
+    question: 'How does offline sync work, and how are UN SDG impact metrics and payouts tracked?',
+    answer:
+      'Vuka na Amana is offline-resilient: capabilities, portfolio uploads, and sprint notes queue locally and auto-sync via your authenticated session when connectivity returns. Stage 4 (Pulse) visualizes verified hours, escrow settlements across FATF Tiered KYC rails, and live SDG 4, 8, 10, 16, and 17 telemetry with downloadable CSV and PDF ledgers.',
+    bestStage: 'Stage 4 · Pulse',
+    category: 'how-it-works',
+    relatedHowItWorksStepId: 'step-pulse',
+    relatedHowItWorksLabel: 'How It Works: Stage 4 · Pulse',
+  },
+  {
+    id: 'faq-cleared-pathway',
+    question: 'How does Stage 5 Cleared protect builders against fees and prepare long-term pathways?',
+    answer:
+      'Stage 5 (Cleared for Your Future) compiles your verified sprint record into a 3-year roadmap for local economic integration (such as Kenya’s Shirika Plan) or regulated UNHCR Complementary Pathways (TBB, RefugePoint, WUSC, UNICORE). Legitimate partner pathways never charge applicants broker fees.',
+    bestStage: 'Stage 5 · Cleared',
+    category: 'how-it-works',
+    relatedHowItWorksStepId: 'step-cleared',
+    relatedHowItWorksLabel: 'How It Works: Stage 5 · Cleared',
+  },
+];
+
+export const ALL_GLOSSARY_FAQS: MentorshipFaqItem[] = [
+  ...PLATFORM_WORKFLOW_FAQS,
+  ...MENTORSHIP_VS_GUIDANCE_FAQ,
 ];
 
 export interface GlossaryModalProps {
@@ -514,18 +666,26 @@ export const GlossaryModal: React.FC<GlossaryModalProps> = ({
 }) => {
   const isPartnerConsole = viewMode === 'studio' && activePortal === 'partner';
   const [searchQuery, setSearchQuery] = useState('');
+  const [faqSearchQuery, setFaqSearchQuery] = useState('');
+  const [faqCategoryFilter, setFaqCategoryFilter] = useState<
+    'all' | 'how-it-works' | 'compliance' | 'mentorship'
+  >('all');
   const [activeFilter, setActiveFilter] = useState<GlossaryFilterTab>(
     isPartnerConsole ? 'partners' : 'all'
   );
   const [agendaFootnoteOpen, setAgendaFootnoteOpen] = useState(false);
-  const [openFaqId, setOpenFaqId] = useState<string | null>(MENTORSHIP_VS_GUIDANCE_FAQ[0].id);
+  const [openFaqId, setOpenFaqId] = useState<string | null>(ALL_GLOSSARY_FAQS[0].id);
+  const [highlightedHowItWorksId, setHighlightedHowItWorksId] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setSearchQuery('');
+      setFaqSearchQuery('');
+      setFaqCategoryFilter('all');
       setActiveFilter(isPartnerConsole ? 'partners' : 'all');
-      setOpenFaqId(MENTORSHIP_VS_GUIDANCE_FAQ[0].id);
+      setOpenFaqId(ALL_GLOSSARY_FAQS[0].id);
+      setHighlightedHowItWorksId(null);
       window.setTimeout(() => searchInputRef.current?.focus(), 30);
     }
   }, [isOpen, isPartnerConsole]);
@@ -541,6 +701,33 @@ export const GlossaryModal: React.FC<GlossaryModalProps> = ({
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [isOpen, onClose]);
+
+  const handleJumpToFaq = (faqId: string) => {
+    setFaqSearchQuery('');
+    setFaqCategoryFilter('all');
+    setSearchQuery('');
+    setOpenFaqId(faqId);
+    window.setTimeout(() => {
+      document
+        .getElementById(`glossary-faq-item-${faqId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  };
+
+  const handleJumpToHowItWorks = (stepId: string) => {
+    setFaqSearchQuery('');
+    setSearchQuery('');
+    if (activeFilter === 'sdgs' || activeFilter === 'legal') {
+      setActiveFilter('all');
+    }
+    setHighlightedHowItWorksId(stepId);
+    window.setTimeout(() => {
+      document
+        .getElementById(`how-it-works-step-${stepId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+    window.setTimeout(() => setHighlightedHowItWorksId(null), 2200);
+  };
 
   const filteredEntries = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -580,19 +767,60 @@ export const GlossaryModal: React.FC<GlossaryModalProps> = ({
     [filteredEntries]
   );
 
-  const showMentorshipFaq = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) {
-      return activeFilter === 'all' || activeFilter === 'frameworks';
-    }
-    return (
-      'mentorship vs guidance formal long-term short-term sprint feedback mentor mentee faq'.includes(q) ||
-      MENTORSHIP_VS_GUIDANCE_FAQ.some(
-        (item) =>
-          item.question.toLowerCase().includes(q) || item.answer.toLowerCase().includes(q)
-      )
+  const combinedFaqQuery = (faqSearchQuery.trim() || searchQuery.trim()).toLowerCase();
+
+  const filteredHowItWorksSteps = useMemo(() => {
+    if (!combinedFaqQuery) return HOW_IT_WORKS_STEPS;
+    return HOW_IT_WORKS_STEPS.filter(
+      (step) =>
+        step.title.toLowerCase().includes(combinedFaqQuery) ||
+        step.summary.toLowerCase().includes(combinedFaqQuery) ||
+        step.audience.toLowerCase().includes(combinedFaqQuery) ||
+        step.keywords.toLowerCase().includes(combinedFaqQuery) ||
+        step.relatedFaqLabel.toLowerCase().includes(combinedFaqQuery)
     );
-  }, [searchQuery, activeFilter]);
+  }, [combinedFaqQuery]);
+
+  const filteredFaqs = useMemo(() => {
+    return ALL_GLOSSARY_FAQS.filter((item) => {
+      if (faqCategoryFilter !== 'all' && item.category !== faqCategoryFilter) return false;
+      if (!combinedFaqQuery) return true;
+      return (
+        item.question.toLowerCase().includes(combinedFaqQuery) ||
+        item.answer.toLowerCase().includes(combinedFaqQuery) ||
+        item.bestStage.toLowerCase().includes(combinedFaqQuery) ||
+        item.relatedHowItWorksLabel.toLowerCase().includes(combinedFaqQuery)
+      );
+    });
+  }, [faqCategoryFilter, combinedFaqQuery]);
+
+  const showHowItWorksSection = useMemo(() => {
+    if (faqSearchQuery.trim()) {
+      return filteredHowItWorksSteps.length > 0;
+    }
+    if (searchQuery.trim()) {
+      return (
+        'how it works 5-stage crossing stages verify unlock solve pulse cleared partner review audit'.includes(
+          searchQuery.trim().toLowerCase()
+        ) || filteredHowItWorksSteps.length > 0
+      );
+    }
+    return activeFilter === 'all' || activeFilter === 'frameworks' || activeFilter === 'partners';
+  }, [faqSearchQuery, searchQuery, activeFilter, filteredHowItWorksSteps.length]);
+
+  const showMentorshipFaq = useMemo(() => {
+    if (faqSearchQuery.trim()) {
+      return true;
+    }
+    if (searchQuery.trim()) {
+      return (
+        'mentorship vs guidance formal long-term short-term sprint feedback mentor mentee faq how it works'.includes(
+          searchQuery.trim().toLowerCase()
+        ) || filteredFaqs.length > 0
+      );
+    }
+    return true;
+  }, [faqSearchQuery, searchQuery, filteredFaqs.length]);
 
   if (!isOpen) return null;
 
@@ -778,7 +1006,9 @@ export const GlossaryModal: React.FC<GlossaryModalProps> = ({
 
         {/* Scrollable Curated Content Body */}
         <div className="flex-1 overflow-y-auto no-scrollbar px-5 sm:px-6 py-5 space-y-7">
-          {filteredEntries.length === 0 && !showMentorshipFaq ? (
+          {filteredEntries.length === 0 &&
+          !(showHowItWorksSection && filteredHowItWorksSteps.length > 0) &&
+          !showMentorshipFaq ? (
             <div className="py-12 text-center space-y-3">
               <p className="text-sm font-medium text-[#17191C] dark:text-[#F4F2EE]">
                 No glossary terms match &ldquo;{searchQuery}&rdquo;.
@@ -920,89 +1150,259 @@ export const GlossaryModal: React.FC<GlossaryModalProps> = ({
                 </section>
               )}
 
-              {/* Dedicated 'Mentorship vs. Guidance' FAQ Section */}
+              {/* How It Works · 5-Stage Crossing & Partner Verification Guide (cross-linked to FAQs) */}
+              {showHowItWorksSection && filteredHowItWorksSteps.length > 0 && (
+                <section
+                  aria-labelledby="glossary-how-it-works-heading"
+                  data-testid="glossary-how-it-works-section"
+                  className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#146C53]/30 dark:border-[#2EB88B]/35 p-4 sm:p-5 space-y-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2 pb-3 border-b border-[#E8E3DB] dark:border-[#2C3037]">
+                    <div className="space-y-1">
+                      <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#146C53] dark:text-[#2EB88B]">
+                        <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                        <span>How It Works · Platform Architecture</span>
+                      </p>
+                      <h3
+                        id="glossary-how-it-works-heading"
+                        className="font-display text-base sm:text-lg font-medium text-[#17191C] dark:text-[#F4F2EE]"
+                      >
+                        5-Stage Crossing &amp; Partner Verification Workflow
+                      </h3>
+                      <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
+                        Follow the sequential journey from paperless verification to compliant hiring—click any FAQ link below to jump straight to detailed answers.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {filteredHowItWorksSteps.map((step) => {
+                      const isHighlighted = highlightedHowItWorksId === step.id;
+                      return (
+                        <article
+                          key={step.id}
+                          id={`how-it-works-step-${step.id}`}
+                          data-testid={`how-it-works-step-${step.id}`}
+                          className={`rounded-xl border p-3.5 flex flex-col justify-between gap-2.5 transition-all ${
+                            isHighlighted
+                              ? 'bg-[#E7F3EE]/80 dark:bg-[#142B24] border-[#146C53] dark:border-[#2EB88B] ring-2 ring-[#146C53]/35'
+                              : 'bg-[#FAF8F5] dark:bg-[#121315] border-[#E8E3DB] dark:border-[#2C3037]'
+                          }`}
+                        >
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono-tabular text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]">
+                                STEP {step.stepNumber}
+                              </span>
+                              <span className="text-[10px] font-medium text-[#575B62] dark:text-[#A3A7AE]">
+                                {step.audience}
+                              </span>
+                            </div>
+                            <h4 className="font-display text-xs sm:text-sm font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                              {step.title}
+                            </h4>
+                            <p className="text-xs text-[#43484E] dark:text-[#C4C9D0] leading-relaxed">
+                              {step.summary}
+                            </p>
+                          </div>
+
+                          <div className="pt-2 border-t border-[#E8E3DB]/70 dark:border-[#2C3037]/70 flex items-center justify-between">
+                            <button
+                              type="button"
+                              onClick={() => handleJumpToFaq(step.relatedFaqId)}
+                              data-testid={`how-it-works-faq-link-${step.id}`}
+                              className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#146C53] dark:text-[#2EB88B] hover:underline cursor-pointer"
+                            >
+                              <Link2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+                              <span>{step.relatedFaqLabel}</span>
+                              <ArrowRight className="w-3 h-3 shrink-0" aria-hidden="true" />
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {/* Dedicated Searchable FAQ Component (Platform How-It-Works + Mentorship vs. Guidance) */}
               {showMentorshipFaq && (
                 <section
                   aria-labelledby="glossary-mentorship-faq-heading"
                   data-testid="glossary-mentorship-vs-guidance-faq"
                   className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#146C53]/30 dark:border-[#2EB88B]/35 p-4 sm:p-5 space-y-4"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-2 pb-3 border-b border-[#E8E3DB] dark:border-[#2C3037]">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-3 border-b border-[#E8E3DB] dark:border-[#2C3037]">
                     <div className="space-y-1">
                       <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#146C53] dark:text-[#2EB88B]">
                         <HelpCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                        <span>Mentorship vs. Guidance · FAQ</span>
+                        <span>Frequently Asked Questions · How It Works &amp; Mentorship</span>
                       </p>
                       <h3
                         id="glossary-mentorship-faq-heading"
                         className="font-display text-base sm:text-lg font-medium text-[#17191C] dark:text-[#F4F2EE]"
                       >
-                        Choosing Between Formal Mentorship Tracks &amp; Sprint-Based Guidance
+                        Platform FAQs, Privacy Boundaries &amp; Mentorship vs. Guidance
                       </h3>
                       <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
-                        Understand how long-term mentorship tracks and short-term sprint feedback work together across your projects.
+                        Search FAQs or click any &ldquo;How It Works&rdquo; cross-link to jump between platform stages and detailed answers.
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Dedicated FAQ Search Bar & Topic Filter Pills */}
+                  <div className="space-y-2.5">
+                    <div className="relative flex items-center">
+                      <Search className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B] absolute left-3 pointer-events-none" />
+                      <input
+                        type="search"
+                        value={faqSearchQuery}
+                        onChange={(e) => setFaqSearchQuery(e.target.value)}
+                        placeholder="Search FAQs and How-It-Works documentation (e.g., privacy, PDF, mentorship, bulk approve)..."
+                        aria-label="Search FAQs and how-it-works documentation"
+                        data-testid="glossary-faq-search-input"
+                        className="w-full min-h-[38px] pl-9 pr-8 py-1.5 rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-xs text-[#17191C] dark:text-[#F4F2EE] placeholder:text-[#787C84] dark:placeholder:text-[#757A82] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#146C53] dark:focus-visible:ring-[#2EB88B]"
+                      />
+                      {faqSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setFaqSearchQuery('')}
+                          aria-label="Clear FAQ search"
+                          data-testid="glossary-faq-clear-search-btn"
+                          className="absolute right-2.5 p-1 rounded-md text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div
+                      role="group"
+                      aria-label="Filter FAQs by topic"
+                      className="flex flex-wrap items-center gap-1.5"
+                    >
+                      {(
+                        [
+                          { id: 'all', label: `All FAQs (${ALL_GLOSSARY_FAQS.length})` },
+                          { id: 'how-it-works', label: 'How It Works & Stages' },
+                          { id: 'compliance', label: 'Compliance, Privacy & Audit' },
+                          { id: 'mentorship', label: 'Mentorship vs. Guidance' },
+                        ] as const
+                      ).map((cat) => {
+                        const active = faqCategoryFilter === cat.id;
+                        return (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            aria-pressed={active}
+                            data-testid={`glossary-faq-filter-${cat.id}`}
+                            onClick={() => setFaqCategoryFilter(cat.id)}
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors cursor-pointer ${
+                              active
+                                ? 'bg-[#146C53] text-white dark:bg-[#2EB88B] dark:text-[#121315]'
+                                : 'bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
+                            }`}
+                          >
+                            {cat.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
                   {/* Quick 2-Column Side-by-Side Distinction */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-[#E7F3EE]/55 dark:bg-[#142B24]/65 border border-[#146C53]/25 dark:border-[#2EB88B]/30 p-3.5 space-y-1.5">
-                      <p className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
-                        Formal Mentorship Tracks (Long-Term)
-                      </p>
-                      <p className="text-xs text-[#353A40] dark:text-[#D5DAE0] leading-relaxed">
-                        Multi-sprint 1:1 pairing with a Senior Specialist—includes recurring agendas, Growth Roadmap milestones, audio feedback memos, and Tier 2/3 competency endorsements.
-                      </p>
-                    </div>
+                  {(faqCategoryFilter === 'all' || faqCategoryFilter === 'mentorship') && !faqSearchQuery && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="rounded-xl bg-[#E7F3EE]/55 dark:bg-[#142B24]/65 border border-[#146C53]/25 dark:border-[#2EB88B]/30 p-3.5 space-y-1.5">
+                        <p className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                          Formal Mentorship Tracks (Long-Term)
+                        </p>
+                        <p className="text-xs text-[#353A40] dark:text-[#D5DAE0] leading-relaxed">
+                          Multi-sprint 1:1 pairing with a Senior Specialist—includes recurring agendas, Growth Roadmap milestones, audio feedback memos, and Tier 2/3 competency endorsements.
+                        </p>
+                      </div>
 
-                    <div className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5 space-y-1.5">
-                      <p className="text-xs font-semibold text-[#C4622D] dark:text-[#E07B46]">
-                        Sprint-Based Guidance (Short-Term)
-                      </p>
-                      <p className="text-xs text-[#43484E] dark:text-[#C4C9D0] leading-relaxed">
-                        Fast, targeted support inside an active Pod Sprint—ideal for unblocking a specific bug, requesting a live screen-share QA check, or refining delivery handoff notes.
-                      </p>
+                      <div className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5 space-y-1.5">
+                        <p className="text-xs font-semibold text-[#C4622D] dark:text-[#E07B46]">
+                          Sprint-Based Guidance (Short-Term)
+                        </p>
+                        <p className="text-xs text-[#43484E] dark:text-[#C4C9D0] leading-relaxed">
+                          Fast, targeted support inside an active Pod Sprint—ideal for unblocking a specific bug, requesting a live screen-share QA check, or refining delivery handoff notes.
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Collapsible FAQ Items */}
-                  <div className="space-y-2">
-                    {MENTORSHIP_VS_GUIDANCE_FAQ.map((faq) => {
-                      const isExpanded = openFaqId === faq.id;
-                      return (
-                        <div
-                          key={faq.id}
-                          data-testid={`glossary-faq-item-${faq.id}`}
-                          className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] px-3.5 py-2.5"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => setOpenFaqId(isExpanded ? null : faq.id)}
-                            aria-expanded={isExpanded}
-                            className="w-full flex items-center justify-between gap-2 text-left text-xs sm:text-[13px] font-semibold text-[#17191C] dark:text-[#F4F2EE] cursor-pointer"
+                  {/* Collapsible Searchable FAQ Items with Cross-Links */}
+                  {filteredFaqs.length === 0 ? (
+                    <div
+                      data-testid="glossary-faq-empty-state"
+                      className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-5 text-center space-y-2"
+                    >
+                      <p className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                        No FAQs match &ldquo;{faqSearchQuery || searchQuery}&rdquo;.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFaqSearchQuery('');
+                          setFaqCategoryFilter('all');
+                        }}
+                        className="px-3 py-1 rounded-lg bg-[#E7F3EE] dark:bg-[#142B24] text-[11px] font-semibold text-[#146C53] dark:text-[#2EB88B] cursor-pointer"
+                      >
+                        Reset FAQ Search
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredFaqs.map((faq) => {
+                        const isExpanded = openFaqId === faq.id;
+                        return (
+                          <div
+                            key={faq.id}
+                            id={`glossary-faq-item-${faq.id}`}
+                            data-testid={`glossary-faq-item-${faq.id}`}
+                            className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] px-3.5 py-2.5"
                           >
-                            <span>{faq.question}</span>
-                            {isExpanded ? (
-                              <ChevronUp className="w-4 h-4 text-[#575B62] dark:text-[#A3A7AE] shrink-0" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4 text-[#575B62] dark:text-[#A3A7AE] shrink-0" />
+                            <button
+                              type="button"
+                              onClick={() => setOpenFaqId(isExpanded ? null : faq.id)}
+                              aria-expanded={isExpanded}
+                              className="w-full flex items-center justify-between gap-2 text-left text-xs sm:text-[13px] font-semibold text-[#17191C] dark:text-[#F4F2EE] cursor-pointer"
+                            >
+                              <span>{faq.question}</span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-[#575B62] dark:text-[#A3A7AE] shrink-0" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-[#575B62] dark:text-[#A3A7AE] shrink-0" />
+                              )}
+                            </button>
+                            {isExpanded && (
+                              <div className="mt-2 pt-2 border-t border-[#E8E3DB]/75 dark:border-[#2C3037]/75 space-y-2">
+                                <p className="text-xs text-[#43484E] dark:text-[#C4C9D0] leading-relaxed">
+                                  {faq.answer}
+                                </p>
+                                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                                  <p className="text-[11px] font-mono-tabular text-[#575B62] dark:text-[#A3A7AE]">
+                                    Best used in: {faq.bestStage}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleJumpToHowItWorks(faq.relatedHowItWorksStepId)}
+                                    data-testid={`faq-how-it-works-link-${faq.id}`}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#146C53] dark:text-[#2EB88B] hover:underline cursor-pointer"
+                                  >
+                                    <Link2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                    <span>{faq.relatedHowItWorksLabel}</span>
+                                  </button>
+                                </div>
+                              </div>
                             )}
-                          </button>
-                          {isExpanded && (
-                            <div className="mt-2 pt-2 border-t border-[#E8E3DB]/75 dark:border-[#2C3037]/75 space-y-1.5">
-                              <p className="text-xs text-[#43484E] dark:text-[#C4C9D0] leading-relaxed">
-                                {faq.answer}
-                              </p>
-                              <p className="text-[11px] font-mono-tabular text-[#146C53] dark:text-[#2EB88B]">
-                                Best used in: {faq.bestStage}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </section>
               )}
             </>

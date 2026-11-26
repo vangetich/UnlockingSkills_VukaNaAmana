@@ -6,6 +6,7 @@ import {
   DOCUMENT_FEEDBACK_STAGE_OPTIONS,
   UNDERSTANDING_VERIFICATION_BOUNDARIES,
   UNDERSTANDING_VERIFICATION_ROLES,
+  buildAccessAuditLogCsv,
   computePartnerPreContractingProgress,
   createDefaultPreContractingRecord,
   getFeedbackStageMeta,
@@ -15,6 +16,7 @@ import {
   isValidVerificationStepId,
   sanitizeFeedbackMessage,
 } from './partnerVerification.ts';
+import { buildApplicantComplianceReportPdfBytes } from './pdfReceipt.ts';
 
 test('individual 3-step verification progresses cleanly from 0/3 to 3/3 before Stage 3', () => {
   const record = createDefaultPreContractingRecord('VNA-GRANT-TEST1');
@@ -110,4 +112,238 @@ test('step specs cover Identity, Financial, and Contracting milestones plus Unde
 
   const cleaned = sanitizeFeedbackMessage('  Hello\u0000   applicant \n\n ready!  ', 20);
   assert.equal(cleaned, 'Hello applicant read');
+});
+
+test('bulk verification applies milestone approval across multiple candidate files simultaneously', () => {
+  const applicants = ['VNA-GRANT-B1', 'VNA-GRANT-B2', 'VNA-GRANT-B3'];
+  const verifications: Record<string, ReturnType<typeof createDefaultPreContractingRecord>> = {};
+  for (const id of applicants) {
+    verifications[id] = createDefaultPreContractingRecord(id);
+  }
+
+  // Bulk approve 'identityAuth' for all 3 applicants
+  const targetStep = 'identityAuth';
+  for (const id of applicants) {
+    verifications[id].steps[targetStep] = {
+      status: 'verified',
+      updatedAtIso: '2026-11-26T03:00:00.000Z',
+      verifiedByOrgName: 'SolarGrid Innovations',
+      reviewerNote: 'Bulk verified: Identity Authenticity approved.',
+    };
+  }
+
+  for (const id of applicants) {
+    const prog = computePartnerPreContractingProgress(verifications[id]);
+    assert.equal(prog.verifiedCount, 1);
+    assert.equal(verifications[id].steps.identityAuth.status, 'verified');
+    assert.equal(prog.isReadyForStage3, false);
+  }
+
+  // Bulk approve remaining steps for applicant B1 and B2
+  for (const id of ['VNA-GRANT-B1', 'VNA-GRANT-B2']) {
+    verifications[id].steps.competencyProof = {
+      status: 'verified',
+      updatedAtIso: '2026-11-26T03:01:00.000Z',
+      verifiedByOrgName: 'SolarGrid Innovations',
+    };
+    verifications[id].steps.payoutRail = {
+      status: 'verified',
+      updatedAtIso: '2026-11-26T03:02:00.000Z',
+      verifiedByOrgName: 'SolarGrid Innovations',
+    };
+  }
+
+  const p1 = computePartnerPreContractingProgress(verifications['VNA-GRANT-B1']);
+  const p2 = computePartnerPreContractingProgress(verifications['VNA-GRANT-B2']);
+  const p3 = computePartnerPreContractingProgress(verifications['VNA-GRANT-B3']);
+
+  assert.equal(p1.isReadyForStage3, true);
+  assert.equal(p1.percentage, 100);
+  assert.equal(p2.isReadyForStage3, true);
+  assert.equal(p2.percentage, 100);
+  assert.equal(p3.isReadyForStage3, false);
+  assert.equal(p3.percentage, 33);
+});
+
+test('Access Audit Log accurately tracks granted and revoked vault permissions with timestamps', () => {
+  const grants = [
+    {
+      consentId: 'VNA-GRANT-001',
+      talentAlias: 'Amina K.',
+      status: 'active' as const,
+      grantedAtIso: '2026-11-20T10:00:00.000Z',
+    },
+    {
+      consentId: 'VNA-GRANT-002',
+      talentAlias: 'David M.',
+      status: 'revoked' as const,
+      grantedAtIso: '2026-11-21T12:00:00.000Z',
+      revokedAtIso: '2026-11-25T16:30:00.000Z',
+    },
+  ];
+
+  const events: Array<{ action: string; consentId: string; timestampIso: string }> = [];
+  for (const g of grants) {
+    if (g.grantedAtIso) {
+      events.push({ action: 'CONSENT_GRANTED', consentId: g.consentId, timestampIso: g.grantedAtIso });
+    }
+    if (g.status === 'revoked' && g.revokedAtIso) {
+      events.push({ action: 'CONSENT_REVOKED', consentId: g.consentId, timestampIso: g.revokedAtIso });
+    }
+  }
+
+  events.sort((a, b) => new Date(b.timestampIso).getTime() - new Date(a.timestampIso).getTime());
+
+  assert.equal(events.length, 3);
+  assert.equal(events[0].action, 'CONSENT_REVOKED');
+  assert.equal(events[0].consentId, 'VNA-GRANT-002');
+  assert.equal(events[1].action, 'CONSENT_GRANTED');
+  assert.equal(events[1].consentId, 'VNA-GRANT-002');
+  assert.equal(events[2].action, 'CONSENT_GRANTED');
+  assert.equal(events[2].consentId, 'VNA-GRANT-001');
+});
+
+test('buildAccessAuditLogCsv generates compliant RFC 4180 CSV with zero-raw-id guarantees', () => {
+  const sampleEntries = [
+    {
+      id: 'entry-1',
+      timestampIso: '2026-11-26T03:00:00.000Z',
+      action: 'CONSENT_GRANTED',
+      talentAlias: 'Amina K.',
+      consentId: 'VNA-GRANT-001',
+      details: 'Applicant granted living proof dossier access.',
+      actorRole: 'builder',
+    },
+    {
+      id: 'entry-2',
+      timestampIso: '2026-11-26T03:30:00.000Z',
+      action: 'CONSENT_REVOKED',
+      talentAlias: 'David M.',
+      consentId: 'VNA-GRANT-002',
+      details: 'Applicant revoked data vault permissions.',
+      actorRole: 'builder',
+    },
+  ];
+
+  const csv = buildAccessAuditLogCsv(sampleEntries);
+  assert.ok(csv.includes('Log Entry ID,Timestamp (ISO),Date & Time,Action Type,Action Label,Applicant Alias'));
+  assert.ok(csv.includes('"entry-1"'));
+  assert.ok(csv.includes('"Amina K."'));
+  assert.ok(csv.includes('"Access Granted"'));
+  assert.ok(csv.includes('"entry-2"'));
+  assert.ok(csv.includes('"David M."'));
+  assert.ok(csv.includes('"Access Revoked"'));
+  assert.ok(csv.includes('Zero Raw ID'));
+});
+
+test('Access Audit Log date-range and keyword search filtering isolates target events precisely', () => {
+  const items = [
+    {
+      id: '1',
+      timestampIso: '2026-11-20T10:00:00.000Z',
+      talentAlias: 'Amina K.',
+      consentId: 'VNA-GRANT-001',
+      action: 'CONSENT_GRANTED',
+      details: 'Granted access',
+    },
+    {
+      id: '2',
+      timestampIso: '2026-11-24T14:00:00.000Z',
+      talentAlias: 'David M.',
+      consentId: 'VNA-GRANT-002',
+      action: 'CONSENT_GRANTED',
+      details: 'Granted access',
+    },
+    {
+      id: '3',
+      timestampIso: '2026-11-26T08:00:00.000Z',
+      talentAlias: 'David M.',
+      consentId: 'VNA-GRANT-002',
+      action: 'CONSENT_REVOKED',
+      details: 'Revoked access',
+    },
+  ];
+
+  // 1. Date filter: Between 2026-11-23 and 2026-11-25
+  const dateFiltered = items.filter((item) => {
+    const d = item.timestampIso.slice(0, 10);
+    return d >= '2026-11-23' && d <= '2026-11-25';
+  });
+  assert.equal(dateFiltered.length, 1);
+  assert.equal(dateFiltered[0].id, '2');
+
+  // 2. Search query: "revoked"
+  const searchFiltered = items.filter((item) => {
+    const q = 'revoked';
+    return (
+      item.talentAlias.toLowerCase().includes(q) ||
+      item.consentId.toLowerCase().includes(q) ||
+      item.details.toLowerCase().includes(q) ||
+      item.action.toLowerCase().includes(q)
+    );
+  });
+  assert.equal(searchFiltered.length, 1);
+  assert.equal(searchFiltered[0].id, '3');
+
+  // 3. Search query: "david" + date from 2026-11-25 onwards
+  const combined = items.filter((item) => {
+    const d = item.timestampIso.slice(0, 10);
+    const dateMatch = d >= '2026-11-25';
+    const textMatch = item.talentAlias.toLowerCase().includes('david');
+    return dateMatch && textMatch;
+  });
+  assert.equal(combined.length, 1);
+  assert.equal(combined[0].id, '3');
+});
+
+test('buildApplicantComplianceReportPdfBytes compiles valid PDF-1.4 compliance report with audit and feedback history', () => {
+  const bytes = buildApplicantComplianceReportPdfBytes({
+    talentAlias: 'Amina K.',
+    consentId: 'VNA-GRANT-PDF1',
+    orgName: 'SolarGrid Innovations',
+    issuedAtIso: '2026-11-26T03:30:00.000Z',
+    verificationSteps: {
+      identityAuth: {
+        status: 'verified',
+        updatedAtIso: '2026-11-26T03:00:00.000Z',
+        reviewerNote: 'Zero Raw ID tier check passed.',
+      },
+      competencyProof: {
+        status: 'verified',
+        updatedAtIso: '2026-11-26T03:10:00.000Z',
+        reviewerNote: 'Solar diagnostics log verified.',
+      },
+      payoutRail: {
+        status: 'needs_clarification',
+        updatedAtIso: '2026-11-26T03:20:00.000Z',
+        reviewerNote: 'Confirm M-Pesa wallet tier.',
+      },
+    },
+    overallStatus: 'In Review (2/3 Complete)',
+    verifiedCount: 2,
+    totalCount: 3,
+    auditLogsCount: 4,
+    latestAuditAction: 'STEP_VERIFIED',
+    latestAuditTime: '2026-11-26T03:20:00.000Z',
+    feedbackHistory: [
+      {
+        stage: 'step_3_payout',
+        tone: 'clarification_needed',
+        message: 'Please confirm your FATF Tier 1 mobile wallet currency.',
+        createdAtIso: '2026-11-26T03:21:00.000Z',
+      },
+    ],
+  });
+
+  assert.ok(bytes instanceof Uint8Array);
+  assert.ok(bytes.byteLength > 800);
+  const text = new TextDecoder('latin1').decode(bytes);
+  assert.ok(text.startsWith('%PDF-1.4'));
+  assert.ok(text.includes('Amina K.'));
+  assert.ok(text.includes('VNA-GRANT-PDF1'));
+  assert.ok(text.includes('SolarGrid Innovations'));
+  assert.ok(text.includes('2 of 3 Milestones Verified'));
+  assert.ok(text.includes('Total Audit Events Recorded: 4'));
+  assert.ok(text.includes('Please confirm your FATF Tier 1 mobile wallet currency.'));
+  assert.ok(text.trimEnd().endsWith('%%EOF'));
 });

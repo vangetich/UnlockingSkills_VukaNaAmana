@@ -480,3 +480,55 @@ export function sanitizeFeedbackMessage(raw: unknown, maxLength = 800): string {
     .trim()
     .slice(0, maxLength);
 }
+
+export interface AccessAuditLogCsvItem {
+  id: string;
+  timestampIso: string;
+  action: string;
+  talentAlias: string;
+  consentId: string;
+  details: string;
+  actorRole: string;
+}
+
+export function buildAccessAuditLogCsv(entries: AccessAuditLogCsvItem[]): string {
+  const headers = [
+    'Log Entry ID',
+    'Timestamp (ISO)',
+    'Date & Time',
+    'Action Type',
+    'Action Label',
+    'Applicant Alias',
+    'Consent Token ID',
+    'Compliance Details',
+    'Actor Role',
+    'Zero Raw ID Guarantee',
+  ];
+
+  const escape = (val: string | number) => {
+    const raw = String(val ?? '');
+    const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
+
+  const rows = entries.map((entry) => [
+    escape(entry.id),
+    escape(entry.timestampIso),
+    escape(new Date(entry.timestampIso).toLocaleString()),
+    escape(entry.action),
+    escape(
+      entry.action === 'CONSENT_GRANTED'
+        ? 'Access Granted'
+        : entry.action === 'CONSENT_REVOKED'
+        ? 'Access Revoked'
+        : entry.action
+    ),
+    escape(entry.talentAlias),
+    escape(entry.consentId),
+    escape(entry.details),
+    escape(entry.actorRole),
+    escape('Strict Zero Raw ID Enforced (Agency-First Consent)'),
+  ]);
+
+  return [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
+}

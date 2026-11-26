@@ -4322,7 +4322,8 @@ export default function App() {
                 message: `"${newSprint.title}" is now visible to Skilled Builders in Tab 3 [Solve].`,
               });
             }}
-            consentedGrants={consentGrants.filter((g) => g.status === 'active')}
+            consentedGrants={consentGrants}
+            auditLogs={accessAuditLogs}
             issuedContractsByGrantId={issuedContractsByGrantId}
             verificationsByGrantId={partnerVerifications}
             applicantFeedback={partnerApplicantFeedback}

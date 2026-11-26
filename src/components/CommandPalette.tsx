@@ -139,10 +139,10 @@ const VUKA_FAQS: FaqItem[] = [
   },
   {
     id: 'faq-compliance-payouts',
-    question: 'How do talent and Hiring Partners navigate work permits, KYC, and cross-border payouts?',
+    question: 'How do talent and Hiring Partners navigate work permits, KYC, and pre-Stage 3 review?',
     answer:
-      'In Tab 2 [Unlock], Vuka na Amana maps host-country work-authorization routes (ILO Guiding Principles), clears FATF Risk-Based Tiered KYC payout rails (Mobile Money, Global Digital Wallet, or NGO/EOR Fiscal Host), and generates a 1-Page Employer Liability Shield agreement.',
-    tag: 'ILO & FATF Tiered KYC',
+      'In Tab 2 [Unlock], Vuka na Amana maps host-country work-authorization routes and clears FATF Risk-Based Tiered KYC payout rails inside a Zero-Raw-ID vault. Under the Who Verifies What Privacy Boundary, Hiring Partners individually verify consented Identity, Financial, and Contracting milestones before Stage 3, use Bulk Approve, inspect live Access Audit Logs, and download CSV/PDF compliance reports.',
+    tag: 'ILO & FATF KYC · Privacy Boundary',
     relatedTab: 'unlock',
     relatedTabLabel: 'Go to 2. Unlock',
   },
@@ -157,10 +157,10 @@ const VUKA_FAQS: FaqItem[] = [
   },
   {
     id: 'faq-cross-age-mentorship',
-    question: 'How do Cross-Age Pods and real-time Pod Mentorship work?',
+    question: 'How do Cross-Age Pods, Formal Mentorship, and Sprint-Based Guidance work?',
     answer:
-      'Every sprint pairs 15–17 and 18–29 Emerging Builders with 30–45 Specialists and 46+ Masters in dual refugee–host community pods. Active sprints include a live Pod Mentorship indicator and direct Message Mentor drawer for fast technical sign-off.',
-    tag: 'Cross-Age Cohesion Pods',
+      'Every sprint pairs 15–17 and 18–29 Emerging Builders with 30–45 Specialists and 46+ Masters in dual refugee–host community pods. Choose Formal Mentorship Tracks for multi-sprint growth agendas and Tier 2/3 endorsements, or request spontaneous Sprint-Based Guidance in the Mentor Messaging Drawer for fast blocker & QA checks.',
+    tag: 'Cross-Age Cohesion · Mentorship',
     relatedTab: 'solve',
     relatedTabLabel: 'Go to 3. Solve',
   },
@@ -177,7 +177,7 @@ const VUKA_FAQS: FaqItem[] = [
     id: 'faq-cleared-future-horizon',
     question: 'What is Tab 5 [Cleared] and how does it support long-term mobility or local roots?',
     answer:
-      'Tab 5 [Cleared — Cleared for Your Future] maps UNHCR Complementary Pathways (labour mobility via Talent Beyond Boundaries, education scholarships via WUSC/DAFI, family unity, and Shirika local integration) alongside a personalized 3-year roadmap and downloadable Readiness Dossier.',
+      'Tab 5 [Cleared — Cleared for Your Future] maps UNHCR Complementary Pathways (labour mobility via Talent Beyond Boundaries, education scholarships via WUSC/DAFI, family unity, and Shirika local integration) alongside a personalized 3-year roadmap and fee-free Readiness Dossier.',
     tag: 'UNHCR Roadmap 2030 · Durable Pathways',
     relatedTab: 'cleared',
     relatedTabLabel: 'Go to 5. Cleared',
@@ -1141,8 +1141,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         <div className="flex-1 overflow-y-auto no-scrollbar p-3">
           {activeSubSection === 'faqs' ? (
             <div className="space-y-4 p-1" data-testid="command-palette-faqs-panel">
-              <div className="rounded-xl border border-[#ECE7DF] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#141619] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <div className="rounded-xl border border-[#ECE7DF] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#141619] p-4 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#146C53] dark:text-[#2EB88B]">
                     How Vuka na Amana Works · 5-Stage Crossing
                   </span>
@@ -1154,8 +1154,23 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   <strong className="text-[#17191C] dark:text-[#F4F2EE]">
                     Vuka na Amana (&ldquo;Crossing Over with Trust&rdquo;)
                   </strong>{' '}
-                  moves displaced and host-community talent through 5 calm, verifiable stages—from paperless skill verification to legal readiness, paid solution sprints, live SDG impact telemetry, and durable future pathways.
+                  moves displaced and host-community talent through 5 sequential stages—from paperless skill verification (Verify) and Zero-Raw-ID pre-Stage 3 partner readiness (Unlock) to paid Pod Sprints (Solve), live SDG impact telemetry (Pulse), and durable future pathways (Cleared).
                 </p>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <span className="text-[11px] font-mono-tabular text-[#525866] dark:text-[#A3A7AE]">
+                    1. Verify → 2. Unlock → 3. Solve → 4. Pulse → 5. Cleared
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenGlossary();
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#146C53] dark:text-[#2EB88B] hover:underline cursor-pointer"
+                  >
+                    Open Full Cross-Linked Glossary &amp; FAQs <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-2.5">

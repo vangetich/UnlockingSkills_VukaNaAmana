@@ -9,7 +9,12 @@ import {
   SOLUTION_SPRINTS,
 } from './talentEngine';
 import { TalentAuthRealm, PartnerAuthRealm } from './dualDoorAuth';
-import { GLOSSARY_ENTRIES, MENTORSHIP_VS_GUIDANCE_FAQ } from '../components/GlossaryModal';
+import {
+  GLOSSARY_ENTRIES,
+  MENTORSHIP_VS_GUIDANCE_FAQ,
+  HOW_IT_WORKS_STEPS,
+  ALL_GLOSSARY_FAQS,
+} from '../components/GlossaryModal';
 import {
   SPRINT_PHASE_META,
   resolveSprintPhaseForTips,
@@ -143,6 +148,45 @@ test('GlossaryModal contains Mentor-Mentee relationship definition and Mentorshi
     MENTORSHIP_VS_GUIDANCE_FAQ.length >= 3,
     'Expected Mentorship vs. Guidance FAQ entries'
   );
+});
+
+test('GlossaryModal How It Works steps and FAQs maintain 100% bidirectional cross-link integrity', () => {
+  assert.ok(
+    HOW_IT_WORKS_STEPS.length >= 6,
+    'Expected 5 Crossing Stages plus Partner Console Review step in HOW_IT_WORKS_STEPS'
+  );
+  assert.ok(
+    ALL_GLOSSARY_FAQS.length >= 8,
+    'Expected combined platform workflow FAQs and Mentorship vs Guidance FAQs'
+  );
+
+  const faqIds = new Set(ALL_GLOSSARY_FAQS.map((f) => f.id));
+  const stepIds = new Set(HOW_IT_WORKS_STEPS.map((s) => s.id));
+
+  for (const step of HOW_IT_WORKS_STEPS) {
+    assert.ok(
+      faqIds.has(step.relatedFaqId),
+      `How It Works step ${step.id} links to missing FAQ id ${step.relatedFaqId}`
+    );
+  }
+
+  for (const faq of ALL_GLOSSARY_FAQS) {
+    assert.ok(
+      stepIds.has(faq.relatedHowItWorksStepId),
+      `FAQ ${faq.id} links to missing How It Works step id ${faq.relatedHowItWorksStepId}`
+    );
+  }
+
+  // Verify FAQ + How-It-Works search filtering matches Partner PDF & Mentorship queries
+  const pdfMatches = ALL_GLOSSARY_FAQS.filter((f) =>
+    `${f.question} ${f.answer} ${f.bestStage}`.toLowerCase().includes('pdf')
+  );
+  assert.ok(pdfMatches.some((f) => f.id === 'faq-partner-audit-pdf'));
+
+  const stepMatches = HOW_IT_WORKS_STEPS.filter((s) =>
+    `${s.title} ${s.summary} ${s.keywords}`.toLowerCase().includes('bulk approve')
+  );
+  assert.ok(stepMatches.some((s) => s.id === 'step-partner-review'));
 });
 
 test('MentorMessagingDrawer dynamically resolves sprint phases with screen-share and blocker tips', () => {

@@ -3,6 +3,7 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  Compass,
   HelpCircle,
   ShieldCheck,
   Sparkles,
@@ -26,18 +27,18 @@ interface FaqItem {
 const UNLOCK_FAQS: FaqItem[] = [
   {
     id: 'how-crossing-over-works',
-    tag: '4-STAGE PIPELINE',
-    question: 'How does the Vuka na Amana 4-tab Crossing Over journey work?',
+    tag: '5-STAGE PIPELINE',
+    question: 'How does the Vuka na Amana 5-stage Crossing Over journey work?',
     answer:
-      'Step 1 (Verify) converts spoken or written practical problem-solving into a server-signed Living Competency Passport (VNA-2026-XXXX) without needing formal paper diplomas. Step 2 (Unlock) clears work-authorization and FATF tiered-KYC payout rails. Step 3 (Solve) pairs your Living Proof Portfolio with paid local and remote solution sprints or 65%–90% Job-to-Fit Upskilling Bridges. Step 4 (Pulse) tracks verified SDG impact and escrow payouts.',
-    frameworkRef: 'UNESCO Qualifications Passport (UQP) · ILO RPL',
+      'Step 1 (Verify) converts spoken or written practical problem-solving into a server-signed Living Competency Passport (VNA-2026-XXXX) without paper diplomas. Step 2 (Unlock) clears work-authorization and FATF tiered-KYC payout rails. Step 3 (Solve) pairs your Living Proof Portfolio with paid Cross-Age Pod Sprints or 65%–90% Upskilling Bridges. Step 4 (Pulse) tracks live UN SDG impact and escrow payouts. Step 5 (Cleared) prepares a 3-year Durable Solutions & Mobility Dossier.',
+    frameworkRef: 'UNESCO Qualifications Passport (UQP) · ILO RPL · UNHCR 2030',
   },
   {
     id: 'zero-raw-id-privacy',
-    tag: 'REFUGEE DATA PROTECTION',
+    tag: 'WHO VERIFIES WHAT · PRIVACY BOUNDARY',
     question: 'Do I have to upload my raw national ID or refugee certificate serial number?',
     answer:
-      'Never. Vuka na Amana enforces Refugee Data Protection by Design (Zero-Raw-ID Privacy Mode). You only select your document tier (e.g., Refugee ID, UNHCR Certificate, Temporary Protection, or National ID). The server strips any raw serial numbers and issues a consent-scoped token (VNA-CONSENT-XXXX) for employers.',
+      'Never. Vuka na Amana enforces Zero-Raw-ID Privacy Mode and the Who Verifies What Privacy Boundary. You select your document tier only; raw serial numbers never appear to employers. Partners review Identity, Financial, and Contracting milestones individually before Stage 3 using consent tokens (VNA-GRANT-XXXX), Bulk Approve, live Access Audit Logs, and PDF/CSV compliance reports.',
     frameworkRef: 'UNHCR Data Protection Policy · SDG Target 16.9',
   },
   {
@@ -45,7 +46,7 @@ const UNLOCK_FAQS: FaqItem[] = [
     tag: 'FINANCIAL INCLUSION',
     question: 'How can displaced talent receive milestone payouts without a traditional bank account?',
     answer:
-      'Under FATF Risk-Based Tiered KYC guidelines and UNHCR Financial Inclusion standards, low-risk milestone disbursements ($50–$1,000 USD) can settle compliantly through verified Mobile Money (M-Pesa, MTN, Airtel), Humanitarian Aid Cards, or Partner EOR Fiscal Hosts with full PDF receipt ledgers.',
+      'Under FATF Risk-Based Tiered KYC guidelines and UNHCR Financial Inclusion standards, low-risk milestone disbursements ($50–$1,000 USD) settle compliantly through verified Mobile Money (M-Pesa, MTN, Airtel), Humanitarian Aid Cards, or Partner EOR Fiscal Hosts with full PDF receipt ledgers.',
     frameworkRef: 'FATF Tiered KYC Guidance · SDG Target 10.2',
   },
   {
@@ -53,7 +54,7 @@ const UNLOCK_FAQS: FaqItem[] = [
     tag: 'HIRING PARTNER SHIELD',
     question: 'How does the 1-Page Employer Liability Shield protect SMEs and NGOs?',
     answer:
-      'Toggling to the Hiring Partner Compliance View generates a 1-Page Sprint & Compliance Agreement tailored to Direct Local Hire, Cross-Border Remote Contractor, or Partner EOR / Fiscal Host structures—removing legal uncertainty and HR overhead.',
+      'Toggling to the Hiring Partner Compliance View generates a 1-Page Sprint & Compliance Agreement tailored to Direct Local Hire, Cross-Border Remote Contractor, or Partner EOR / Fiscal Host structures—paired with individual pre-Stage 3 verification, instant applicant feedback, and downloadable PDF compliance reports.',
     frameworkRef: 'ILO Guiding Principles on Labour Market Access',
   },
 ];
@@ -77,19 +78,19 @@ const SOLVE_FAQS: FaqItem[] = [
   },
   {
     id: 'cross-age-pod-mentorship',
-    tag: 'INTERGENERATIONAL PODS',
-    question: 'How do Cross-Age Delivery Pods and Senior Specialist Mentors work?',
+    tag: 'MENTORSHIP VS. SPRINT GUIDANCE',
+    question: 'How do Cross-Age Delivery Pods, Formal Mentorship Tracks, and Sprint-Based Guidance work?',
     answer:
-      'Every sprint pod pairs 15–29 Emerging & Rising Builders with 30–46+ Specialist Leads and Master Advisors across both refugee and host communities. You can message your assigned Pod Mentor directly from the workbench and track 3 delivery milestones (Analysis Complete, Draft Ready, Final Submission).',
+      'Every sprint pod pairs 15–29 Emerging Builders with 30–46+ Specialist Leads across refugee and host communities. Choose Formal Mentorship Tracks for structured multi-sprint growth with agendas, Growth Roadmaps, and Tier 2/3 endorsements—or use spontaneous Sprint-Based Guidance inside the Mentor Messaging Drawer for fast blocker and QA help.',
     frameworkRef: 'UN Global Compact on Refugees · Social Cohesion',
   },
   {
     id: 'offline-pwa-email-sync',
-    tag: 'OFFLINE PWA & EMAIL VAULT',
-    question: 'Does my progress save if my internet drops or if I sync to my personal email?',
+    tag: 'OFFLINE PWA & STAGE 5 CLEARED',
+    question: 'Does my progress save offline, and how does it feed Stage 5 (Cleared)?',
     answer:
-      'Yes. Vuka na Amana is an Offline-Enabled PWA: every capability, portfolio sample, and sprint draft saves immediately to your local offline queue and syncs to Firebase or your Sovereign Email Vault (Gmail, Outlook/Hotmail, Yahoo, or NGO email) whenever connectivity returns.',
-    frameworkRef: 'Offline-First Field Resilience · Zero Data Loss',
+      'Yes. Vuka na Amana is an Offline-Enabled PWA: capabilities, portfolio uploads, and sprint drafts save to your local queue and sync when connectivity returns. Verified sprints update Stage 4 (Pulse) SDG metrics and unlock Stage 5 (Cleared) for fee-free UNHCR Complementary Pathways and local Shirika Plan dossiers.',
+    frameworkRef: 'Offline-First Resilience · UNHCR Pathways 2030',
   },
 ];
 
@@ -155,45 +156,55 @@ export const FaqsAndPlatformGuide: React.FC<FaqsAndPlatformGuideProps> = ({ vari
             transition={{ duration: 0.22, ease: 'easeOut' }}
             className="overflow-hidden"
           >
-            {/* 4-Stage Quick Architecture Strip */}
-            <div className="mt-6 pt-5 border-t border-[#E8E3DB] dark:border-[#2C3037] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* 5-Stage Quick Architecture Strip */}
+            <div className="mt-6 pt-5 border-t border-[#E8E3DB] dark:border-[#2C3037] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
               <div className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5">
                 <div className="flex items-center gap-2 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>01 · Verify Competency</span>
+                  <span>01 · Verify</span>
                 </div>
                 <p className="mt-1 text-xs text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
-                  Voice or scenario proof becomes a signed Living Competency Passport (`VNA-2026-XXXX`).
+                  Voice or scenario proof becomes a signed Living Competency Passport (VNA-2026-XXXX).
                 </p>
               </div>
 
               <div className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5">
                 <div className="flex items-center gap-2 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>02 · Unlock Compliance</span>
+                  <span>02 · Unlock</span>
                 </div>
                 <p className="mt-1 text-xs text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
-                  Cached ILO work-auth routing, FATF tiered KYC payouts &amp; 1-page Employer Shield.
+                  Zero-Raw-ID vault, ILO work-auth routing, FATF KYC payouts &amp; Partner pre-Stage 3 review.
                 </p>
               </div>
 
               <div className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5">
                 <div className="flex items-center gap-2 text-xs font-semibold text-[#C4622D] dark:text-[#E07B46]">
                   <Users className="w-3.5 h-3.5" />
-                  <span>03 · Solve &amp; Upskill</span>
+                  <span>03 · Solve</span>
                 </div>
                 <p className="mt-1 text-xs text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
-                  Living Proof Portfolios match to paid sprints or 65%–90% Upskilling Bridges.
+                  Living Proof Portfolios match to paid Pod Sprints, Mentorship &amp; 65%–90% Bridges.
                 </p>
               </div>
 
               <div className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5">
                 <div className="flex items-center gap-2 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
                   <Wallet className="w-3.5 h-3.5" />
-                  <span>04 · Pulse &amp; Scale</span>
+                  <span>04 · Pulse</span>
                 </div>
                 <p className="mt-1 text-xs text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
-                  Live UN 2030 SDG impact ledger, escrow release tracking &amp; multi-cohort replication.
+                  Live UN 2030 SDG impact telemetry, escrow release tracking &amp; compliance exports.
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-3.5">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                  <Compass className="w-3.5 h-3.5" />
+                  <span>05 · Cleared</span>
+                </div>
+                <p className="mt-1 text-xs text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
+                  3-year Future Dossier for local Shirika integration &amp; fee-free UNHCR pathways.
                 </p>
               </div>
             </div>
