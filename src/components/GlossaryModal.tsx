@@ -16,7 +16,7 @@ export type PartnerConsoleTab = 'sprints' | 'talent' | 'compliance' | 'impact';
 type GlossaryAudience = 'Builder' | 'Hiring Partner' | 'Shared';
 type GlossaryCategory = 'sdgs' | 'legal' | 'frameworks';
 
-interface GlossaryEntry {
+export interface GlossaryItem {
   id: string;
   category: GlossaryCategory;
   term: string;
@@ -32,7 +32,9 @@ interface GlossaryEntry {
   keywords: string;
 }
 
-export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
+type GlossaryEntry = GlossaryItem;
+
+export const GLOSSARY_ENTRIES: GlossaryItem[] = [
   // Category A — UN Sustainable Development Goals (5 Core App SDGs)
   {
     id: 'sdg-4',
@@ -307,6 +309,22 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     partnerJumpLabel: 'Go to Compliance & Contracting',
     partnerRelevant: true,
     keywords: 'stage 2 unlock crossing over access onboarding pack sprint agreement shield',
+  },
+  {
+    id: 'fw-pod-sprint',
+    category: 'frameworks',
+    term: 'Pod Sprint',
+    definition:
+      'A collaborative 1-to-2-week problem-solving unit in the Solve phase pairing a 30–46+ Specialist Lead with a 15–29 Emerging Builder to solve real partner briefs, track 3 delivery milestones, and release verified escrow stipends.',
+    audience: 'Shared',
+    stageLabel: 'Stage 3 · Solve',
+    builderTab: 'solve',
+    builderJumpLabel: 'Go to Stage 3',
+    partnerTab: 'sprints',
+    partnerJumpLabel: 'Go to Sprints & Roles',
+    partnerRelevant: true,
+    keywords:
+      'pod sprint collaborative problem solving unit solve phase cross-age pairing milestones escrow',
   },
   {
     id: 'fw-stage-3-pods',

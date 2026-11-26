@@ -656,6 +656,55 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "CollaborationNote": {
+      "title": "CollaborationNote",
+      "description": "Owner-private markdown-formatted reflections on team dynamics and collaboration during a specific sprint.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "contributionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "briefId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "briefTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "markdownBody": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "contributionId",
+        "briefId",
+        "briefTitle",
+        "markdownBody",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -694,6 +743,10 @@
     "/users/{userId}/mentorMessages/{messageId}": {
       "schema": { "$ref": "#/entities/MentorMessage" },
       "description": "Pod mentorship messaging thread records between a practitioner and assigned Senior Specialist."
+    },
+    "/users/{userId}/collaborationNotes/{noteId}": {
+      "schema": { "$ref": "#/entities/CollaborationNote" },
+      "description": "Owner-private markdown reflections on sprint team dynamics and collaboration."
     }
   }
 }

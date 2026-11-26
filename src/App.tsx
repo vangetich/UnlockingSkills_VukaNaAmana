@@ -5,6 +5,7 @@ import { Building2, CheckCircle2, RefreshCw, ShieldCheck, WifiOff, X } from 'luc
 import {
   auth,
   deleteCloudCapability,
+  deleteCloudCollaborationNote,
   deleteCloudEndorsement,
   ensureCloudProfile,
   fetchCloudWorkspace,
@@ -22,6 +23,7 @@ import {
   subscribeToCapabilities,
   subscribeToContributions,
   upsertCloudCapability,
+  upsertCloudCollaborationNote,
   upsertCloudContribution,
   upsertCloudEndorsement,
   upsertCloudMentorMessage,
@@ -54,6 +56,7 @@ import type {
   RankedSolutionSprint,
   SharedPassportPayload,
   SkillCapability,
+  SprintCollaborationNote,
   SprintFeedback,
   SprintMilestoneKey,
   SprintRatingScore,
@@ -74,6 +77,7 @@ import {
   loadLocalWorkspace,
   saveLastSyncedIso,
   saveLocalCapabilities,
+  saveLocalCollaborationNotes,
   saveLocalContributions,
   saveLocalEndorsements,
   saveLocalMatchedWorkApplications,
@@ -145,6 +149,16 @@ export default function App() {
   const incomingEndorseToken = searchParams?.get('endorse') ?? null;
   const incomingEndorseSkill = searchParams?.get('skill') ?? null;
   const incomingPassportToken = searchParams?.get('passport') ?? null;
+  const incomingTabParam = searchParams?.get('tab') ?? null;
+  const incomingSprintId = searchParams?.get('sprint') ?? null;
+  const incomingContributionId = searchParams?.get('contribution') ?? null;
+
+  const [pendingDeepLinkSprintId, setPendingDeepLinkSprintId] = useState<string | null>(
+    incomingSprintId
+  );
+  const [pendingDeepLinkContributionId, setPendingDeepLinkContributionId] = useState<string | null>(
+    incomingContributionId
+  );
 
   const [sharedPassportView, setSharedPassportView] = useState<SharedPassportPayload | null>(() =>
     parseSharedPassportToken(incomingPassportToken)
@@ -164,6 +178,9 @@ export default function App() {
   const [mentorMessages, setMentorMessages] = useState<MentorMessage[]>(
     initialState.mentorMessages
   );
+  const [collaborationNotes, setCollaborationNotes] = useState<SprintCollaborationNote[]>(
+    initialState.collaborationNotes
+  );
   const [offlineQueue, setOfflineQueue] = useState<OfflineMutation[]>(initialState.queue);
   const [lastSyncedIso, setLastSyncedIso] = useState<string | null>(initialState.lastSyncedIso);
   const [proofPortfolio, setProofPortfolio] = useState<LivingProofPortfolio>(() =>
@@ -180,6 +197,18 @@ export default function App() {
   );
 
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => {
+    if (
+      incomingTabParam === 'verify' ||
+      incomingTabParam === 'unlock' ||
+      incomingTabParam === 'solve' ||
+      incomingTabParam === 'pulse' ||
+      incomingTabParam === 'cleared'
+    ) {
+      return incomingTabParam;
+    }
+    if (incomingSprintId) {
+      return 'pulse';
+    }
     if (typeof window === 'undefined') return 'verify';
     const saved = window.sessionStorage.getItem('vuka.activeTab');
     if (
@@ -480,7 +509,11 @@ export default function App() {
           if (isValidTalent || isValidPartner) {
             const shouldResumeStudio =
               (isValidPartner && savedStudioView) ||
-              (isValidTalent && (savedStudioView || autostart || Boolean(incomingEndorseToken)));
+              (isValidTalent &&
+                (savedStudioView ||
+                  autostart ||
+                  Boolean(incomingEndorseToken) ||
+                  Boolean(incomingSprintId)));
 
             if (shouldResumeStudio) {
               const restored = {
@@ -518,13 +551,14 @@ export default function App() {
         }
 
         // Unauthenticated deep-link/autostart attempts must complete 2FA / Dedicated PIN first
-        if (!cancelled && (autostart || Boolean(incomingEndorseToken))) {
-          setPendingRedirectTab('verify');
+        if (!cancelled && (autostart || Boolean(incomingEndorseToken) || Boolean(incomingSprintId))) {
+          const targetTab: WorkspaceTab = incomingSprintId ? 'pulse' : 'verify';
+          setPendingRedirectTab(targetTab);
           setDualDoorModal({
             isOpen: true,
             door: 'talent',
             pendingPayload: landingDraftRef.current,
-            pendingTab: 'verify',
+            pendingTab: targetTab,
           });
         }
       } catch {
@@ -539,7 +573,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [autostart, incomingEndorseToken]);
+  }, [autostart, incomingEndorseToken, incomingSprintId]);
 
   // Track live Landing Funnel draft (selected Age Stage & problem statement) for seamless Search -> Tab 5 handoff
   const landingDraftRef = useRef<{ problemStatement: string; ageStage: AgeStage }>({
@@ -637,6 +671,10 @@ export default function App() {
               await upsertCloudSprintFeedback(user.uid, item.payload);
             } else if (item.kind === 'upsert_mentor_message') {
               await upsertCloudMentorMessage(user.uid, item.payload);
+            } else if (item.kind === 'upsert_collaboration_note') {
+              await upsertCloudCollaborationNote(user.uid, item.payload);
+            } else if (item.kind === 'delete_collaboration_note') {
+              await deleteCloudCollaborationNote(user.uid, item.noteId);
             }
             completedSteps += 1;
             setSyncProgress({
@@ -760,6 +798,11 @@ export default function App() {
         if (cloud.mentorMessages.length > 0) {
           setMentorMessages(cloud.mentorMessages);
           saveLocalMentorMessages(cloud.mentorMessages);
+        }
+
+        if (cloud.collaborationNotes.length > 0) {
+          setCollaborationNotes(cloud.collaborationNotes);
+          saveLocalCollaborationNotes(cloud.collaborationNotes);
         }
 
         unsubCaps = subscribeToCapabilities(authUser.uid, (cloudCaps) => {
@@ -965,6 +1008,7 @@ export default function App() {
               payouts,
               proofPortfolio,
               sprintFeedback,
+              collaborationNotes,
             },
           }),
         });
@@ -1040,6 +1084,7 @@ export default function App() {
             payouts?: ContractPayout[];
             proofPortfolio?: LivingProofPortfolio;
             sprintFeedback?: SprintFeedback[];
+            collaborationNotes?: SprintCollaborationNote[];
           };
         };
       };
@@ -1082,6 +1127,10 @@ export default function App() {
       if (Array.isArray(snap.sprintFeedback) && snap.sprintFeedback.length > 0) {
         setSprintFeedback(snap.sprintFeedback);
         saveLocalSprintFeedback(snap.sprintFeedback);
+      }
+      if (Array.isArray(snap.collaborationNotes) && snap.collaborationNotes.length > 0) {
+        setCollaborationNotes(snap.collaborationNotes);
+        saveLocalCollaborationNotes(snap.collaborationNotes);
       }
 
       const statusRecord: EmailVaultSyncStatus = {
@@ -2357,6 +2406,65 @@ export default function App() {
     }
   };
 
+  const handleSaveCollaborationNote = (input: {
+    contributionId: string;
+    briefId: string;
+    briefTitle: string;
+    markdownBody: string;
+  }) => {
+    const now = new Date().toISOString();
+    const ownerId = authUser?.uid ?? profile.uid;
+    const existing = collaborationNotes.find(
+      (n) => n.contributionId === input.contributionId || n.briefId === input.briefId
+    );
+    const safeNoteId = existing?.id || `collab_${input.contributionId}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+    const savedNote: SprintCollaborationNote = {
+      id: safeNoteId,
+      ownerUid: ownerId,
+      contributionId: input.contributionId,
+      briefId: input.briefId,
+      briefTitle: input.briefTitle,
+      markdownBody: input.markdownBody,
+      createdAtIso: existing?.createdAtIso ?? now,
+      updatedAtIso: now,
+    };
+
+    const nextNotes = existing
+      ? collaborationNotes.map((n) => (n.id === existing.id ? savedNote : n))
+      : [savedNote, ...collaborationNotes];
+    setCollaborationNotes(nextNotes);
+    saveLocalCollaborationNotes(nextNotes);
+
+    if (canWriteCloud && authUser) {
+      void upsertCloudCollaborationNote(authUser.uid, savedNote);
+    } else {
+      enqueueMutation({
+        id: makeSafeId('mut'),
+        kind: 'upsert_collaboration_note',
+        payload: savedNote,
+        queuedAtIso: now,
+      });
+    }
+  };
+
+  const handleDeleteCollaborationNote = (noteId: string) => {
+    const now = new Date().toISOString();
+    const nextNotes = collaborationNotes.filter((n) => n.id !== noteId);
+    setCollaborationNotes(nextNotes);
+    saveLocalCollaborationNotes(nextNotes);
+
+    if (canWriteCloud && authUser) {
+      void deleteCloudCollaborationNote(authUser.uid, noteId);
+    } else {
+      enqueueMutation({
+        id: makeSafeId('mut'),
+        kind: 'delete_collaboration_note',
+        noteId,
+        queuedAtIso: now,
+      });
+    }
+  };
+
   const handleSendMentorMessage = useCallback(
     (input: {
       sprintId: string;
@@ -3080,6 +3188,7 @@ export default function App() {
               endorsements={endorsements}
               payouts={payouts}
               sprintFeedback={sprintFeedback}
+              collaborationNotes={collaborationNotes}
               celebratedContribution={recentCompletedContribution}
               userEmail={activeSyncedEmail}
               lastSyncedIso={lastSyncedIso}
@@ -3089,6 +3198,8 @@ export default function App() {
               sprintMilestonesByBrief={sprintMilestonesByBrief}
               t={t}
               onAddSprintFeedback={handleAddSprintFeedback}
+              onSaveCollaborationNote={handleSaveCollaborationNote}
+              onDeleteCollaborationNote={handleDeleteCollaborationNote}
               onDismissCelebration={() => setRecentCompletedContribution(null)}
               onSignIn={handleOpenAccountSync}
               onSyncNow={handleSyncNow}
@@ -3096,6 +3207,12 @@ export default function App() {
               onGoToVerify={() => navigateBuilderTab('verify')}
               onGoToSolve={() => navigateBuilderTab('solve')}
               onOpenScaleDrawer={() => setIsScaleDrawerOpen(true)}
+              initialSelectedSprintId={pendingDeepLinkSprintId}
+              initialSelectedContributionId={pendingDeepLinkContributionId}
+              onConsumeInitialSprintSelection={() => {
+                setPendingDeepLinkSprintId(null);
+                setPendingDeepLinkContributionId(null);
+              }}
             />
           )}
 

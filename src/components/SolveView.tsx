@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   ArrowRight,
   Award,
@@ -44,6 +44,8 @@ import { LivingProofPortfolioSection } from './LivingProofPortfolioSection';
 import { MatchedWorkSection } from './MatchedWorkSection';
 import { WorkSetupPreferencesCard } from './WorkSetupPreferencesCard';
 import { SprintMilestoneProgressBar } from './SprintMilestoneProgressBar';
+import { SprintMilestoneChecklist } from './SprintMilestoneChecklist';
+import { SprintReminders } from './SprintReminders';
 import { PlatformFAQs } from './PlatformFAQs';
 import { VoiceTextarea } from './VoiceField';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -134,6 +136,13 @@ export const SolveView: React.FC<SolveViewProps> = ({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [justJoinedTitle, setJustJoinedTitle] = useState<string | null>(null);
+  const [submissionCelebration, setSubmissionCelebration] = useState<{
+    id: string;
+    briefTitle: string;
+    payoutUsd: number;
+    hoursLogged: number;
+  } | null>(null);
+  const shouldReduceMotion = useReducedMotion();
 
   const visibleSprints = useMemo(() => {
     const base = filterSolutionSprints(rankedSprints, levelFilter, domainFilter);
@@ -196,16 +205,7 @@ export const SolveView: React.FC<SolveViewProps> = ({
       ? SEED_BRIEFS.find((b) => b.id === activeSubmission.briefId) ?? null
       : null;
 
-  const activeDeliverables =
-    matchedSprint?.deliverableChecklist ?? matchedLegacyBrief?.deliverableChecklist ?? [];
-
   const isCompleted = activeSubmission?.status === 'completed';
-
-  const completedDeliverableCount = activeSubmission
-    ? activeDeliverables.filter(
-        (item) => checkedDeliverables[`${activeSubmission.briefId}::${item}`]
-      ).length
-    : 0;
 
   const handleJoinClick = (sprint: RankedSolutionSprint) => {
     onJoinSprintPod(sprint);
@@ -248,6 +248,12 @@ export const SolveView: React.FC<SolveViewProps> = ({
     setError(null);
     onSubmitSolution(activeSubmission.id, notes.trim(), parsedHours);
     setFeedback('Sprint milestone verified and added to your Proof Ledger.');
+    setSubmissionCelebration({
+      id: `${activeSubmission.id}-${Date.now()}`,
+      briefTitle: activeSubmission.briefTitle || 'Solution Sprint',
+      payoutUsd: activeSubmission.payoutUsd,
+      hoursLogged: parsedHours,
+    });
   };
 
   return (
@@ -420,6 +426,18 @@ export const SolveView: React.FC<SolveViewProps> = ({
           </ol>
         </div>
       </div>
+
+      {/* Active Sprint Deadline Reminders (phase-aware via sprintMilestonesByBrief) */}
+      <SprintReminders
+        contributions={contributions}
+        sprintMilestonesByBrief={sprintMilestonesByBrief}
+        onSelectSprint={(briefId) => {
+          onSelectBrief(briefId);
+          window.setTimeout(() => {
+            workbenchRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 60);
+        }}
+      />
 
       {/* Optional & Private by Default "How I Work Best" Card (ILO Inclusive Work Standard) */}
       <WorkSetupPreferencesCard
@@ -974,6 +992,129 @@ export const SolveView: React.FC<SolveViewProps> = ({
                 </span>
               </div>
 
+              {/* Celebratory Sprint Submission Animation */}
+              <AnimatePresence>
+                {submissionCelebration && (
+                  <motion.div
+                    key={submissionCelebration.id}
+                    role="status"
+                    aria-live="polite"
+                    data-testid="solve-submission-celebration"
+                    initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.96 }}
+                    animate={shouldReduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+                    exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.98 }}
+                    transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+                    className="relative overflow-hidden rounded-2xl border border-[#146C53]/35 dark:border-[#2EB88B]/40 bg-[#E7F3EE]/85 dark:bg-[#142B24]/85 p-5 sm:p-6"
+                  >
+                    {/* Tasteful compositor-only celebration spark burst */}
+                    {!shouldReduceMotion && (
+                      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+                        {[
+                          { x: -64, y: -38, color: 'bg-[#146C53] dark:bg-[#2EB88B]', delay: 0.04, size: 'w-2 h-2 rounded-full' },
+                          { x: 74, y: -44, color: 'bg-[#C4622D] dark:bg-[#E07B46]', delay: 0.08, size: 'w-2.5 h-2.5 rounded-xs rotate-45' },
+                          { x: -96, y: 20, color: 'bg-[#C4622D] dark:bg-[#E07B46]', delay: 0.12, size: 'w-2 h-2 rounded-xs rotate-12' },
+                          { x: 102, y: 26, color: 'bg-[#146C53] dark:bg-[#2EB88B]', delay: 0.1, size: 'w-2 h-2 rounded-full' },
+                          { x: 18, y: -56, color: 'bg-[#146C53] dark:bg-[#2EB88B]', delay: 0.06, size: 'w-1.5 h-3 rounded-full' },
+                          { x: -24, y: -54, color: 'bg-[#C4622D] dark:bg-[#E07B46]', delay: 0.14, size: 'w-1.5 h-1.5 rounded-full' },
+                        ].map((spark, idx) => (
+                          <motion.span
+                            key={idx}
+                            initial={{ opacity: 0, x: 0, y: 0, scale: 0.3 }}
+                            animate={{
+                              opacity: [0, 1, 0],
+                              x: spark.x,
+                              y: spark.y,
+                              scale: [0.3, 1.15, 0.7],
+                            }}
+                            transition={{ duration: 1.05, delay: spark.delay, ease: 'easeOut' }}
+                            className={`absolute left-12 top-1/2 ${spark.size} ${spark.color}`}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-start gap-3.5">
+                        <div className="relative shrink-0 mt-0.5">
+                          {!shouldReduceMotion && (
+                            <motion.span
+                              aria-hidden="true"
+                              initial={{ scale: 0.8, opacity: 0.75 }}
+                              animate={{ scale: 1.8, opacity: 0 }}
+                              transition={{ duration: 0.9, ease: 'easeOut' }}
+                              className="absolute inset-0 rounded-full border-2 border-[#146C53] dark:border-[#2EB88B]"
+                            />
+                          )}
+                          <motion.div
+                            initial={shouldReduceMotion ? false : { scale: 0.4, rotate: -25 }}
+                            animate={{ scale: 1, rotate: 0 }}
+                            transition={{ type: 'spring', stiffness: 420, damping: 18 }}
+                            className="w-11 h-11 rounded-full bg-[#146C53] dark:bg-[#2EB88B] text-white dark:text-[#121315] flex items-center justify-center shadow-xs"
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.4"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="w-5 h-5"
+                              aria-hidden="true"
+                            >
+                              <motion.path
+                                d="M5 13l4 4L19 7"
+                                initial={shouldReduceMotion ? { pathLength: 1 } : { pathLength: 0 }}
+                                animate={{ pathLength: 1 }}
+                                transition={{ duration: 0.45, delay: 0.12, ease: 'easeOut' }}
+                              />
+                            </svg>
+                          </motion.div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#146C53] dark:text-[#2EB88B]">
+                            Pod Sprint Submitted · Proof Verified
+                          </p>
+                          <h4 className="font-display text-lg font-medium text-[#17191C] dark:text-[#F4F2EE]">
+                            {submissionCelebration.briefTitle}
+                          </h4>
+                          <p className="text-xs sm:text-sm text-[#43484E] dark:text-[#D5DAE0]">
+                            <span className="font-mono-tabular tabular-nums font-semibold">
+                              {submissionCelebration.hoursLogged}h
+                            </span>{' '}
+                            logged &amp;{' '}
+                            <span className="font-mono-tabular tabular-nums font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                              ${submissionCelebration.payoutUsd.toLocaleString()} USD
+                            </span>{' '}
+                            escrow milestone recorded in your Proof Ledger.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {onGoToPulse && (
+                          <button
+                            type="button"
+                            onClick={onGoToPulse}
+                            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            <span>View in Pulse</span>
+                            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setSubmissionCelebration(null)}
+                          className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#146C53]/30 dark:border-[#2EB88B]/35 text-xs font-medium text-[#146C53] dark:text-[#2EB88B] hover:bg-white/60 dark:hover:bg-[#1A1C20]/60 transition-colors cursor-pointer"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* Active Workbench Interactive Delivery Milestone Progress Bar */}
               <SprintMilestoneProgressBar
                 sprintId={`workbench-${activeSubmission.briefId}`}
@@ -1063,88 +1204,21 @@ export const SolveView: React.FC<SolveViewProps> = ({
                 );
               })()}
 
-              {activeDeliverables.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
-                      {t.deliverablesHeading}
-                    </p>
-                    {!isCompleted && (
-                      <span className="text-xs font-mono-tabular tabular-nums text-[#575B62] dark:text-[#A3A7AE]">
-                        {completedDeliverableCount}/{activeDeliverables.length} checked
-                      </span>
-                    )}
-                  </div>
-
-                  <ul className="space-y-2.5 text-sm text-[#575B62] dark:text-[#A3A7AE]">
-                    {activeDeliverables.map((line) => {
-                      const key = `${activeSubmission.briefId}::${line}`;
-                      const checked = isCompleted || Boolean(checkedDeliverables[key]);
-                      return (
-                        <li key={line}>
-                          <div className="flex items-start gap-2.5 select-none">
-                            <motion.button
-                              type="button"
-                              disabled={isCompleted}
-                              aria-checked={checked}
-                              role="checkbox"
-                              aria-label={
-                                checked
-                                  ? `Milestone deliverable ${line} completed`
-                                  : `Mark milestone deliverable ${line} as completed`
-                              }
-                              data-milestone-checkbox="true"
-                              data-testid={`deliverable-checkbox-${line}`}
-                              onClick={() => toggleDeliverable(activeSubmission.briefId, line)}
-                              whileHover={{ scale: 1.08 }}
-                              whileTap={{ scale: 0.9 }}
-                              animate={
-                                checked
-                                  ? {
-                                      scale: [1, 1.25, 0.94, 1.04, 1],
-                                      boxShadow: [
-                                        '0 0 0 0px rgba(20,108,83,0)',
-                                        '0 0 0 5px rgba(20,108,83,0.28)',
-                                        '0 0 0 0px rgba(20,108,83,0)',
-                                      ],
-                                      transition: { duration: 0.45, ease: [0.34, 1.56, 0.64, 1] },
-                                    }
-                                  : { scale: 1, boxShadow: '0 0 0 0px rgba(20,108,83,0)' }
-                              }
-                              className={`mt-0.5 h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                                checked
-                                  ? 'bg-[#146C53] dark:bg-[#2EB88B] border-[#146C53] dark:border-[#2EB88B] text-white dark:text-[#121315]'
-                                  : 'border-[#8A847A] dark:border-[#6C717A] bg-white dark:bg-[#1A1C20] hover:border-[#146C53] dark:hover:border-[#2EB88B]'
-                              } disabled:cursor-default`}
-                            >
-                              {checked && (
-                                <motion.span
-                                  data-testid="milestone-checkbox-checked"
-                                  initial={{ scale: 0, rotate: -20, opacity: 0 }}
-                                  animate={{ scale: [0, 1.35, 1], rotate: 0, opacity: 1 }}
-                                  transition={{ type: 'spring', stiffness: 500, damping: 18 }}
-                                >
-                                  <CheckCircle2 className="w-3 h-3" />
-                                </motion.span>
-                              )}
-                            </motion.button>
-                            <span
-                              onClick={() => {
-                                if (!isCompleted) toggleDeliverable(activeSubmission.briefId, line);
-                              }}
-                              className={`cursor-pointer ${
-                                checked ? 'line-through text-[#8A847A] dark:text-[#78726A]' : ''
-                              }`}
-                            >
-                              {line}
-                            </span>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              )}
+              {/* Dynamic Task-Based Completion Milestones for the Active Pod Sprint */}
+              <SprintMilestoneChecklist
+                submission={activeSubmission}
+                sprint={matchedSprint}
+                legacyBrief={matchedLegacyBrief}
+                milestonesDone={
+                  activeSubmission.milestonesDone ??
+                  sprintMilestonesByBrief?.[activeSubmission.briefId]
+                }
+                isCompleted={isCompleted}
+                checkedDeliverables={checkedDeliverables}
+                headingLabel={t.deliverablesHeading}
+                onToggleDeliverable={toggleDeliverable}
+                onTogglePhaseMilestone={onToggleSprintMilestone}
+              />
 
               {isCompleted ? (
                 <div className="space-y-4 pt-3 border-t border-[#E8E3DB] dark:border-[#2C3037]">

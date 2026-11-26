@@ -738,6 +738,7 @@ export function compactOfflineQueue(queue: OfflineMutation[]): OfflineMutation[]
   const latestPayoutIdx = new Map<string, number>();
   const latestFeedbackIdx = new Map<string, number>();
   const latestMentorMessageIdx = new Map<string, number>();
+  const latestCollabNoteIdx = new Map<string, number>();
 
   queue.forEach((item, index) => {
     if (item.kind === 'upsert_profile') {
@@ -762,6 +763,10 @@ export function compactOfflineQueue(queue: OfflineMutation[]): OfflineMutation[]
       latestFeedbackIdx.set(item.payload.id, index);
     } else if (item.kind === 'upsert_mentor_message') {
       latestMentorMessageIdx.set(item.payload.id, index);
+    } else if (item.kind === 'upsert_collaboration_note') {
+      latestCollabNoteIdx.set(item.payload.id, index);
+    } else if (item.kind === 'delete_collaboration_note') {
+      latestCollabNoteIdx.set(item.noteId, index);
     }
   });
 
@@ -777,6 +782,8 @@ export function compactOfflineQueue(queue: OfflineMutation[]): OfflineMutation[]
     if (item.kind === 'upsert_payout') return latestPayoutIdx.get(item.payload.id) === index;
     if (item.kind === 'upsert_sprint_feedback') return latestFeedbackIdx.get(item.payload.id) === index;
     if (item.kind === 'upsert_mentor_message') return latestMentorMessageIdx.get(item.payload.id) === index;
+    if (item.kind === 'upsert_collaboration_note') return latestCollabNoteIdx.get(item.payload.id) === index;
+    if (item.kind === 'delete_collaboration_note') return latestCollabNoteIdx.get(item.noteId) === index;
     return true;
   });
 }
@@ -4244,6 +4251,90 @@ export function buildAdaptiveCompetencyPassportFallback(params: {
     generatedAtIso: new Date().toISOString(),
   };
 }
+
+export interface SprintHistoryContributionRow {
+  contribution: BriefSubmission;
+  organization: string;
+}
+
+/**
+ * Resolves the partner organization for a sprint contribution using payout
+ * records, mentor/partner feedback, solution sprint templates, and seed briefs.
+ */
+export function resolveContributionOrganization(
+  contribution: BriefSubmission,
+  payouts: ContractPayout[] = [],
+  sprintFeedback: SprintFeedback[] = []
+): string {
+  const matchingPayout = payouts.find(
+    (p) =>
+      p.sprintId === contribution.briefId ||
+      (p.sprintTitle && p.sprintTitle === contribution.briefTitle)
+  );
+  if (matchingPayout?.partnerOrg?.trim()) return matchingPayout.partnerOrg.trim();
+
+  const matchingFeedback = sprintFeedback.find(
+    (f) =>
+      f.briefId === contribution.briefId ||
+      (f.briefTitle && f.briefTitle === contribution.briefTitle)
+  );
+  if (matchingFeedback?.partnerOrg?.trim()) return matchingFeedback.partnerOrg.trim();
+
+  const matchedSprint = SOLUTION_SPRINTS.find((s) => s.id === contribution.briefId);
+  if (matchedSprint?.partnerOrg?.trim()) return matchedSprint.partnerOrg.trim();
+
+  const matchedBrief = SEED_BRIEFS.find((b) => b.id === contribution.briefId);
+  if (matchedBrief?.organization?.trim()) return matchedBrief.organization.trim();
+
+  return 'Verified Hiring Partner';
+}
+
+/**
+ * Filters sprint history rows by status tab and case-insensitive search
+ * matching sprint title, partner organization, or domain.
+ */
+export function filterSprintHistoryContributions(
+  contributions: BriefSubmission[],
+  options: {
+    statusFilter: 'all' | 'completed' | 'in-progress';
+    searchQuery: string;
+    payouts?: ContractPayout[];
+    sprintFeedback?: SprintFeedback[];
+  }
+): SprintHistoryContributionRow[] {
+  const {
+    statusFilter,
+    searchQuery,
+    payouts = [],
+    sprintFeedback = [],
+  } = options;
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
+  return contributions
+    .map((contribution) => ({
+      contribution,
+      organization: resolveContributionOrganization(
+        contribution,
+        payouts,
+        sprintFeedback
+      ),
+    }))
+    .filter(({ contribution, organization }) => {
+      if (statusFilter !== 'all' && contribution.status !== statusFilter) {
+        return false;
+      }
+      if (!normalizedQuery) return true;
+      const haystack = [
+        contribution.briefTitle,
+        organization,
+        contribution.domain,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(normalizedQuery);
+    });
+}
+
 
 
 

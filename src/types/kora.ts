@@ -357,6 +357,18 @@ export type OfflineMutation =
       kind: 'upsert_mentor_message';
       payload: MentorMessage;
       queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'upsert_collaboration_note';
+      payload: SprintCollaborationNote;
+      queuedAtIso: string;
+    }
+  | {
+      id: string;
+      kind: 'delete_collaboration_note';
+      noteId: string;
+      queuedAtIso: string;
     };
 
 export interface MilestoneBadge {
@@ -529,6 +541,17 @@ export interface SprintFeedbackSummary {
   totalReviews: number;
   averageRating: number;
   fiveStarCount: number;
+}
+
+export interface SprintCollaborationNote {
+  id: string;
+  ownerUid: string;
+  contributionId: string;
+  briefId: string;
+  briefTitle: string;
+  markdownBody: string;
+  createdAtIso: string;
+  updatedAtIso: string;
 }
 
 export type MentorAvailabilityStatus = 'available' | 'in-review' | 'away';

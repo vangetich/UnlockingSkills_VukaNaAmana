@@ -407,6 +407,34 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidCollaborationNote(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid',
+          'contributionId',
+          'briefId',
+          'briefTitle',
+          'markdownBody',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerUid',
+          'contributionId',
+          'briefId',
+          'briefTitle',
+          'markdownBody',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid) &&
+        data.contributionId is string && isValidId(data.contributionId) &&
+        data.briefId is string && isValidId(data.briefId) &&
+        data.briefTitle is string && data.briefTitle.size() >= 2 && data.briefTitle.size() <= 160 &&
+        data.markdownBody is string && data.markdownBody.size() >= 1 && data.markdownBody.size() <= 4000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
     // --- Collection Rules ---
     match /users/{userId} {
       allow get: if isValidId(userId) && isOwner(userId) && existing().uid == request.auth.uid;
@@ -675,6 +703,37 @@ service cloud.firestore {
           hasActiveParentProfile(userId);
         allow update: if false;
         allow delete: if false;
+      }
+
+      match /collaborationNotes/{noteId} {
+        allow get: if isValidId(userId) && isValidId(noteId) && isOwner(userId) && existing().ownerUid == request.auth.uid && hasActiveParentProfile(userId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(noteId) &&
+          isOwner(userId) &&
+          isValidCollaborationNote(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId);
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(noteId) &&
+          isOwner(userId) &&
+          isValidCollaborationNote(incoming(), userId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().contributionId == existing().contributionId &&
+          incoming().briefId == existing().briefId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentProfile(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['briefTitle', 'markdownBody', 'updatedAt']);
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(noteId) &&
+          isOwner(userId) &&
+          existing().ownerUid == request.auth.uid &&
+          hasActiveParentProfile(userId);
       }
     }
   }

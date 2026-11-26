@@ -37,6 +37,7 @@ import type {
   PeerEndorsement,
   PractitionerProfile,
   SkillCapability,
+  SprintCollaborationNote,
   SprintFeedback,
   SprintMilestoneKey,
   SprintRatingScore,
@@ -892,6 +893,66 @@ export async function upsertCloudMentorMessage(
   }
 }
 
+export async function upsertCloudCollaborationNote(
+  uid: string,
+  note: SprintCollaborationNote
+): Promise<void> {
+  if (
+    !isValidFirebaseId(uid) ||
+    !isValidFirebaseId(note.id) ||
+    !isValidFirebaseId(note.contributionId) ||
+    !isValidFirebaseId(note.briefId)
+  ) {
+    throw new Error('Invalid identifier for collaboration note sync');
+  }
+  const path = `users/${uid}/collaborationNotes/${note.id}`;
+  const ref = doc(db, 'users', uid, 'collaborationNotes', note.id);
+
+  const safeTitle = sanitizeText(note.briefTitle, 160) || 'Sprint Collaboration';
+  const safeBody = sanitizeText(note.markdownBody, 4000);
+  if (safeBody.length < 1) {
+    throw new Error('Collaboration note cannot be empty');
+  }
+
+  try {
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        ownerUid: uid,
+        contributionId: note.contributionId,
+        briefId: note.briefId,
+        briefTitle: safeTitle,
+        markdownBody: safeBody,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await updateDoc(ref, {
+        briefTitle: safeTitle,
+        markdownBody: safeBody,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteCloudCollaborationNote(
+  uid: string,
+  noteId: string
+): Promise<void> {
+  if (!isValidFirebaseId(uid) || !isValidFirebaseId(noteId)) {
+    throw new Error('Invalid identifier for collaboration note deletion');
+  }
+  const path = `users/${uid}/collaborationNotes/${noteId}`;
+  try {
+    await deleteDoc(doc(db, 'users', uid, 'collaborationNotes', noteId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
 export async function fetchCloudWorkspace(uid: string): Promise<{
   profile: Partial<PractitionerProfile> | null;
   capabilities: SkillCapability[];
@@ -901,6 +962,7 @@ export async function fetchCloudWorkspace(uid: string): Promise<{
   payouts: ContractPayout[];
   sprintFeedback: SprintFeedback[];
   mentorMessages: MentorMessage[];
+  collaborationNotes: SprintCollaborationNote[];
 }> {
   const userPath = `users/${uid}`;
   try {
@@ -919,6 +981,7 @@ export async function fetchCloudWorkspace(uid: string): Promise<{
         payouts: [],
         sprintFeedback: [],
         mentorMessages: [],
+        collaborationNotes: [],
       };
     }
 
@@ -1102,6 +1165,34 @@ export async function fetchCloudWorkspace(uid: string): Promise<{
       mentorMessages = [];
     }
 
+    let collaborationNotes: SprintCollaborationNote[] = [];
+    try {
+      const notesSnap = await getDocs(collection(db, 'users', uid, 'collaborationNotes'));
+      collaborationNotes = notesSnap.docs.map((d) => {
+        const data = d.data();
+        const createdIso =
+          typeof data.createdAt?.toDate === 'function'
+            ? data.createdAt.toDate().toISOString()
+            : new Date().toISOString();
+        const updatedIso =
+          typeof data.updatedAt?.toDate === 'function'
+            ? data.updatedAt.toDate().toISOString()
+            : createdIso;
+        return {
+          id: d.id,
+          ownerUid: String(data.ownerUid ?? uid),
+          contributionId: String(data.contributionId ?? d.id),
+          briefId: String(data.briefId ?? d.id),
+          briefTitle: String(data.briefTitle ?? ''),
+          markdownBody: String(data.markdownBody ?? ''),
+          createdAtIso: createdIso,
+          updatedAtIso: updatedIso,
+        };
+      });
+    } catch {
+      collaborationNotes = [];
+    }
+
     return {
       profile,
       capabilities,
@@ -1111,6 +1202,7 @@ export async function fetchCloudWorkspace(uid: string): Promise<{
       payouts,
       sprintFeedback,
       mentorMessages,
+      collaborationNotes,
     };
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, userPath);

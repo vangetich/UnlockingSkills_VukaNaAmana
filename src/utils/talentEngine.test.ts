@@ -68,6 +68,8 @@ import {
   promoteVerificationStatus,
   rankMatchedWorkOpportunities,
   rankSolutionSprints,
+  resolveContributionOrganization,
+  filterSprintHistoryContributions,
   toggleSprintMilestoneList,
 } from './talentEngine';
 import type {
@@ -78,20 +80,53 @@ import type {
   OfflineMutation,
   PeerEndorsement,
   SkillCapability,
+  SprintCollaborationNote,
   SprintFeedback,
 } from '../types/kora';
 import {
   buildComplianceReceiptPdfBytes,
   buildPlainTextPdfBytes,
   buildSdgImpactSummaryPdfBytes,
+  buildSprintReportPdfBytes,
   formatPayoutReceiptId,
   formatSdgImpactReportId,
 } from './pdfReceipt';
+import {
+  parseMarkdownBlocks,
+  parseMarkdownInline,
+  sanitizeMarkdownLinkUrl,
+} from './markdown';
 import {
   buildRecentActivityTimeline,
   computeVirtualWindow,
 } from '../components/RecentActivityFeed';
 import { computeImpactMilestones } from '../components/ImpactMilestones';
+import {
+  buildImpactPulseHistoryCsv,
+  buildImpactPulseSeries,
+  buildYearInReviewHeatmap,
+} from '../components/ImpactPulseAnalytics';
+import { GLOSSARY_ENTRIES } from '../components/GlossaryModal';
+import {
+  buildSprintMilestoneTasks,
+  filterSprintMilestoneTasks,
+  getMilestoneStatusExplanation,
+  getSprintMilestoneFilterCounts,
+} from '../components/SprintMilestoneChecklist';
+import { computeSprintReminders } from '../components/SprintReminders';
+import {
+  buildExpandedSprintSummary,
+  buildShareableSprintSnapshot,
+  buildSprintDeepLink,
+  buildSprintJourneyTimeline,
+  buildSprintMentorDraftContext,
+} from '../components/ExpandedSprintDetails';
+import { validateAndFormatPractitionerFeedback } from '../components/SprintFeedbackModal';
+import {
+  buildMonthCalendarGrid,
+  buildSprintCalendarEvents,
+} from '../components/SprintCalendar';
+import { resolveRealtimeMentorAvailability } from '../components/MentorMessagingDrawer';
 
 const sampleCap: SkillCapability = {
   id: 'cap-1',
@@ -1854,6 +1889,964 @@ test('RecentActivityFeed virtual windowing preserves long histories (>100 events
     assert.equal(curr.offsetTop, prev.offsetTop + prev.height);
   }
 });
+
+test('ImpactPulseAnalytics computes chronological payout trends, hours logged, and milestone velocity from sprint history', () => {
+  const emptySeries = buildImpactPulseSeries({
+    contributions: [],
+    payouts: [],
+  });
+  assert.equal(emptySeries.points.length, 0);
+  assert.equal(emptySeries.totalPayoutUsd, 0);
+  assert.equal(emptySeries.totalHoursLogged, 0);
+
+  const series = buildImpactPulseSeries({
+    contributions: [
+      {
+        id: 'c-s1',
+        ownerUid: 'u1',
+        briefId: 'sprint-solar-01',
+        briefTitle: 'Solar Cold-Chain Diagnostics',
+        domain: 'Green Energy',
+        status: 'completed',
+        solutionNotes: 'Verified 48V inverter bank.',
+        hoursLogged: 12,
+        payoutUsd: 400,
+        createdAtIso: '2026-11-10T09:00:00Z',
+        updatedAtIso: '2026-11-15T12:00:00Z',
+        milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+      },
+      {
+        id: 'c-s2',
+        ownerUid: 'u1',
+        briefId: 'sprint-triage-02',
+        briefTitle: 'Clinic Triage Sync',
+        domain: 'Healthcare Ops',
+        status: 'in-progress',
+        solutionNotes: 'Drafting bilingual intake checks.',
+        hoursLogged: 6.5,
+        payoutUsd: 300,
+        createdAtIso: '2026-11-20T09:00:00Z',
+        updatedAtIso: '2026-11-22T15:00:00Z',
+        milestonesDone: ['analysis-complete'],
+      },
+    ],
+    payouts: [
+      {
+        id: 'p-s1',
+        ownerUid: 'u1',
+        sprintId: 'sprint-solar-01',
+        sprintTitle: 'Solar Cold-Chain Diagnostics',
+        partnerOrg: 'HarvestKeep',
+        amountUsd: 400,
+        payoutRail: 'mobile-money',
+        status: 'released',
+        createdAtIso: '2026-11-10T09:00:00Z',
+        updatedAtIso: '2026-11-15T12:00:00Z',
+      },
+    ],
+  });
+
+  assert.equal(series.points.length, 2);
+  assert.equal(series.points[0].label, 'S1');
+  assert.equal(series.points[0].payoutUsd, 400);
+  assert.equal(series.points[0].cumulativePayoutUsd, 400);
+  assert.equal(series.points[0].hoursLogged, 12);
+  assert.equal(series.points[0].milestoneVelocityPct, 100);
+
+  assert.equal(series.points[1].label, 'S2');
+  assert.equal(series.points[1].payoutUsd, 300);
+  assert.equal(series.points[1].cumulativePayoutUsd, 700);
+  assert.equal(series.points[1].hoursLogged, 6.5);
+  assert.equal(series.points[1].milestoneVelocityPct, 33);
+
+  assert.equal(series.totalPayoutUsd, 700);
+  assert.equal(series.totalHoursLogged, 18.5);
+  assert.equal(series.totalMilestonesCompleted, 4);
+  assert.equal(series.averageVelocityPct, 67);
+});
+
+test('GlossaryModal includes Pod Sprint definition explaining its collaborative role in the Solve phase', () => {
+  const podSprint = GLOSSARY_ENTRIES.find((item) => item.id === 'fw-pod-sprint');
+  assert.ok(podSprint, 'Expected fw-pod-sprint GlossaryItem in GLOSSARY_ENTRIES');
+  assert.equal(podSprint.term, 'Pod Sprint');
+  assert.equal(podSprint.builderTab, 'solve');
+  assert.ok(podSprint.definition.toLowerCase().includes('solve'));
+  assert.ok(podSprint.definition.toLowerCase().includes('collaborative'));
+});
+
+test('SprintMilestoneChecklist dynamically builds task-based completion milestones for active pod sprints', () => {
+  const ranked = rankSolutionSprints(
+    createInitialProfile({ ageStage: '30-45', problemStatement: 'solar inverter' }),
+    [sampleCap],
+    samplePassport
+  );
+  const solarSprint = ranked.find((s) => s.id === 'sprint-solar-coldchain-01')!;
+
+  const tasks = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: {},
+  });
+
+  assert.equal(tasks.length, solarSprint.deliverableChecklist.length);
+  assert.equal(tasks[0].phaseKey, 'analysis-complete');
+  assert.equal(tasks[0].completed, true);
+  assert.equal(tasks[1].phaseKey, 'draft-ready');
+  assert.equal(tasks[1].completed, false);
+  assert.equal(tasks[2].phaseKey, 'final-submission');
+  assert.ok(tasks[0].ownerRoleLabel.includes('Lead'));
+  assert.ok(tasks[0].guidance.includes(solarSprint.partnerOrg));
+});
+
+test('SprintReminders alerts on active sprints nearing deadline using sprintMilestonesByBrief phase status', () => {
+  const nowMs = Date.parse('2026-11-25T12:00:00.000Z');
+  const contributions: BriefSubmission[] = [
+    {
+      id: 'sub-urgent',
+      ownerUid: 'user-1',
+      briefId: 'sprint-solar-coldchain-01',
+      briefTitle: 'Solar Cold-Chain Telemetry',
+      domain: 'Green Energy',
+      status: 'in-progress',
+      solutionNotes: '',
+      hoursLogged: 4,
+      payoutUsd: 400,
+      createdAtIso: '2026-11-20T12:00:00.000Z',
+      updatedAtIso: '2026-11-24T12:00:00.000Z',
+      deadlineIso: '2026-11-26T00:00:00.000Z', // 12h remaining -> urgent
+    },
+    {
+      id: 'sub-approaching',
+      ownerUid: 'user-1',
+      briefId: 'sprint-clinic-triage-02',
+      briefTitle: 'Clinic Triage Queue Sync',
+      domain: 'Healthcare Ops',
+      status: 'in-progress',
+      solutionNotes: '',
+      hoursLogged: 2,
+      payoutUsd: 350,
+      createdAtIso: '2026-11-21T12:00:00.000Z',
+      updatedAtIso: '2026-11-24T12:00:00.000Z',
+      deadlineIso: '2026-11-27T12:00:00.000Z', // 48h remaining -> approaching
+    },
+    {
+      id: 'sub-distant',
+      ownerUid: 'user-1',
+      briefId: 'sprint-distant',
+      briefTitle: 'Far Future Sprint',
+      domain: 'Tech',
+      status: 'in-progress',
+      solutionNotes: '',
+      hoursLogged: 1,
+      payoutUsd: 200,
+      createdAtIso: '2026-11-25T12:00:00.000Z',
+      updatedAtIso: '2026-11-25T12:00:00.000Z',
+      deadlineIso: '2026-12-05T12:00:00.000Z', // 240h remaining -> excluded (>72h)
+    },
+    {
+      id: 'sub-done',
+      ownerUid: 'user-1',
+      briefId: 'sprint-done',
+      briefTitle: 'Completed Sprint',
+      domain: 'Tech',
+      status: 'completed',
+      solutionNotes: 'Done',
+      hoursLogged: 10,
+      payoutUsd: 500,
+      createdAtIso: '2026-11-10T12:00:00.000Z',
+      updatedAtIso: '2026-11-18T12:00:00.000Z',
+      deadlineIso: '2026-11-25T15:00:00.000Z', // completed -> excluded
+    },
+  ];
+
+  const reminders = computeSprintReminders({
+    contributions,
+    sprintMilestonesByBrief: {
+      'sprint-solar-coldchain-01': ['analysis-complete', 'draft-ready'],
+      'sprint-clinic-triage-02': [],
+    },
+    nowMs,
+  });
+
+  assert.equal(reminders.length, 2);
+  assert.equal(reminders[0].briefId, 'sprint-solar-coldchain-01');
+  assert.equal(reminders[0].urgency, 'urgent');
+  assert.equal(reminders[0].hoursRemaining, 12);
+  assert.equal(reminders[0].completedPhaseCount, 2);
+  assert.ok(reminders[0].phaseStatusLabel.includes('Phase 2/3'));
+  assert.ok(reminders[0].nextPhaseAction.includes('Final Submission'));
+
+  assert.equal(reminders[1].briefId, 'sprint-clinic-triage-02');
+  assert.equal(reminders[1].urgency, 'approaching');
+  assert.equal(reminders[1].completedPhaseCount, 0);
+  assert.equal(reminders[1].phaseStatusLabel, 'Phase 0/3 · Not Started');
+});
+
+test('ExpandedSprintDetails aggregates sprint feedback, mentor thread notes, and itemized payout breakdown', () => {
+  const contribution: BriefSubmission = {
+    id: 'contrib-exp-1',
+    ownerUid: 'user-1',
+    briefId: 'sprint-solar-coldchain-01',
+    briefTitle: 'Solar Cold-Chain Telemetry',
+    domain: 'Green Energy',
+    status: 'completed',
+    solutionNotes: 'Deployed telemetry nodes and verified battery voltage alerts.',
+    hoursLogged: 10,
+    payoutUsd: 400,
+    createdAtIso: '2026-11-18T10:00:00.000Z',
+    updatedAtIso: '2026-11-22T15:00:00.000Z',
+    milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+  };
+
+  const payouts: ContractPayout[] = [
+    {
+      id: 'payout-exp-1',
+      ownerUid: 'user-1',
+      sprintId: 'sprint-solar-coldchain-01',
+      sprintTitle: 'Solar Cold-Chain Telemetry',
+      partnerOrg: 'KaziGrid Clinics',
+      amountUsd: 400,
+      payoutRail: 'mobile-money',
+      status: 'released',
+      createdAtIso: '2026-11-22T16:00:00.000Z',
+      updatedAtIso: '2026-11-22T16:05:00.000Z',
+    },
+  ];
+
+  const feedback: SprintFeedback[] = [
+    {
+      id: 'fb-exp-1',
+      ownerUid: 'user-1',
+      contributionId: 'contrib-exp-1',
+      briefId: 'sprint-solar-coldchain-01',
+      briefTitle: 'Solar Cold-Chain Telemetry',
+      partnerOrg: 'KaziGrid Clinics',
+      reviewerName: 'Dr. Amina Noor',
+      reviewerRole: 'Field Director',
+      rating: 5,
+      reviewText: 'Reliable inverter telemetry thresholds under clinic peak load.',
+      createdAtIso: '2026-11-23T09:00:00.000Z',
+      updatedAtIso: '2026-11-23T09:00:00.000Z',
+    },
+  ];
+
+  const summary = buildExpandedSprintSummary({
+    contribution,
+    payouts,
+    sprintFeedback: feedback,
+    mentorMessages: [
+      {
+        id: 'msg-1',
+        ownerUid: 'user-1',
+        sprintId: 'sprint-solar-coldchain-01',
+        sprintTitle: 'Solar Cold-Chain Telemetry',
+        mentorId: 'mentor-green-energy',
+        mentorName: 'Eng. Samuel Ochieng',
+        sender: 'mentor',
+        body: 'Voltage hysteresis checks look solid for sign-off.',
+        createdAtIso: '2026-11-21T14:00:00.000Z',
+        updatedAtIso: '2026-11-21T14:00:00.000Z',
+      },
+    ],
+  });
+
+  assert.equal(summary.partnerOrg, 'KaziGrid Clinics');
+  assert.equal(summary.completedMilestones.length, 3);
+  assert.equal(summary.feedbackEntries.length, 1);
+  assert.equal(summary.feedbackEntries[0].rating, 5);
+  assert.equal(summary.mentorThreadMessages.length, 1);
+  assert.equal(summary.payoutBreakdown.grossStipendUsd, 400);
+  assert.equal(summary.payoutBreakdown.platformFeeUsd, 0);
+  assert.equal(summary.payoutBreakdown.netDisbursedUsd, 400);
+  assert.equal(summary.payoutBreakdown.effectiveHourlyRateUsd, 40);
+  assert.equal(summary.payoutBreakdown.payoutStatusLabel, 'Released to Practitioner');
+  assert.equal(summary.payoutBreakdown.payoutRailLabel, 'Mobile Money');
+  assert.ok(summary.payoutBreakdown.receiptReference?.startsWith('VNA-RCP-'));
+});
+
+test('ExpandedSprintDetails Share helpers generate valid deep-links, snapshots, and pre-populated mentor context', () => {
+  const contribution: BriefSubmission = {
+    id: 'contrib-share-1',
+    ownerUid: 'user-1',
+    briefId: 'sprint-solar-coldchain-01',
+    briefTitle: 'Solar Cold-Chain & Telemetry <Audit>',
+    domain: 'Green Energy',
+    status: 'completed',
+    solutionNotes: 'Installed inverter monitoring & logged battery health.',
+    hoursLogged: 8,
+    payoutUsd: 400,
+    createdAtIso: '2026-11-18T10:00:00.000Z',
+    updatedAtIso: '2026-11-22T15:00:00.000Z',
+    milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+  };
+
+  const summary = buildExpandedSprintSummary({
+    contribution,
+    payouts: [
+      {
+        id: 'pay-share-1',
+        ownerUid: 'user-1',
+        sprintId: 'sprint-solar-coldchain-01',
+        sprintTitle: 'Solar Cold-Chain & Telemetry <Audit>',
+        partnerOrg: 'KaziGrid Clinics',
+        amountUsd: 400,
+        payoutRail: 'mobile-money',
+        status: 'released',
+        createdAtIso: '2026-11-22T16:00:00.000Z',
+        updatedAtIso: '2026-11-22T16:05:00.000Z',
+      },
+    ],
+    sprintFeedback: [],
+  });
+
+  const deepLink = buildSprintDeepLink(
+    'https://vuka-na-amana.app/',
+    summary.briefId,
+    summary.contributionId
+  );
+  assert.equal(
+    deepLink,
+    'https://vuka-na-amana.app/?tab=pulse&sprint=sprint-solar-coldchain-01&contribution=contrib-share-1'
+  );
+
+  const snapshot = buildShareableSprintSnapshot(
+    summary,
+    deepLink,
+    '2026-11-25T19:20:00.000Z'
+  );
+  assert.ok(snapshot.textSummary.includes('Solar Cold-Chain & Telemetry <Audit>'));
+  assert.ok(snapshot.textSummary.includes('KaziGrid Clinics'));
+  assert.ok(snapshot.textSummary.includes('$400 USD net'));
+  assert.ok(snapshot.textSummary.includes(deepLink));
+  assert.ok(snapshot.svgMarkup.startsWith('<svg '));
+  assert.ok(snapshot.svgMarkup.includes('&lt;Audit&gt;'));
+  assert.ok(snapshot.filenameBase.startsWith('vuka-sprint-'));
+
+  const mentorCtx = buildSprintMentorDraftContext(summary);
+  assert.ok(mentorCtx.contextNote.includes('Completed'));
+  assert.ok(mentorCtx.contextNote.includes('3/3 milestones'));
+  assert.ok(mentorCtx.contextNote.includes('$400 USD'));
+  assert.ok(mentorCtx.initialDraft.includes(summary.assignedMentor.name));
+  assert.ok(mentorCtx.initialDraft.includes(summary.briefTitle));
+});
+
+test('ExpandedSprintDetails journey timeline maps Sprint Assigned to Escrow Released and generates printable PDF report bytes', () => {
+  const inProgressContrib: BriefSubmission = {
+    id: 'contrib-tl-1',
+    ownerUid: 'user-1',
+    briefId: 'sprint-solar-coldchain-01',
+    briefTitle: 'Solar Cold-Chain Telemetry',
+    domain: 'Green Energy',
+    status: 'in-progress',
+    solutionNotes: 'Baseline diagnostics logged.',
+    hoursLogged: 4,
+    payoutUsd: 400,
+    createdAtIso: '2026-11-20T10:00:00.000Z',
+    updatedAtIso: '2026-11-21T10:00:00.000Z',
+    milestonesDone: ['analysis-complete'],
+  };
+
+  const inProgressSummary = buildExpandedSprintSummary({
+    contribution: inProgressContrib,
+    payouts: [],
+    sprintFeedback: [],
+  });
+  const activeTimeline = buildSprintJourneyTimeline(inProgressContrib, inProgressSummary);
+  assert.equal(activeTimeline.length, 5);
+  assert.equal(activeTimeline[0].label, 'Sprint Assigned');
+  assert.equal(activeTimeline[0].status, 'completed');
+  assert.equal(activeTimeline[1].label, 'Analysis Complete');
+  assert.equal(activeTimeline[1].status, 'completed');
+  assert.equal(activeTimeline[2].label, 'Draft Ready');
+  assert.equal(activeTimeline[2].status, 'current');
+  assert.equal(activeTimeline[3].label, 'Final Submission');
+  assert.equal(activeTimeline[3].status, 'upcoming');
+  assert.equal(activeTimeline[4].label, 'Escrow Released');
+  assert.equal(activeTimeline[4].status, 'upcoming');
+
+  const releasedContrib: BriefSubmission = {
+    ...inProgressContrib,
+    status: 'completed',
+    hoursLogged: 10,
+    milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+  };
+  const releasedSummary = buildExpandedSprintSummary({
+    contribution: releasedContrib,
+    payouts: [
+      {
+        id: 'pay-tl-1',
+        ownerUid: 'user-1',
+        sprintId: 'sprint-solar-coldchain-01',
+        sprintTitle: 'Solar Cold-Chain Telemetry',
+        partnerOrg: 'KaziGrid Clinics',
+        amountUsd: 400,
+        payoutRail: 'mobile-money',
+        status: 'released',
+        createdAtIso: '2026-11-22T15:00:00.000Z',
+        updatedAtIso: '2026-11-22T16:00:00.000Z',
+      },
+    ],
+    sprintFeedback: [
+      {
+        id: 'fb-tl-1',
+        ownerUid: 'user-1',
+        contributionId: 'contrib-tl-1',
+        briefId: 'sprint-solar-coldchain-01',
+        briefTitle: 'Solar Cold-Chain Telemetry',
+        partnerOrg: 'KaziGrid Clinics',
+        reviewerName: 'Dr. Amina Noor',
+        reviewerRole: 'Field Director',
+        rating: 5,
+        reviewText: 'Clean field sign-off and accurate battery logs.',
+        createdAtIso: '2026-11-23T09:00:00.000Z',
+        updatedAtIso: '2026-11-23T09:00:00.000Z',
+      },
+    ],
+  });
+  const releasedTimeline = buildSprintJourneyTimeline(releasedContrib, releasedSummary);
+  assert.equal(releasedTimeline.every((s) => s.status === 'completed'), true);
+  assert.equal(releasedTimeline[4].label, 'Escrow Released');
+
+  const pdfBytes = buildSprintReportPdfBytes({
+    practitionerName: 'Amina Hassan',
+    briefId: releasedSummary.briefId,
+    briefTitle: releasedSummary.briefTitle,
+    partnerOrg: releasedSummary.partnerOrg,
+    domain: releasedSummary.domain,
+    status: releasedSummary.status,
+    hoursLogged: releasedSummary.hoursLogged,
+    completedMilestones: ['Analysis Complete', 'Draft Ready', 'Final Submission'],
+    totalMilestones: 3,
+    journeyStageLabel: 'Escrow Released',
+    solutionNotes: releasedSummary.solutionNotes,
+    assignedMentorName: releasedSummary.assignedMentor.name,
+    assignedMentorRole: releasedSummary.assignedMentor.roleTitle,
+    feedbackEntries: releasedSummary.feedbackEntries,
+    grossStipendUsd: releasedSummary.payoutBreakdown.grossStipendUsd,
+    platformFeeUsd: releasedSummary.payoutBreakdown.platformFeeUsd,
+    netDisbursedUsd: releasedSummary.payoutBreakdown.netDisbursedUsd,
+    effectiveHourlyRateUsd: releasedSummary.payoutBreakdown.effectiveHourlyRateUsd,
+    payoutStatusLabel: releasedSummary.payoutBreakdown.payoutStatusLabel,
+    payoutRailLabel: releasedSummary.payoutBreakdown.payoutRailLabel,
+    receiptReference: releasedSummary.payoutBreakdown.receiptReference,
+    updatedAtIso: releasedSummary.updatedAtIso,
+  });
+
+  const pdfText = new TextDecoder().decode(pdfBytes);
+  assert.ok(pdfText.startsWith('%PDF-1.4'));
+  assert.ok(pdfText.includes('SPRINT OUTCOME, MENTOR FEEDBACK & PAYOUT REPORT'));
+  assert.ok(pdfText.includes('KaziGrid Clinics'));
+  assert.ok(pdfText.includes('$400 USD'));
+  assert.ok(pdfText.includes('Dr. Amina Noor'));
+  assert.ok(pdfText.includes('%%EOF'));
+});
+
+test('SprintMilestoneChecklist assigns Completed, In Progress, Delayed, and Up Next status tags accurately', () => {
+  const ranked = rankSolutionSprints(
+    createInitialProfile({ ageStage: '30-45', problemStatement: 'solar inverter' }),
+    [sampleCap],
+    samplePassport
+  );
+  const solarSprint = ranked.find((s) => s.id === 'sprint-solar-coldchain-01')!;
+  const nowMs = Date.parse('2026-11-25T12:00:00.000Z');
+
+  // On-track sprint (72h remaining): 1st milestone completed -> 2nd In Progress -> 3rd Up Next
+  const onTrackTasks = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: {},
+    deadlineIso: '2026-11-28T12:00:00.000Z',
+    nowMs,
+  });
+  assert.equal(onTrackTasks[0].statusLabel, 'Completed');
+  assert.equal(onTrackTasks[1].statusLabel, 'In Progress');
+  assert.equal(onTrackTasks[2].statusLabel, 'Up Next');
+
+  // Past-deadline sprint: incomplete milestones are flagged Delayed while completed ones stay Completed
+  const delayedTasks = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: {},
+    deadlineIso: '2026-11-25T06:00:00.000Z',
+    nowMs,
+  });
+  assert.equal(delayedTasks[0].statusLabel, 'Completed');
+  assert.equal(delayedTasks[1].statusLabel, 'Delayed');
+  assert.equal(delayedTasks[2].statusLabel, 'Delayed');
+});
+
+test('ImpactPulseAnalytics provides exact date labels for PayoutTrendsTooltip and SprintFeedbackModal validates qualitative feedback', () => {
+  const series = buildImpactPulseSeries({
+    contributions: [
+      {
+        id: 'contrib-tip-1',
+        ownerUid: 'user-1',
+        briefId: 'sprint-solar-coldchain-01',
+        briefTitle: 'Solar Cold-Chain Telemetry',
+        domain: 'Green Energy',
+        status: 'completed',
+        solutionNotes: 'Verified inverter alarms.',
+        hoursLogged: 8,
+        payoutUsd: 450,
+        createdAtIso: '2026-11-10T10:00:00.000Z',
+        updatedAtIso: '2026-11-15T14:30:00.000Z',
+      },
+    ],
+    payouts: [],
+  });
+
+  assert.equal(series.points.length, 1);
+  assert.equal(series.points[0].payoutUsd, 450);
+  assert.ok(series.points[0].exactDateLabel.includes('2026'));
+  assert.equal(series.points[0].timestampIso, '2026-11-15T14:30:00.000Z');
+
+  const invalidFeedback = validateAndFormatPractitionerFeedback({
+    reviewerName: 'Amina',
+    reviewText: 'Too short',
+    selectedAspects: ['Mentor responsiveness'],
+  });
+  assert.equal(invalidFeedback.valid, false);
+  assert.ok(invalidFeedback.error);
+
+  const validFeedback = validateAndFormatPractitionerFeedback({
+    reviewerName: 'Amina Hassan',
+    reviewText: 'Mentor QA checks caught a critical voltage threshold edge case before handover.',
+    selectedAspects: ['Mentor responsiveness', 'Technical & QA guidance'],
+  });
+  assert.equal(validFeedback.valid, true);
+  assert.equal(validFeedback.error, null);
+  assert.ok(validFeedback.formattedReviewText.includes('[Mentor responsiveness · Technical & QA guidance]'));
+  assert.ok(validFeedback.formattedReviewText.includes('voltage threshold'));
+});
+
+test('SprintMilestoneChecklist filters Active vs Completed milestones and provides verification workflow status tooltips', () => {
+  const ranked = rankSolutionSprints(
+    createInitialProfile({ ageStage: '30-45', problemStatement: 'solar inverter' }),
+    [sampleCap],
+    samplePassport
+  );
+  const solarSprint = ranked.find((s) => s.id === 'sprint-solar-coldchain-01')!;
+  const nowMs = Date.parse('2026-11-25T12:00:00.000Z');
+
+  // 1 completed task + 2 pending tasks (In Progress / Delayed)
+  const mixedTasks = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: {},
+    deadlineIso: '2026-11-28T12:00:00.000Z',
+    nowMs,
+  });
+
+  const counts = getSprintMilestoneFilterCounts(mixedTasks);
+  assert.equal(counts.all, 3);
+  assert.equal(counts.completed, 1);
+  assert.equal(counts.active, 2);
+
+  const activeOnly = filterSprintMilestoneTasks(mixedTasks, 'active');
+  assert.equal(activeOnly.length, 2);
+  assert.ok(activeOnly.every((task) => !task.completed && task.status !== 'completed'));
+
+  const completedOnly = filterSprintMilestoneTasks(mixedTasks, 'completed');
+  assert.equal(completedOnly.length, 1);
+  assert.equal(completedOnly[0].status, 'completed');
+
+  const allTasks = filterSprintMilestoneTasks(mixedTasks, 'all');
+  assert.equal(allTasks.length, 3);
+
+  // Delayed sprint tasks remain included under Active filter
+  const delayedTasks = buildSprintMilestoneTasks({
+    briefId: solarSprint.id,
+    sprint: solarSprint,
+    milestonesDone: ['analysis-complete'],
+    isCompleted: false,
+    checkedMap: {},
+    deadlineIso: '2026-11-25T06:00:00.000Z',
+    nowMs,
+  });
+  const delayedActive = filterSprintMilestoneTasks(delayedTasks, 'active');
+  assert.equal(delayedActive.length, 2);
+  assert.ok(delayedActive.every((task) => task.status === 'delayed'));
+
+  // Tooltip workflow explanations cover In Progress, Completed, and Delayed
+  const inProgressInfo = getMilestoneStatusExplanation('in-progress');
+  const completedInfo = getMilestoneStatusExplanation('completed');
+  const delayedInfo = getMilestoneStatusExplanation('delayed');
+  assert.ok(inProgressInfo.title.includes('In Progress'));
+  assert.ok(inProgressInfo.description.toLowerCase().includes('mentor'));
+  assert.ok(completedInfo.title.includes('Completed'));
+  assert.ok(completedInfo.description.toLowerCase().includes('escrow'));
+  assert.ok(delayedInfo.title.includes('Delayed'));
+  assert.ok(delayedInfo.description.toLowerCase().includes('deadline'));
+});
+
+test('ImpactPulseAnalytics exports full sprint history CSV with payouts and ISO timestamps and PulseView search filters by title, organization, and domain', () => {
+  const contribs: BriefSubmission[] = [
+    {
+      id: 'sub-csv-1',
+      ownerUid: 'user-1',
+      briefId: 'sprint-solar-coldchain-01',
+      briefTitle: 'Solar Cold-Chain Telemetry Calibration',
+      domain: 'Green Energy',
+      status: 'completed',
+      solutionNotes: 'Stabilized inverter bus voltage.',
+      hoursLogged: 8,
+      payoutUsd: 450,
+      createdAtIso: '2026-11-10T09:00:00.000Z',
+      updatedAtIso: '2026-11-12T16:45:00.000Z',
+    },
+    {
+      id: 'sub-csv-2',
+      ownerUid: 'user-1',
+      briefId: 'sprint-ngo-maternal-02',
+      briefTitle: 'Rural Clinic Triage Queue Intake',
+      domain: 'Healthcare',
+      status: 'in-progress',
+      solutionNotes: 'Drafted low-bandwidth intake flow.',
+      hoursLogged: 4,
+      payoutUsd: 380,
+      createdAtIso: '2026-11-18T11:00:00.000Z',
+      updatedAtIso: '2026-11-20T13:15:00.000Z',
+    },
+  ];
+
+  const payouts: ContractPayout[] = [
+    {
+      id: 'pay-csv-1',
+      ownerUid: 'user-1',
+      sprintId: 'sprint-solar-coldchain-01',
+      sprintTitle: 'Solar Cold-Chain Telemetry Calibration',
+      partnerOrg: 'Rift Valley Cold-Chain Co-op',
+      amountUsd: 450,
+      status: 'released',
+      payoutRail: 'mobile-money',
+      createdAtIso: '2026-11-12T16:45:00.000Z',
+      updatedAtIso: '2026-11-12T16:45:00.000Z',
+    },
+  ];
+
+  const series = buildImpactPulseSeries({ contributions: contribs, payouts });
+  const csv = buildImpactPulseHistoryCsv(series.points);
+  const lines = csv.split('\n');
+  assert.equal(lines.length, 3);
+  assert.ok(lines[0].includes('"Payout (USD)"'));
+  assert.ok(lines[0].includes('"Timestamp (ISO)"'));
+  assert.ok(lines[1].includes('"Solar Cold-Chain Telemetry Calibration"'));
+  assert.ok(lines[1].includes('"450"'));
+  assert.ok(lines[1].includes('"2026-11-12T16:45:00.000Z"'));
+  assert.ok(lines[2].includes('"380"'));
+  assert.ok(lines[2].includes('"2026-11-20T13:15:00.000Z"'));
+
+  // Organization resolution + filtering by title, organization, and domain
+  assert.equal(
+    resolveContributionOrganization(contribs[0], payouts),
+    'Rift Valley Cold-Chain Co-op'
+  );
+  assert.equal(
+    resolveContributionOrganization(contribs[1], payouts),
+    'Clinics Without Borders East Africa'
+  );
+
+  const byTitle = filterSprintHistoryContributions(contribs, {
+    statusFilter: 'all',
+    searchQuery: 'Telemetry',
+    payouts,
+  });
+  assert.equal(byTitle.length, 1);
+  assert.equal(byTitle[0].contribution.id, 'sub-csv-1');
+
+  const byOrg = filterSprintHistoryContributions(contribs, {
+    statusFilter: 'all',
+    searchQuery: 'Clinics Without Borders',
+    payouts,
+  });
+  assert.equal(byOrg.length, 1);
+  assert.equal(byOrg[0].contribution.id, 'sub-csv-2');
+
+  const byDomain = filterSprintHistoryContributions(contribs, {
+    statusFilter: 'all',
+    searchQuery: 'green energy',
+    payouts,
+  });
+  assert.equal(byDomain.length, 1);
+  assert.equal(byDomain[0].contribution.id, 'sub-csv-1');
+
+  const byStatusAndQuery = filterSprintHistoryContributions(contribs, {
+    statusFilter: 'completed',
+    searchQuery: 'Clinic',
+    payouts,
+  });
+  assert.equal(byStatusAndQuery.length, 0);
+});
+
+test('SprintCalendar maps active, upcoming, and past sprint durations into a month-view grid', () => {
+  const nowMs = Date.parse('2026-11-15T10:00:00.000Z');
+  const contribs: BriefSubmission[] = [
+    {
+      id: 'cal-past-1',
+      ownerUid: 'user-1',
+      briefId: 'sprint-solar-coldchain-01',
+      briefTitle: 'Solar Cold-Chain Telemetry',
+      domain: 'Green Energy',
+      status: 'completed',
+      solutionNotes: 'Done',
+      hoursLogged: 8,
+      payoutUsd: 450,
+      createdAtIso: '2026-11-02T09:00:00.000Z',
+      updatedAtIso: '2026-11-06T15:00:00.000Z',
+    },
+    {
+      id: 'cal-active-1',
+      ownerUid: 'user-1',
+      briefId: 'sprint-ngo-maternal-02',
+      briefTitle: 'Maternal Triage SOP Sprint',
+      domain: 'Healthcare Ops',
+      status: 'in-progress',
+      solutionNotes: 'In progress',
+      hoursLogged: 4,
+      payoutUsd: 380,
+      createdAtIso: '2026-11-12T08:00:00.000Z',
+      updatedAtIso: '2026-11-14T10:00:00.000Z',
+      deadlineIso: '2026-11-19T18:00:00.000Z',
+    },
+  ];
+
+  const events = buildSprintCalendarEvents({
+    contributions: contribs,
+    nowMs,
+  });
+
+  const pastEvt = events.find((e) => e.category === 'past');
+  const activeEvt = events.find((e) => e.category === 'active');
+  const upcomingEvts = events.filter((e) => e.category === 'upcoming');
+
+  assert.ok(pastEvt);
+  assert.equal(pastEvt.startDateKey, '2026-11-02');
+  assert.equal(pastEvt.endDateKey, '2026-11-06');
+  assert.equal(pastEvt.durationDays, 5);
+
+  assert.ok(activeEvt);
+  assert.equal(activeEvt.startDateKey, '2026-11-12');
+  assert.equal(activeEvt.endDateKey, '2026-11-19');
+  assert.equal(activeEvt.durationDays, 8);
+
+  assert.ok(upcomingEvts.length >= 2);
+  assert.ok(upcomingEvts.every((u) => u.startDateKey > '2026-11-15'));
+
+  const grid = buildMonthCalendarGrid(2026, 10, events, '2026-11-15');
+  assert.equal(grid.length % 7, 0);
+  const nov15 = grid.find((c) => c.dateKey === '2026-11-15')!;
+  assert.equal(nov15.isToday, true);
+  assert.ok(nov15.events.some((e) => e.id === activeEvt.id));
+
+  const nov04 = grid.find((c) => c.dateKey === '2026-11-04')!;
+  assert.ok(nov04.events.some((e) => e.id === pastEvt.id));
+});
+
+test('MentorMessagingDrawer resolves real-time Active, Away, and Offline mentor availability indicators', () => {
+  const greenMentor = getAssignedMentorForSprint('sprint-solar-coldchain-01');
+  const techMentor = getAssignedMentorForSprint('sprint-remote-sync-03');
+
+  // Midday EAT (10:00 UTC = 13:00 EAT): green mentor is Active
+  const activeStatus = resolveRealtimeMentorAvailability({
+    mentor: greenMentor,
+    isOnline: true,
+    nowMs: Date.parse('2026-11-25T10:00:00.000Z'),
+  });
+  assert.equal(activeStatus.state, 'active');
+  assert.equal(activeStatus.label, 'Active');
+  assert.ok(activeStatus.expectedResponseTime.includes('Replies'));
+
+  // Midday CET (10:00 UTC = 11:00 CET): tech mentor in review is Away
+  const awayStatus = resolveRealtimeMentorAvailability({
+    mentor: techMentor,
+    isOnline: true,
+    nowMs: Date.parse('2026-11-25T10:00:00.000Z'),
+  });
+  assert.equal(awayStatus.state, 'away');
+  assert.equal(awayStatus.label, 'Away');
+  assert.ok(awayStatus.expectedResponseTime.includes('Replies'));
+
+  // Browser offline forces Offline state with queued guidance
+  const offlineConnectivity = resolveRealtimeMentorAvailability({
+    mentor: greenMentor,
+    isOnline: false,
+    nowMs: Date.parse('2026-11-25T10:00:00.000Z'),
+  });
+  assert.equal(offlineConnectivity.state, 'offline');
+  assert.equal(offlineConnectivity.label, 'Offline');
+  assert.ok(offlineConnectivity.expectedResponseTime.toLowerCase().includes('queued'));
+
+  // Overnight hub hours (23:00 UTC = 02:00 EAT) shows Offline until next shift
+  const overnightOffline = resolveRealtimeMentorAvailability({
+    mentor: greenMentor,
+    isOnline: true,
+    nowMs: Date.parse('2026-11-25T23:00:00.000Z'),
+  });
+  assert.equal(overnightOffline.state, 'offline');
+  assert.equal(overnightOffline.label, 'Offline');
+
+  // Recent thread activity elevates live engagement to Active
+  const liveThreadActive = resolveRealtimeMentorAvailability({
+    mentor: techMentor,
+    isOnline: true,
+    nowMs: Date.parse('2026-11-25T10:00:00.000Z'),
+    hasRecentThreadActivity: true,
+  });
+  assert.equal(liveThreadActive.state, 'active');
+  assert.equal(liveThreadActive.label, 'Active');
+});
+
+test('ImpactPulseAnalytics buildYearInReviewHeatmap maps sprint intensity and milestone completion density across the year', () => {
+  const contribs: BriefSubmission[] = [
+    {
+      id: 'hm-1',
+      ownerUid: 'user-1',
+      briefId: 'sprint-solar-coldchain-01',
+      briefTitle: 'Solar Cold-Chain Telemetry',
+      domain: 'Green Energy',
+      status: 'completed',
+      solutionNotes: 'Completed all 3 checkpoints',
+      hoursLogged: 15,
+      payoutUsd: 450,
+      milestonesDone: ['analysis-complete', 'draft-ready', 'final-submission'],
+      createdAtIso: '2026-03-02T09:00:00.000Z',
+      updatedAtIso: '2026-03-06T16:00:00.000Z',
+    },
+    {
+      id: 'hm-2',
+      ownerUid: 'user-1',
+      briefId: 'sprint-ngo-maternal-02',
+      briefTitle: 'Maternal Triage SOP Sprint',
+      domain: 'Healthcare Ops',
+      status: 'in-progress',
+      solutionNotes: 'Draft ready',
+      hoursLogged: 8,
+      payoutUsd: 380,
+      milestonesDone: ['analysis-complete', 'draft-ready'],
+      createdAtIso: '2026-03-05T09:00:00.000Z',
+      updatedAtIso: '2026-03-07T12:00:00.000Z',
+      deadlineIso: '2026-03-08T18:00:00.000Z',
+    },
+    {
+      id: 'hm-prev-year',
+      ownerUid: 'user-1',
+      briefId: 'sprint-remote-sync-03',
+      briefTitle: 'Offline-First Sync Architecture',
+      domain: 'Tech',
+      status: 'completed',
+      solutionNotes: '2025 sprint',
+      hoursLogged: 6,
+      payoutUsd: 300,
+      createdAtIso: '2025-11-10T09:00:00.000Z',
+      updatedAtIso: '2025-11-12T15:00:00.000Z',
+    },
+  ];
+
+  const heatmap2026 = buildYearInReviewHeatmap({
+    contributions: contribs,
+    payouts: [],
+    year: 2026,
+    referenceYear: 2026,
+  });
+
+  assert.equal(heatmap2026.year, 2026);
+  assert.deepEqual(heatmap2026.availableYears, [2026, 2025]);
+  const inYearCells = heatmap2026.weeks.flat().filter((c) => c.inTargetYear);
+  assert.equal(inYearCells.length, 365);
+  assert.equal(heatmap2026.monthLabels.length, 12);
+  assert.equal(heatmap2026.totalSprintTouches, 2);
+  assert.equal(heatmap2026.totalMilestonesCompleted, 5);
+  assert.equal(heatmap2026.totalActiveDays, 7); // Mar 2..Mar 8
+  assert.equal(heatmap2026.longestStreakDays, 7);
+
+  // Overlapping sprint day Mar 6 has both sprints + milestone completion
+  const mar6 = inYearCells.find((c) => c.dateKey === '2026-03-06')!;
+  assert.equal(mar6.sprintCount, 2);
+  assert.ok(mar6.milestoneCompletions >= 1);
+  assert.ok(mar6.level >= 3);
+  assert.ok(heatmap2026.peakDay && heatmap2026.peakDay.level >= 3);
+
+  // Leap year check (2024 -> 366 days)
+  const heatmap2024 = buildYearInReviewHeatmap({
+    contributions: contribs,
+    payouts: [],
+    year: 2024,
+    referenceYear: 2026,
+  });
+  const leapCells = heatmap2024.weeks.flat().filter((c) => c.inTargetYear);
+  assert.equal(leapCells.length, 366);
+});
+
+test('Markdown parser safely structures collaboration notes and rejects unsafe link schemes, while offline queue compacts notes', () => {
+  const sampleMarkdown = [
+    '## Pod Handoff Retrospective',
+    'Coordinated **battery load balancing** and *thermal safety* using `v4.2` telemetry.',
+    '- Clear handoff from Halima at shift change',
+    '- Verified [Partner Spec](https://vuka-na-amana.app/spec) and rejected [Bad](javascript:alert(1))',
+    '> Keep daily 15m check-ins during final QA.',
+    '1. Audit inverter logs',
+    '2. Sign off release notes',
+  ].join('\n');
+
+  const blocks = parseMarkdownBlocks(sampleMarkdown);
+  assert.equal(blocks[0].kind, 'heading');
+  assert.equal(blocks[1].kind, 'paragraph');
+  assert.equal(blocks[2].kind, 'unordered-list');
+  assert.equal(blocks[3].kind, 'blockquote');
+  assert.equal(blocks[4].kind, 'ordered-list');
+
+  assert.equal(sanitizeMarkdownLinkUrl('https://vuka-na-amana.app/spec'), 'https://vuka-na-amana.app/spec');
+  assert.equal(sanitizeMarkdownLinkUrl('javascript:alert(1)'), null);
+  assert.equal(sanitizeMarkdownLinkUrl('data:text/html,<script>'), null);
+
+  const inlineTokens = parseMarkdownInline(
+    'Verified **bold** and *italic* with `code` plus [Safe](https://example.org) and [XSS](javascript:alert(1))'
+  );
+  assert.ok(inlineTokens.some((t) => t.kind === 'bold' && t.text === 'bold'));
+  assert.ok(inlineTokens.some((t) => t.kind === 'italic' && t.text === 'italic'));
+  assert.ok(inlineTokens.some((t) => t.kind === 'code' && t.text === 'code'));
+  assert.ok(inlineTokens.some((t) => t.kind === 'link' && t.href === 'https://example.org/'));
+  assert.ok(!inlineTokens.some((t) => t.kind === 'link' && t.label === 'XSS'));
+
+  const noteV1: SprintCollaborationNote = {
+    id: 'collab_sub-1',
+    ownerUid: 'user-1',
+    contributionId: 'sub-1',
+    briefId: 'sprint-solar-coldchain-01',
+    briefTitle: 'Solar Cold-Chain Telemetry',
+    markdownBody: 'Initial note',
+    createdAtIso: '2026-11-20T10:00:00.000Z',
+    updatedAtIso: '2026-11-20T10:00:00.000Z',
+  };
+  const noteV2: SprintCollaborationNote = {
+    ...noteV1,
+    markdownBody: '## Updated team dynamics reflection',
+    updatedAtIso: '2026-11-20T11:00:00.000Z',
+  };
+
+  const compactedUpsert = compactOfflineQueue([
+    { id: 'm1', kind: 'upsert_collaboration_note', payload: noteV1, queuedAtIso: noteV1.createdAtIso },
+    { id: 'm2', kind: 'upsert_collaboration_note', payload: noteV2, queuedAtIso: noteV2.updatedAtIso },
+  ]);
+  assert.equal(compactedUpsert.length, 1);
+  assert.equal(compactedUpsert[0].id, 'm2');
+
+  const compactedDelete = compactOfflineQueue([
+    { id: 'm2', kind: 'upsert_collaboration_note', payload: noteV2, queuedAtIso: noteV2.updatedAtIso },
+    { id: 'm3', kind: 'delete_collaboration_note', noteId: noteV2.id, queuedAtIso: '2026-11-20T12:00:00.000Z' },
+  ]);
+  assert.equal(compactedDelete.length, 1);
+  assert.equal(compactedDelete[0].kind, 'delete_collaboration_note');
+});
+
 
 
 

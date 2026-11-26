@@ -10,6 +10,7 @@ import type {
   PeerEndorsement,
   PractitionerProfile,
   SkillCapability,
+  SprintCollaborationNote,
   SprintFeedback,
   SprintMilestoneKey,
   WorkReadyVault,
@@ -39,6 +40,7 @@ const STORAGE_KEYS = {
   payouts: 'kora.v1.payouts',
   sprintFeedback: 'kora.v1.sprint_feedback',
   mentorMessages: 'kora.v1.mentor_messages',
+  collaborationNotes: 'kora.v1.collaboration_notes',
   queue: 'kora.v1.offline_queue',
   lastSync: 'kora.v1.last_sync',
   proofPortfolio: 'kora.v1.proof_portfolio',
@@ -57,6 +59,7 @@ export interface LocalWorkspaceState {
   payouts: ContractPayout[];
   sprintFeedback: SprintFeedback[];
   mentorMessages: MentorMessage[];
+  collaborationNotes: SprintCollaborationNote[];
   queue: OfflineMutation[];
   lastSyncedIso: string | null;
 }
@@ -227,6 +230,14 @@ export function loadLocalWorkspace(autostartDemo = false): LocalWorkspaceState {
       updatedAtIso: now,
     }));
 
+  const storedCollabNotes = safeParseJson<SprintCollaborationNote[] | null>(
+    typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.collaborationNotes) : null,
+    null
+  );
+  const collaborationNotes: SprintCollaborationNote[] = Array.isArray(storedCollabNotes)
+    ? storedCollabNotes
+    : [];
+
   const queue = safeParseJson<OfflineMutation[]>(
     typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEYS.queue) : null,
     []
@@ -245,6 +256,7 @@ export function loadLocalWorkspace(autostartDemo = false): LocalWorkspaceState {
     payouts,
     sprintFeedback,
     mentorMessages,
+    collaborationNotes,
     queue,
     lastSyncedIso,
   };
@@ -297,6 +309,11 @@ export function saveLocalSprintFeedback(feedbackList: SprintFeedback[]): void {
 export function saveLocalMentorMessages(messages: MentorMessage[]): void {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(STORAGE_KEYS.mentorMessages, JSON.stringify(messages));
+}
+
+export function saveLocalCollaborationNotes(notes: SprintCollaborationNote[]): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(STORAGE_KEYS.collaborationNotes, JSON.stringify(notes));
 }
 
 export function saveOfflineQueue(queue: OfflineMutation[]): OfflineMutation[] {

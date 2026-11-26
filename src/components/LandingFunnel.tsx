@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowUpDown,
+  CheckCircle2,
   Globe,
   Keyboard,
   Mic,
@@ -13,6 +14,7 @@ import {
   SlidersHorizontal,
   Square,
   Sun,
+  Users,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { AgeStage, LocaleCode, ThemeMode } from '../types/kora';
@@ -30,7 +32,7 @@ import {
 } from './ResilienceMotifs';
 
 interface FunnelSectionArrowProps {
-  position: 'top' | 'middle' | 'bottom';
+  position: 'top' | 'middle' | 'solve' | 'bottom';
   upTargetId: string;
   upLabel: string;
   downTargetId: string;
@@ -693,14 +695,122 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               ))}
             </div>
 
-            {/* Middle Arrow Unit: Up to Hero / Down to Age-Versatility Preview */}
+            {/* Middle Arrow Unit: Up to Hero / Down to Solve & Pod Sprints */}
             <FunnelSectionArrow
               position="middle"
               upTargetId="landing-hero-section"
               upLabel="Back to problem input"
+              downTargetId="landing-solve-section"
+              downLabel="How Solve & Pod Sprints work"
+              stepTag="02"
+            />
+          </div>
+        </section>
+
+        {/* BEAT 3.5: The Solve Phase & Pod Sprints Architecture */}
+        <section
+          id="landing-solve-section"
+          data-testid="landing-solve-section"
+          aria-labelledby="landing-solve-heading"
+          className="scroll-mt-16 relative overflow-hidden border-t border-[#E8E3DB] dark:border-[#2C3037] py-16 sm:py-20 bg-white/55 dark:bg-[#16181C]/60"
+        >
+          <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 space-y-10">
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+              <div className="max-w-2xl">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#C4622D] dark:text-[#E07B46]">
+                  Stage 3 · The Solve Phase
+                </p>
+                <h2
+                  id="landing-solve-heading"
+                  className="mt-2.5 font-display text-2xl sm:text-4xl font-medium tracking-tight text-[#17191C] dark:text-[#F4F2EE]"
+                >
+                  How Pod Sprints turn verified skill into paid community impact
+                </h2>
+                <p className="mt-3 text-sm sm:text-base text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
+                  Once your skills are verified, the Solve phase matches you into a <strong className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">Pod Sprint</strong>—a focused 1-to-2-week collaborative problem-solving unit addressing real operational briefs from clinics, co-ops, NGOs, and remote engineering teams.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => onBeginCrossing(currentPayload)}
+                data-testid="landing-solve-cta-btn"
+                className="self-start lg:self-end min-h-[44px] px-5 py-2.5 rounded-xl bg-[#146C53] hover:bg-[#0F5642] dark:bg-[#2EB88B] dark:hover:bg-[#259B75] text-white dark:text-[#121315] text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <span>Enter Solve &amp; Pod Sprints</span>
+                <ArrowRight className="w-4 h-4 rtl:rotate-180" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <article className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-7 flex flex-col justify-between gap-5">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs font-mono-tabular">
+                    <span className="font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                      POD STRUCTURE · 01
+                    </span>
+                    <Users className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B]" aria-hidden="true" />
+                  </div>
+                  <h3 className="font-display text-lg sm:text-xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
+                    Cross-Age 2-Person Pods
+                  </h3>
+                  <p className="text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
+                    Every Pod Sprint pairs a <strong className="text-[#17191C] dark:text-[#F4F2EE]">30–46+ Specialist Lead</strong> (quality review, architecture, safety sign-off) with a <strong className="text-[#17191C] dark:text-[#F4F2EE]">15–29 Delivery Partner</strong> (field diagnostics, drafting, testing) across refugee and host communities.
+                  </p>
+                </div>
+                <p className="pt-3 border-t border-[#E8E3DB] dark:border-[#2C3037] text-[11px] font-mono-tabular text-[#575B62] dark:text-[#A3A7AE]">
+                  ILO Upgraded Apprenticeship Model
+                </p>
+              </article>
+
+              <article className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-7 flex flex-col justify-between gap-5">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs font-mono-tabular">
+                    <span className="font-semibold text-[#C4622D] dark:text-[#E07B46]">
+                      CADENCE · 02
+                    </span>
+                    <CheckCircle2 className="w-4 h-4 text-[#C4622D] dark:text-[#E07B46]" aria-hidden="true" />
+                  </div>
+                  <h3 className="font-display text-lg sm:text-xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
+                    3 Tracked Delivery Milestones
+                  </h3>
+                  <p className="text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
+                    Pods advance through three clear checkpoints—<strong className="text-[#17191C] dark:text-[#F4F2EE]">Analysis Complete</strong>, <strong className="text-[#17191C] dark:text-[#F4F2EE]">Draft Ready</strong>, and <strong className="text-[#17191C] dark:text-[#F4F2EE]">Final Submission</strong>—with offline-first drafting and direct mentor messaging.
+                  </p>
+                </div>
+                <p className="pt-3 border-t border-[#E8E3DB] dark:border-[#2C3037] text-[11px] font-mono-tabular text-[#575B62] dark:text-[#A3A7AE]">
+                  1–2 Week Scoped Partner Briefs
+                </p>
+              </article>
+
+              <article className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-6 sm:p-7 flex flex-col justify-between gap-5">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs font-mono-tabular">
+                    <span className="font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                      OUTCOME · 03
+                    </span>
+                    <ShieldCheck className="w-4 h-4 text-[#146C53] dark:text-[#2EB88B]" aria-hidden="true" />
+                  </div>
+                  <h3 className="font-display text-lg sm:text-xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
+                    Verified Impact &amp; Escrow Payouts
+                  </h3>
+                  <p className="text-xs sm:text-sm text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
+                    Submitting your Pod Sprint automatically appends audited hours and outcomes to your <strong className="text-[#17191C] dark:text-[#F4F2EE]">Proof Ledger</strong>, releases escrow stipends to your compliant rail, and updates live UN SDG impact telemetry.
+                  </p>
+                </div>
+                <p className="pt-3 border-t border-[#E8E3DB] dark:border-[#2C3037] text-[11px] font-mono-tabular text-[#575B62] dark:text-[#A3A7AE]">
+                  SDG 8 Decent Work · SDG 10 Cohesion
+                </p>
+              </article>
+            </div>
+
+            <FunnelSectionArrow
+              position="solve"
+              upTargetId="landing-pillars-section"
+              upLabel="Back to 3 pillars"
               downTargetId="landing-age-section"
               downLabel="Preview your age-stage pathway"
-              stepTag="02"
+              stepTag="03"
             />
           </div>
         </section>
@@ -860,14 +970,14 @@ export const LandingFunnel: React.FC<LandingFunnelProps> = ({
               </p>
             </div>
 
-            {/* Bottom Arrow Unit: Up to 3-Pillar Strip / Down to Tagline Footer Anchor */}
+            {/* Bottom Arrow Unit: Up to Solve & Pod Sprints / Down to Tagline Footer Anchor */}
             <FunnelSectionArrow
               position="bottom"
-              upTargetId="landing-pillars-section"
-              upLabel="Back to 3 pillars"
+              upTargetId="landing-solve-section"
+              upLabel="Back to Pod Sprints"
               downTargetId="landing-footer-anchor"
               downLabel="Our guiding promise"
-              stepTag="03"
+              stepTag="04"
             />
           </div>
         </section>

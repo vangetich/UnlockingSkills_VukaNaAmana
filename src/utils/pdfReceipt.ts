@@ -521,6 +521,282 @@ export function exportSdgImpactSummaryPdf(params: SdgImpactSummaryPdfInput): {
   return { filename, reportId, byteLength: bytes.byteLength };
 }
 
+export interface SprintSummaryReportPdfInput {
+  practitionerName?: string;
+  briefId: string;
+  briefTitle: string;
+  partnerOrg: string;
+  domain: string;
+  status: 'completed' | 'in-progress';
+  hoursLogged: number;
+  completedMilestones: string[];
+  totalMilestones: number;
+  journeyStageLabel: string;
+  solutionNotes: string;
+  assignedMentorName: string;
+  assignedMentorRole: string;
+  feedbackEntries: Array<{
+    reviewerName: string;
+    reviewerRole: string;
+    rating: number;
+    reviewText: string;
+  }>;
+  mentorThreadNotes?: Array<{
+    author: string;
+    body: string;
+  }>;
+  grossStipendUsd: number;
+  platformFeeUsd: number;
+  netDisbursedUsd: number;
+  effectiveHourlyRateUsd: number;
+  payoutStatusLabel: string;
+  payoutRailLabel: string;
+  receiptReference: string | null;
+  updatedAtIso?: string;
+}
+
+export function formatSprintReportId(briefId: string, issuedIso: string): string {
+  const cleanBrief =
+    briefId.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8) || 'SPRINT';
+  const dateCompact = issuedIso.slice(0, 10).replace(/-/g, '') || '20261125';
+  return `VNA-SPR-${cleanBrief}-${dateCompact}`;
+}
+
+export function buildSprintReportPdfBytes(
+  params: SprintSummaryReportPdfInput
+): Uint8Array {
+  const issuedIso = params.updatedAtIso || new Date().toISOString();
+  const reportId = formatSprintReportId(params.briefId, issuedIso);
+  const statusLabel =
+    params.status === 'completed' ? 'COMPLETED & VERIFIED' : 'IN PROGRESS';
+
+  const lines: PdfLineSpec[] = [
+    {
+      text: 'VUKA NA AMANA - CROSSING OVER',
+      font: 'F2',
+      size: 10.5,
+      gapAfter: 14,
+      colorRgb: [0.078, 0.424, 0.325],
+    },
+    {
+      text: 'SPRINT OUTCOME, MENTOR FEEDBACK & PAYOUT REPORT',
+      font: 'F2',
+      size: 15,
+      gapAfter: 16,
+      colorRgb: [0.09, 0.1, 0.11],
+    },
+    {
+      text: `Report ID: ${reportId}  |  Date: ${issuedIso.slice(0, 10)}  |  Status: ${statusLabel}`,
+      font: 'F3',
+      size: 9,
+      gapAfter: 12,
+      colorRgb: [0.34, 0.36, 0.38],
+    },
+    {
+      text: `Practitioner: ${params.practitionerName || 'Skilled Practitioner'}  |  Partner: ${params.partnerOrg}`,
+      font: 'F1',
+      size: 9.5,
+      gapAfter: 12,
+      colorRgb: [0.22, 0.24, 0.27],
+    },
+    ...wrapLine(`Sprint: ${params.briefTitle} (${params.domain})`, 78).map((line) => ({
+      text: line,
+      font: 'F2' as const,
+      size: 10,
+      gapAfter: 13,
+      colorRgb: [0.09, 0.1, 0.11] as [number, number, number],
+    })),
+    {
+      text: '--------------------------------------------------------------------------',
+      font: 'F3',
+      size: 9,
+      gapAfter: 13,
+      colorRgb: [0.54, 0.52, 0.48],
+    },
+    {
+      text: '1. SPRINT OUTCOMES & MILESTONE JOURNEY',
+      font: 'F2',
+      size: 10.5,
+      gapAfter: 13,
+      colorRgb: [0.078, 0.424, 0.325],
+    },
+    {
+      text: `Current Journey Stage: ${params.journeyStageLabel}`,
+      font: 'F1',
+      size: 9.5,
+      gapAfter: 12,
+    },
+    {
+      text: `Milestones Delivered (${params.completedMilestones.length}/${params.totalMilestones}): ${
+        params.completedMilestones.length > 0
+          ? params.completedMilestones.join(', ')
+          : 'In initial scoping'
+      }`,
+      font: 'F1',
+      size: 9.5,
+      gapAfter: 12,
+    },
+    {
+      text: `Effort Logged: ${params.hoursLogged} hours`,
+      font: 'F1',
+      size: 9.5,
+      gapAfter: 12,
+    },
+    ...wrapLine(`Solution Summary: ${params.solutionNotes}`, 84).map((line) => ({
+      text: line,
+      font: 'F1' as const,
+      size: 9.2,
+      gapAfter: 11.5,
+      colorRgb: [0.24, 0.26, 0.29] as [number, number, number],
+    })),
+    { text: ' ', font: 'F1', size: 6, gapAfter: 6 },
+    {
+      text: '2. MENTOR & PARTNER FEEDBACK',
+      font: 'F2',
+      size: 10.5,
+      gapAfter: 13,
+      colorRgb: [0.078, 0.424, 0.325],
+    },
+    {
+      text: `Assigned Pod Mentor: ${params.assignedMentorName} (${params.assignedMentorRole})`,
+      font: 'F1',
+      size: 9.5,
+      gapAfter: 12,
+    },
+  ];
+
+  if (params.feedbackEntries.length > 0) {
+    for (const fb of params.feedbackEntries.slice(0, 2)) {
+      lines.push({
+        text: `Review (${fb.rating}/5) - ${fb.reviewerName} (${fb.reviewerRole}):`,
+        font: 'F2',
+        size: 9.2,
+        x: 56,
+        gapAfter: 11,
+      });
+      for (const wrapped of wrapLine(`"${fb.reviewText}"`, 82)) {
+        lines.push({
+          text: wrapped,
+          font: 'F1',
+          size: 9,
+          x: 62,
+          gapAfter: 11,
+          colorRgb: [0.26, 0.28, 0.31],
+        });
+      }
+    }
+  } else {
+    lines.push({
+      text: 'Partner review pending or not yet submitted in Pulse.',
+      font: 'F1',
+      size: 9,
+      x: 56,
+      gapAfter: 12,
+      colorRgb: [0.36, 0.38, 0.41],
+    });
+  }
+
+  if (params.mentorThreadNotes && params.mentorThreadNotes.length > 0) {
+    for (const note of params.mentorThreadNotes.slice(-2)) {
+      for (const wrapped of wrapLine(`${note.author}: ${note.body}`, 82)) {
+        lines.push({
+          text: wrapped,
+          font: 'F1',
+          size: 8.8,
+          x: 58,
+          gapAfter: 10.5,
+          colorRgb: [0.32, 0.34, 0.37],
+        });
+      }
+    }
+  }
+
+  lines.push(
+    { text: ' ', font: 'F1', size: 6, gapAfter: 6 },
+    {
+      text: '3. FINAL PAYOUT BREAKDOWN',
+      font: 'F2',
+      size: 10.5,
+      gapAfter: 13,
+      colorRgb: [0.078, 0.424, 0.325],
+    },
+    {
+      text: `Gross Milestone Stipend: $${params.grossStipendUsd.toLocaleString()} USD`,
+      font: 'F1',
+      size: 9.5,
+      gapAfter: 12,
+    },
+    {
+      text: `Platform / Broker Fee:   $${params.platformFeeUsd.toLocaleString()} USD (Zero-Deduction Guarantee)`,
+      font: 'F1',
+      size: 9.5,
+      gapAfter: 12,
+    },
+    {
+      text: `FINAL NET PAYOUT:        $${params.netDisbursedUsd.toLocaleString()} USD ($${params.effectiveHourlyRateUsd.toLocaleString()}/h effective)`,
+      font: 'F2',
+      size: 11,
+      gapAfter: 13,
+      colorRgb: [0.078, 0.424, 0.325],
+    },
+    {
+      text: `Settlement Status:       ${params.payoutStatusLabel} via ${params.payoutRailLabel}`,
+      font: 'F1',
+      size: 9.5,
+      gapAfter: 12,
+    },
+    ...(params.receiptReference
+      ? [
+          {
+            text: `Compliance Receipt ID:   ${params.receiptReference}`,
+            font: 'F3' as const,
+            size: 9.2,
+            gapAfter: 14,
+            colorRgb: [0.22, 0.24, 0.27] as [number, number, number],
+          },
+        ]
+      : []),
+    {
+      text: '--------------------------------------------------------------------------',
+      font: 'F3',
+      size: 9,
+      gapAfter: 12,
+      colorRgb: [0.54, 0.52, 0.48],
+    },
+    ...wrapLine(
+      'Issued digitally for practitioner income records, portable work verification, and partner audit archiving.',
+      86
+    ).map((line) => ({
+      text: line,
+      font: 'F1' as const,
+      size: 8.5,
+      gapAfter: 11,
+      colorRgb: [0.4, 0.42, 0.45] as [number, number, number],
+    }))
+  );
+
+  return buildSinglePagePdfFromLines(lines);
+}
+
+export function exportSprintReportPdf(params: SprintSummaryReportPdfInput): {
+  filename: string;
+  reportId: string;
+  byteLength: number;
+} {
+  const issuedIso = params.updatedAtIso || new Date().toISOString();
+  const reportId = formatSprintReportId(params.briefId, issuedIso);
+  const slug =
+    params.briefTitle
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 36) || 'sprint';
+  const filename = `vuka-sprint-report-${slug}-${issuedIso.slice(0, 10)}.pdf`;
+  const bytes = buildSprintReportPdfBytes({ ...params, updatedAtIso: issuedIso });
+  downloadPdfBlob(bytes, filename);
+  return { filename, reportId, byteLength: bytes.byteLength };
+}
+
 export function downloadPdfBlob(bytes: Uint8Array, filename: string): void {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);

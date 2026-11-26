@@ -7,13 +7,25 @@ export interface ActiveMentorThread {
   sprintTitle: string;
   domain: string;
   mentor: PodMentorProfile;
+  contextNote?: string;
+  initialDraft?: string;
+}
+
+export interface OpenMentorThreadOptions {
+  contextNote?: string;
+  initialDraft?: string;
 }
 
 interface MessagingContextValue {
   messages: MentorMessage[];
   activeThread: ActiveMentorThread | null;
   isDrawerOpen: boolean;
-  openMentorThread: (sprintId: string, sprintTitle: string, domain: string) => void;
+  openMentorThread: (
+    sprintId: string,
+    sprintTitle: string,
+    domain: string,
+    options?: OpenMentorThreadOptions
+  ) => void;
   closeMentorThread: () => void;
   sendMessageToActiveMentor: (body: string) => void;
   getMentorForSprint: (sprintId: string, domain?: string) => PodMentorProfile;
@@ -48,13 +60,20 @@ export const MessagingProvider: React.FC<MessagingProviderProps> = ({
   );
 
   const openMentorThread = useCallback(
-    (sprintId: string, sprintTitle: string, domain: string) => {
+    (
+      sprintId: string,
+      sprintTitle: string,
+      domain: string,
+      options?: OpenMentorThreadOptions
+    ) => {
       const mentor = getAssignedMentorForSprint(sprintId, domain);
       setActiveThread({
         sprintId,
         sprintTitle,
         domain,
         mentor,
+        contextNote: options?.contextNote,
+        initialDraft: options?.initialDraft,
       });
       setIsDrawerOpen(true);
     },

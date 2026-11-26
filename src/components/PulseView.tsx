@@ -8,6 +8,7 @@ import {
   FileText,
   Loader2,
   RefreshCw,
+  Search,
   ShieldCheck,
   Sparkles,
   X,
@@ -20,6 +21,7 @@ import type {
   PeerEndorsement,
   PractitionerProfile,
   SkillCapability,
+  SprintCollaborationNote,
   SprintFeedback,
   SprintMilestoneKey,
   SprintRatingScore,
@@ -36,6 +38,7 @@ import {
   computeSprintDueAlerts,
   computeSprintPerformanceSeries,
   filterAndRankBriefs,
+  filterSprintHistoryContributions,
 } from '../utils/talentEngine';
 import { Badges } from './Badges';
 import { RippleConstellationMotif, WovenBridgeArcsMotif } from './ResilienceMotifs';
@@ -43,7 +46,14 @@ import { SprintPerformanceWidget } from './SprintPerformanceWidget';
 import { SprintFeedbackPanel } from './SprintFeedbackPanel';
 import { GlobalImpactDashboard } from './GlobalImpactDashboard';
 import { ImpactMilestones } from './ImpactMilestones';
+import { ImpactPulseAnalytics } from './ImpactPulseAnalytics';
+import { SprintCalendar } from './SprintCalendar';
 import { RecentActivityFeed } from './RecentActivityFeed';
+import {
+  ExpandedSprintDetails,
+  type CollaborationNoteSaveInput,
+} from './ExpandedSprintDetails';
+import { useMessaging } from '../contexts/MessagingContext';
 import { exportSdgImpactSummaryPdf } from '../utils/pdfReceipt';
 import solarEngineerImg from '../assets/images/community_solar_engineer_1795539856588.jpg';
 import healthCoordImg from '../assets/images/community_health_coordinator_1795539856635.jpg';
@@ -118,6 +128,7 @@ interface PulseViewProps {
   endorsements: PeerEndorsement[];
   payouts: ContractPayout[];
   sprintFeedback: SprintFeedback[];
+  collaborationNotes?: SprintCollaborationNote[];
   celebratedContribution: BriefSubmission | null;
   userEmail: string | null;
   lastSyncedIso: string | null;
@@ -136,6 +147,8 @@ interface PulseViewProps {
     rating: SprintRatingScore;
     reviewText: string;
   }) => void;
+  onSaveCollaborationNote?: (input: CollaborationNoteSaveInput) => void;
+  onDeleteCollaborationNote?: (noteId: string) => void;
   onDismissCelebration: () => void;
   onSignIn: () => void;
   onSyncNow: () => void;
@@ -143,6 +156,9 @@ interface PulseViewProps {
   onGoToVerify: () => void;
   onGoToSolve: () => void;
   onOpenScaleDrawer?: () => void;
+  initialSelectedSprintId?: string | null;
+  initialSelectedContributionId?: string | null;
+  onConsumeInitialSprintSelection?: () => void;
 }
 
 export const PulseView: React.FC<PulseViewProps> = ({
@@ -154,6 +170,7 @@ export const PulseView: React.FC<PulseViewProps> = ({
   endorsements = [],
   payouts = [],
   sprintFeedback = [],
+  collaborationNotes = [],
   celebratedContribution,
   userEmail,
   lastSyncedIso,
@@ -163,6 +180,8 @@ export const PulseView: React.FC<PulseViewProps> = ({
   sprintMilestonesByBrief = {},
   t,
   onAddSprintFeedback,
+  onSaveCollaborationNote,
+  onDeleteCollaborationNote,
   onDismissCelebration,
   onSignIn,
   onSyncNow,
@@ -170,12 +189,39 @@ export const PulseView: React.FC<PulseViewProps> = ({
   onGoToVerify,
   onGoToSolve,
   onOpenScaleDrawer,
+  initialSelectedSprintId = null,
+  initialSelectedContributionId = null,
+  onConsumeInitialSprintSelection,
 }) => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'in-progress'>('all');
+  const [sprintSearchQuery, setSprintSearchQuery] = useState('');
+  const [selectedSprintContribution, setSelectedSprintContribution] =
+    useState<BriefSubmission | null>(null);
   const [liveCompleted, setLiveCompleted] = useState<BriefSubmission | null>(null);
+  const { messages: mentorMessages, openMentorThread } = useMessaging();
   const previousStatusRef = useRef<Map<string, ContributionStatus>>(
     new Map(contributions.map((c) => [c.id, c.status]))
   );
+
+  useEffect(() => {
+    if (!initialSelectedSprintId && !initialSelectedContributionId) return;
+    const match =
+      (initialSelectedContributionId
+        ? contributions.find((c) => c.id === initialSelectedContributionId)
+        : undefined) ??
+      (initialSelectedSprintId
+        ? contributions.find((c) => c.briefId === initialSelectedSprintId)
+        : undefined);
+    if (match) {
+      setSelectedSprintContribution(match);
+      onConsumeInitialSprintSelection?.();
+    }
+  }, [
+    contributions,
+    initialSelectedSprintId,
+    initialSelectedContributionId,
+    onConsumeInitialSprintSelection,
+  ]);
 
   // Offline-to-online cloud sync confirmation toast in PulseView
   const [syncToast, setSyncToast] = useState<{ id: string; message: string } | null>(null);
@@ -489,10 +535,16 @@ export const PulseView: React.FC<PulseViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storyFingerprint, isOnline]);
 
-  const visibleContributions = useMemo(() => {
-    if (statusFilter === 'all') return contributions;
-    return contributions.filter((c) => c.status === statusFilter);
-  }, [contributions, statusFilter]);
+  const visibleContributionRows = useMemo(
+    () =>
+      filterSprintHistoryContributions(contributions, {
+        statusFilter,
+        searchQuery: sprintSearchQuery,
+        payouts,
+        sprintFeedback,
+      }),
+    [contributions, statusFilter, sprintSearchQuery, payouts, sprintFeedback]
+  );
 
   const nextOpportunities = useMemo(() => {
     const existingIds = new Set(contributions.map((c) => c.briefId));
@@ -979,6 +1031,23 @@ export const PulseView: React.FC<PulseViewProps> = ({
         </div>
       </div>
 
+      {/* RECHARTS SPRINT HISTORY: PAYOUT TRENDS, HOURS LOGGED & MILESTONE VELOCITY */}
+      <ImpactPulseAnalytics
+        contributions={contributions}
+        payouts={payouts}
+        sprintMilestonesByBrief={sprintMilestonesByBrief}
+        onGoToSolve={onGoToSolve}
+      />
+
+      {/* SPRINT AVAILABILITY CALENDAR (MONTH VIEW: ACTIVE, UPCOMING & PAST) */}
+      <SprintCalendar
+        contributions={contributions}
+        payouts={payouts}
+        sprintFeedback={sprintFeedback}
+        onSelectContribution={(contrib) => setSelectedSprintContribution(contrib)}
+        onGoToSolve={onGoToSolve}
+      />
+
       {/* CHRONOLOGICAL RECENT ACTIVITY FEED */}
       <RecentActivityFeed
         capabilities={capabilities}
@@ -1379,38 +1448,100 @@ export const PulseView: React.FC<PulseViewProps> = ({
         </div>
       </div>
 
-      {/* Contribution Ledger Table */}
+      {/* Contribution Ledger & Sprint History List */}
       <div className="rounded-2xl bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] overflow-hidden">
-        <div className="p-6 flex flex-wrap items-center justify-between gap-4 border-b border-[#E8E3DB] dark:border-[#2C3037]">
-          <h2 className="font-display text-xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
-            {t.ledgerHeading}
-          </h2>
-
-          <div className="inline-flex items-center p-1 rounded-lg bg-[#F2EEE8] dark:bg-[#121315]">
-            {(['all', 'completed', 'in-progress'] as const).map((status) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => setStatusFilter(status)}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
-                  statusFilter === status
-                    ? 'bg-white dark:bg-[#1A1C20] text-[#17191C] dark:text-[#F4F2EE] shadow-xs'
-                    : 'text-[#575B62] dark:text-[#A3A7AE]'
-                }`}
+        <div className="p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#E8E3DB] dark:border-[#2C3037]">
+          <div className="space-y-1">
+            <h2 className="font-display text-xl font-medium text-[#17191C] dark:text-[#F4F2EE]">
+              {t.ledgerHeading}
+            </h2>
+            {(sprintSearchQuery.trim() !== '' || statusFilter !== 'all') && (
+              <p
+                data-testid="pulse-sprint-history-count"
+                className="text-xs font-mono-tabular tabular-nums text-[#575B62] dark:text-[#A3A7AE]"
               >
-                {status === 'all'
-                  ? t.filterAllStatus
-                  : status === 'completed'
-                    ? t.completedBadge
-                    : t.inProgressBadge}
-              </button>
-            ))}
+                Showing {visibleContributionRows.length} of {contributions.length} sprint
+                {contributions.length === 1 ? '' : 's'}
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full lg:w-auto">
+            <div className="relative flex-1 sm:w-72">
+              <Search
+                className="w-4 h-4 text-[#575B62] dark:text-[#A3A7AE] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                aria-hidden="true"
+              />
+              <input
+                type="search"
+                value={sprintSearchQuery}
+                onChange={(e) => setSprintSearchQuery(e.target.value)}
+                data-testid="pulse-sprint-history-search"
+                aria-label="Search sprint history by title, organization, or domain"
+                placeholder="Search title, organization, or domain..."
+                className="w-full min-h-[38px] pl-9 pr-8 py-1.5 rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] focus:border-[#146C53] dark:focus:border-[#2EB88B] focus:outline-none text-xs sm:text-sm text-[#17191C] dark:text-[#F4F2EE] placeholder:text-[#787C83] dark:placeholder:text-[#8E95A0]"
+              />
+              {sprintSearchQuery.length > 0 && (
+                <button
+                  type="button"
+                  data-testid="pulse-sprint-history-search-clear"
+                  aria-label="Clear sprint search"
+                  onClick={() => setSprintSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE] cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+              )}
+            </div>
+
+            <div className="inline-flex items-center p-1 rounded-lg bg-[#F2EEE8] dark:bg-[#121315] self-start sm:self-auto">
+              {(['all', 'completed', 'in-progress'] as const).map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setStatusFilter(status)}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                    statusFilter === status
+                      ? 'bg-white dark:bg-[#1A1C20] text-[#17191C] dark:text-[#F4F2EE] shadow-xs'
+                      : 'text-[#575B62] dark:text-[#A3A7AE]'
+                  }`}
+                >
+                  {status === 'all'
+                    ? t.filterAllStatus
+                    : status === 'completed'
+                      ? t.completedBadge
+                      : t.inProgressBadge}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {visibleContributions.length === 0 ? (
+        {contributions.length === 0 ? (
           <div className="p-8 text-center text-sm text-[#575B62] dark:text-[#A3A7AE]">
             {t.ledgerEmpty}
+          </div>
+        ) : visibleContributionRows.length === 0 ? (
+          <div
+            data-testid="pulse-sprint-history-empty-search"
+            className="p-8 text-center space-y-2.5"
+          >
+            <p className="text-sm font-medium text-[#17191C] dark:text-[#F4F2EE]">
+              No matching sprints found
+            </p>
+            <p className="text-xs text-[#575B62] dark:text-[#A3A7AE]">
+              No past sprints matched your current search or status filter.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setSprintSearchQuery('');
+                setStatusFilter('all');
+              }}
+              className="text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] hover:underline cursor-pointer"
+            >
+              Clear search and filters
+            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -1421,11 +1552,12 @@ export const PulseView: React.FC<PulseViewProps> = ({
                   <th className="py-3 px-4 font-medium text-start">{t.ledgerColDomain}</th>
                   <th className="py-3 px-4 font-medium text-start">{t.ledgerColStatus}</th>
                   <th className="py-3 px-4 font-medium text-end">{t.ledgerColHours}</th>
-                  <th className="py-3 px-6 font-medium text-end">{t.ledgerColPayout}</th>
+                  <th className="py-3 px-4 font-medium text-end">{t.ledgerColPayout}</th>
+                  <th className="py-3 px-6 font-medium text-end">Details</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E8E3DB] dark:divide-[#2C3037] text-sm">
-                {visibleContributions.map((row) => {
+                {visibleContributionRows.map(({ contribution: row, organization }) => {
                   const isNewlyCompleted = activeCelebration?.id === row.id;
                   return (
                     <motion.tr
@@ -1433,14 +1565,18 @@ export const PulseView: React.FC<PulseViewProps> = ({
                       initial={isNewlyCompleted ? { opacity: 0.6, y: 4 } : false}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.4 }}
-                      className={
+                      onClick={() => setSelectedSprintContribution(row)}
+                      className={`cursor-pointer ${
                         isNewlyCompleted
                           ? 'bg-[#E7F3EE]/60 dark:bg-[#142B24]/60 transition-colors'
                           : 'hover:bg-[#FAF8F5]/70 dark:hover:bg-[#22252A]/60 transition-colors'
-                      }
+                      }`}
                     >
                       <td className="py-3.5 px-6 font-medium text-[#17191C] dark:text-[#F4F2EE]">
-                        {row.briefTitle}
+                        <div>{row.briefTitle}</div>
+                        <div className="text-xs font-normal text-[#575B62] dark:text-[#A3A7AE] mt-0.5">
+                          {organization}
+                        </div>
                       </td>
                       <td className="py-3.5 px-4 text-[#575B62] dark:text-[#A3A7AE]">
                         {row.domain}
@@ -1509,8 +1645,21 @@ export const PulseView: React.FC<PulseViewProps> = ({
                       <td className="py-3.5 px-4 text-end font-mono-tabular tabular-nums text-[#575B62] dark:text-[#A3A7AE]">
                         {row.hoursLogged}h
                       </td>
-                      <td className="py-3.5 px-6 text-end font-mono-tabular tabular-nums font-medium text-[#17191C] dark:text-[#F4F2EE]">
+                      <td className="py-3.5 px-4 text-end font-mono-tabular tabular-nums font-medium text-[#17191C] dark:text-[#F4F2EE]">
                         ${row.payoutUsd}
+                      </td>
+                      <td className="py-3.5 px-6 text-end">
+                        <button
+                          type="button"
+                          data-testid={`inspect-sprint-details-${row.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedSprintContribution(row);
+                          }}
+                          className="min-h-[34px] px-3 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-[#FAF8F5] dark:bg-[#121315] hover:border-[#146C53] dark:hover:border-[#2EB88B] text-xs font-semibold text-[#146C53] dark:text-[#2EB88B] transition-colors whitespace-nowrap cursor-pointer"
+                        >
+                          Summary
+                        </button>
                       </td>
                     </motion.tr>
                   );
@@ -1520,6 +1669,30 @@ export const PulseView: React.FC<PulseViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Expanded Sprint Details Modal (triggered from Sprint History List) */}
+      <AnimatePresence>
+        {selectedSprintContribution && (
+          <ExpandedSprintDetails
+            contribution={selectedSprintContribution}
+            payouts={payouts}
+            sprintFeedback={sprintFeedback}
+            mentorMessages={mentorMessages}
+            collaborationNotes={collaborationNotes}
+            sprintMilestonesByBrief={sprintMilestonesByBrief}
+            vault={vault}
+            practitionerName={profile.displayName}
+            onClose={() => setSelectedSprintContribution(null)}
+            onOpenInSolve={() => onGoToSolve()}
+            onMessageMentor={(briefId, briefTitle, domain, options) =>
+              openMentorThread(briefId, briefTitle, domain, options)
+            }
+            onAddSprintFeedback={onAddSprintFeedback}
+            onSaveCollaborationNote={onSaveCollaborationNote}
+            onDeleteCollaborationNote={onDeleteCollaborationNote}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Community Impact Editorial Gallery */}
       <section
