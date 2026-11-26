@@ -532,3 +532,166 @@ export function buildAccessAuditLogCsv(entries: AccessAuditLogCsvItem[]): string
 
   return [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
 }
+
+export type PartnerInternalNoteCategory =
+  | 'coordination'
+  | 'compliance_check'
+  | 'handoff'
+  | 'blocker';
+
+export interface PartnerInternalNote {
+  id: string;
+  consentId: string;
+  talentAlias: string;
+  authorOrgId: string;
+  authorOrgName: string;
+  authorLabel: string;
+  category: PartnerInternalNoteCategory;
+  body: string;
+  visibility: 'partner_internal_only';
+  createdAtIso: string;
+}
+
+export const PARTNER_INTERNAL_NOTE_CATEGORIES: Array<{
+  id: PartnerInternalNoteCategory;
+  label: string;
+}> = [
+  { id: 'coordination', label: 'Team Coordination' },
+  { id: 'compliance_check', label: 'Compliance Check' },
+  { id: 'handoff', label: 'Handoff Note' },
+  { id: 'blocker', label: 'Internal Blocker' },
+];
+
+export function isValidInternalNoteCategory(
+  value: unknown
+): value is PartnerInternalNoteCategory {
+  return (
+    typeof value === 'string' &&
+    ['coordination', 'compliance_check', 'handoff', 'blocker'].includes(value)
+  );
+}
+
+export function sanitizeInternalNoteBody(raw: unknown, maxLength = 1000): string {
+  return sanitizeFeedbackMessage(raw, maxLength);
+}
+
+export interface MissingDocumentTriggerItem {
+  id: string;
+  consentId: string;
+  talentAlias: string;
+  stepId: PartnerVerificationStepId;
+  milestoneKey: 'identity' | 'financial' | 'contracting';
+  milestoneLabel: string;
+  stepTitle: string;
+  feedbackStage: DocumentFeedbackStage;
+  status: 'pending' | 'needs_clarification';
+  referenceTimestampIso: string;
+  daysElapsed: number;
+  thresholdDays: number;
+  daysOverdue: number;
+  reminderSuggestedMessage: string;
+  alreadyReminded: boolean;
+  lastRemindedAtIso?: string;
+}
+
+export interface DetectMissingDocumentTriggersInput {
+  grants: Array<{
+    consentId: string;
+    talentAlias: string;
+    status: string;
+    grantedAtIso: string;
+  }>;
+  verificationsByGrantId: Record<string, PartnerPreContractingRecord | undefined>;
+  thresholdDays: number;
+  monitoredStepIds?: PartnerVerificationStepId[];
+  applicantFeedback?: PartnerApplicantFeedbackItem[];
+  orgName?: string;
+  nowIso?: string;
+}
+
+export function detectMissingDocumentTriggers(
+  input: DetectMissingDocumentTriggersInput
+): MissingDocumentTriggerItem[] {
+  const {
+    grants,
+    verificationsByGrantId,
+    thresholdDays,
+    monitoredStepIds = VALID_VERIFICATION_STEP_IDS as PartnerVerificationStepId[],
+    applicantFeedback = [],
+    orgName = 'Hiring Partner',
+    nowIso = new Date().toISOString(),
+  } = input;
+
+  const safeThreshold = Math.max(0, Math.min(90, Math.floor(Number(thresholdDays) || 0)));
+  const nowMs = new Date(nowIso).getTime();
+  if (!Number.isFinite(nowMs)) return [];
+
+  const triggers: MissingDocumentTriggerItem[] = [];
+
+  for (const grant of grants) {
+    if (grant.status !== 'active') continue;
+    const record = verificationsByGrantId[grant.consentId];
+
+    for (const step of PARTNER_PRE_CONTRACTING_STEPS) {
+      if (!monitoredStepIds.includes(step.id)) continue;
+
+      const stepState = record?.steps?.[step.id];
+      const status = stepState?.status ?? 'pending';
+      if (status === 'verified') continue;
+
+      const refIso =
+        status === 'needs_clarification' && stepState?.updatedAtIso
+          ? stepState.updatedAtIso
+          : grant.grantedAtIso;
+      const refMs = new Date(refIso).getTime();
+      if (!Number.isFinite(refMs)) continue;
+
+      const elapsedRaw = Math.max(0, (nowMs - refMs) / 86_400_000);
+      const daysElapsed = Math.floor(elapsedRaw);
+      if (daysElapsed < safeThreshold) continue;
+
+      const daysOverdue = Math.max(0, daysElapsed - safeThreshold);
+
+      const matchingFeedback = applicantFeedback.filter(
+        (fb) =>
+          fb.consentId === grant.consentId &&
+          fb.stage === step.feedbackStage &&
+          new Date(fb.createdAtIso).getTime() >= refMs
+      );
+      const latestReminder = matchingFeedback.sort(
+        (a, b) =>
+          new Date(b.createdAtIso).getTime() - new Date(a.createdAtIso).getTime()
+      )[0];
+
+      const elapsedLabel =
+        daysElapsed === 0
+          ? 'pending review'
+          : `${daysElapsed} day${daysElapsed === 1 ? '' : 's'} elapsed`;
+
+      triggers.push({
+        id: `missing:${grant.consentId}:${step.id}`,
+        consentId: grant.consentId,
+        talentAlias: grant.talentAlias,
+        stepId: step.id,
+        milestoneKey: step.milestoneKey,
+        milestoneLabel: step.milestoneLabel,
+        stepTitle: step.title,
+        feedbackStage: step.feedbackStage,
+        status: status === 'needs_clarification' ? 'needs_clarification' : 'pending',
+        referenceTimestampIso: refIso,
+        daysElapsed,
+        thresholdDays: safeThreshold,
+        daysOverdue,
+        reminderSuggestedMessage: `Friendly reminder from ${orgName}: your ${step.milestoneLabel} verification step (${step.title}) has been open for submission/confirmation (${elapsedLabel}). Please complete or confirm details in 2. Unlock so we can proceed to Stage 3 contracting.`,
+        alreadyReminded: Boolean(latestReminder),
+        lastRemindedAtIso: latestReminder?.createdAtIso,
+      });
+    }
+  }
+
+  return triggers.sort((a, b) => {
+    if (b.daysElapsed !== a.daysElapsed) return b.daysElapsed - a.daysElapsed;
+    return a.consentId.localeCompare(b.consentId);
+  });
+}
+

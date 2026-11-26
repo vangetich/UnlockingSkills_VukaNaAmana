@@ -12,6 +12,7 @@ import {
   ChevronUp,
   Clock,
   Download,
+  EyeOff,
   FileCheck2,
   FileText,
   Globe,
@@ -27,7 +28,9 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  StickyNote,
   Sun,
+  Trash2,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -52,15 +55,20 @@ import {
 import {
   DOCUMENT_FEEDBACK_STAGE_OPTIONS,
   PARTNER_FEEDBACK_TEMPLATES,
+  PARTNER_INTERNAL_NOTE_CATEGORIES,
   PARTNER_PRE_CONTRACTING_STEPS,
   PRE_CONTRACTING_STAGE3_REVIEW_ITEMS,
   buildAccessAuditLogCsv,
   computePartnerPreContractingProgress,
   createDefaultPreContractingRecord,
+  detectMissingDocumentTriggers,
   getFeedbackStageMeta,
   type DocumentFeedbackStage,
+  type MissingDocumentTriggerItem,
   type PartnerApplicantFeedbackItem,
   type PartnerFeedbackTone,
+  type PartnerInternalNote,
+  type PartnerInternalNoteCategory,
   type PartnerPreContractingRecord,
   type PartnerStepReviewStatus,
   type PartnerVerificationStepId,
@@ -81,6 +89,7 @@ interface PartnerConsoleViewProps {
   onIssueContract: (grantId: string, bridgeType?: string) => void;
   verificationsByGrantId?: Record<string, PartnerPreContractingRecord>;
   applicantFeedback?: PartnerApplicantFeedbackItem[];
+  internalNotes?: PartnerInternalNote[];
   onUpdateVerificationStep?: (
     consentId: string,
     stepId: PartnerVerificationStepId,
@@ -93,6 +102,12 @@ interface PartnerConsoleViewProps {
     tone: PartnerFeedbackTone;
     message: string;
   }) => void;
+  onAddInternalNote?: (input: {
+    consentId: string;
+    category: PartnerInternalNoteCategory;
+    body: string;
+  }) => void;
+  onDeleteInternalNote?: (noteId: string) => void;
   telemetry: {
     sdg4Count: number;
     sdg8Count: number;
@@ -128,8 +143,11 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
   onIssueContract,
   verificationsByGrantId = {},
   applicantFeedback = [],
+  internalNotes = [],
   onUpdateVerificationStep,
   onSendApplicantFeedback,
+  onAddInternalNote,
+  onDeleteInternalNote,
   telemetry,
   onSwitchToTalentDoor,
   onBackToHome,
@@ -143,6 +161,8 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
   onSelectTab,
   t,
 }) => {
+  const orgName = activeSession?.realm === 'partner' ? activeSession.claims.orgName : 'Hiring Partner';
+  const workEmail = activeSession?.realm === 'partner' ? activeSession.claims.workEmail : 'partner@org.org';
   const [internalTab, setInternalTab] = useState<PartnerTab>('sprints');
   const activeTab = controlledTab ?? internalTab;
   const setActiveTab = (next: PartnerTab) => {
@@ -364,6 +384,98 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const [alertsPanelOpen, setAlertsPanelOpen] = useState(false);
 
+  // Internal private notes per applicant file (Partner-team only fallback + prop sync)
+  const [fallbackInternalNotes, setFallbackInternalNotes] = useState<PartnerInternalNote[]>([]);
+  const [internalNoteDraftByGrant, setInternalNoteDraftByGrant] = useState<
+    Record<string, { category: PartnerInternalNoteCategory; body: string }>
+  >({});
+
+  const effectiveInternalNotes = useMemo(
+    () => (onAddInternalNote ? internalNotes : fallbackInternalNotes),
+    [onAddInternalNote, internalNotes, fallbackInternalNotes]
+  );
+
+  // Automated Missing Document Trigger state
+  const [missingDocThresholdDays, setMissingDocThresholdDays] = useState<number>(3);
+  const [monitoredMissingStepIds, setMonitoredMissingStepIds] = useState<PartnerVerificationStepId[]>([
+    'identityAuth',
+    'payoutRail',
+    'competencyProof',
+  ]);
+  const [locallyRemindedTriggerIds, setLocallyRemindedTriggerIds] = useState<string[]>([]);
+  const [missingDocPanelExpanded, setMissingDocPanelExpanded] = useState<boolean>(true);
+
+  const missingDocumentTriggers = useMemo(
+    () =>
+      detectMissingDocumentTriggers({
+        grants: activeConsentedGrants,
+        verificationsByGrantId,
+        thresholdDays: missingDocThresholdDays,
+        monitoredStepIds: monitoredMissingStepIds,
+        applicantFeedback,
+        orgName,
+      }),
+    [
+      activeConsentedGrants,
+      verificationsByGrantId,
+      missingDocThresholdDays,
+      monitoredMissingStepIds,
+      applicantFeedback,
+      orgName,
+    ]
+  );
+
+  const handleSendMissingDocReminder = (item: MissingDocumentTriggerItem) => {
+    onSendApplicantFeedback?.({
+      consentId: item.consentId,
+      stage: item.feedbackStage,
+      tone: 'clarification_needed',
+      message: item.reminderSuggestedMessage,
+    });
+    if (item.status === 'pending') {
+      onUpdateVerificationStep?.(
+        item.consentId,
+        item.stepId,
+        'needs_clarification',
+        item.reminderSuggestedMessage
+      );
+    }
+    setLocallyRemindedTriggerIds((prev) => (prev.includes(item.id) ? prev : [...prev, item.id]));
+    setAgreementStatusBanner(
+      `Reminder notification sent to ${item.talentAlias} for ${item.milestoneLabel} (${item.daysElapsed}d elapsed).`
+    );
+  };
+
+  const handleSendAllMissingDocReminders = () => {
+    const pendingItems = missingDocumentTriggers.filter(
+      (item) => !item.alreadyReminded && !locallyRemindedTriggerIds.includes(item.id)
+    );
+    if (pendingItems.length === 0) return;
+    for (const item of pendingItems) {
+      onSendApplicantFeedback?.({
+        consentId: item.consentId,
+        stage: item.feedbackStage,
+        tone: 'clarification_needed',
+        message: item.reminderSuggestedMessage,
+      });
+      if (item.status === 'pending') {
+        onUpdateVerificationStep?.(
+          item.consentId,
+          item.stepId,
+          'needs_clarification',
+          item.reminderSuggestedMessage
+        );
+      }
+    }
+    setLocallyRemindedTriggerIds((prev) => [
+      ...prev,
+      ...pendingItems.map((i) => i.id).filter((id) => !prev.includes(id)),
+    ]);
+    setAgreementStatusBanner(
+      `Automated overdue reminder notifications sent for ${pendingItems.length} missing verification item(s).`
+    );
+  };
+
   const complianceAlerts = useMemo(() => {
     const alerts: Array<{
       id: string;
@@ -511,9 +623,6 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
       prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]
     );
   };
-
-  const orgName = activeSession?.realm === 'partner' ? activeSession.claims.orgName : 'Hiring Partner';
-  const workEmail = activeSession?.realm === 'partner' ? activeSession.claims.workEmail : 'partner@org.org';
 
   useAutoSave({
     key: 'partner_console_draft',
@@ -1275,6 +1384,233 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                       </div>
                     );
                   })()}
+
+                  {/* Automated Missing Document Trigger Monitor */}
+                  <div
+                    data-testid="missing-document-trigger-panel"
+                    className={`rounded-xl border p-4 sm:p-5 space-y-3.5 transition-colors ${
+                      missingDocumentTriggers.length > 0
+                        ? 'bg-[#FDF4EF]/70 dark:bg-[#231914]/70 border-[#C4622D]/40 dark:border-[#E07B46]/45'
+                        : 'bg-[#FAF8F5] dark:bg-[#121315] border-[#E8E3DB] dark:border-[#2C3037]'
+                    }`}
+                  >
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#C4622D] dark:text-[#E07B46]">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            <span>Automated Missing Document Trigger</span>
+                          </span>
+                          <span
+                            data-testid="missing-doc-trigger-count-badge"
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-mono-tabular font-bold ${
+                              missingDocumentTriggers.length > 0
+                                ? 'bg-[#C4622D] text-white dark:bg-[#E07B46] dark:text-[#121315]'
+                                : 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B]'
+                            }`}
+                          >
+                            {missingDocumentTriggers.length} Flagged ({missingDocThresholdDays}d+ threshold)
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                          Automatically detects required verification documents unsubmitted or unverified after{' '}
+                          <strong className="text-[#17191C] dark:text-[#F4F2EE]">
+                            {missingDocThresholdDays} day{missingDocThresholdDays === 1 ? '' : 's'}
+                          </strong>{' '}
+                          so your team can dispatch a reminder notification.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <div className="inline-flex items-center gap-1 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-1 text-[11px]">
+                          {[
+                            { days: 0, label: '0d (Now)' },
+                            { days: 1, label: '1d' },
+                            { days: 3, label: '3d' },
+                            { days: 7, label: '7d' },
+                          ].map((preset) => (
+                            <button
+                              key={preset.days}
+                              type="button"
+                              onClick={() => setMissingDocThresholdDays(preset.days)}
+                              data-testid={`missing-doc-preset-${preset.days}d`}
+                              className={`px-2 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                                missingDocThresholdDays === preset.days
+                                  ? 'bg-[#C4622D] text-white dark:bg-[#E07B46] dark:text-[#121315]'
+                                  : 'text-[#575B62] dark:text-[#A3A7AE] hover:text-[#17191C] dark:hover:text-[#F4F2EE]'
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                          <span>X days:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={90}
+                            value={missingDocThresholdDays}
+                            onChange={(e) =>
+                              setMissingDocThresholdDays(
+                                Math.max(0, Math.min(90, Number(e.target.value) || 0))
+                              )
+                            }
+                            data-testid="missing-doc-threshold-input"
+                            aria-label="Missing document trigger threshold in days"
+                            className="w-14 min-h-[32px] px-2 py-1 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-xs font-mono-tabular text-center"
+                          />
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={() => setMissingDocPanelExpanded((prev) => !prev)}
+                          aria-expanded={missingDocPanelExpanded}
+                          data-testid="missing-doc-toggle-btn"
+                          className="min-h-[32px] px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] bg-white dark:bg-[#1A1C20] text-[11px] font-semibold text-[#575B62] dark:text-[#A3A7AE] inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>{missingDocPanelExpanded ? 'Hide' : 'Show'}</span>
+                          {missingDocPanelExpanded ? (
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {missingDocPanelExpanded && (
+                      <div className="space-y-3 pt-2 border-t border-[#E8E3DB]/70 dark:border-[#2C3037]/70">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="font-semibold text-[#575B62] dark:text-[#A3A7AE] mr-1">
+                              Monitored documents:
+                            </span>
+                            {PARTNER_PRE_CONTRACTING_STEPS.map((step) => {
+                              const active = monitoredMissingStepIds.includes(step.id);
+                              return (
+                                <button
+                                  key={step.id}
+                                  type="button"
+                                  aria-pressed={active}
+                                  data-testid={`missing-doc-monitor-${step.milestoneKey}`}
+                                  onClick={() =>
+                                    setMonitoredMissingStepIds((prev) =>
+                                      prev.includes(step.id)
+                                        ? prev.length > 1
+                                          ? prev.filter((id) => id !== step.id)
+                                          : prev
+                                        : [...prev, step.id]
+                                    )
+                                  }
+                                  className={`px-2.5 py-1 rounded-full font-semibold transition-colors cursor-pointer ${
+                                    active
+                                      ? 'bg-[#146C53] text-white dark:bg-[#2EB88B] dark:text-[#121315]'
+                                      : 'bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-[#575B62] dark:text-[#A3A7AE]'
+                                  }`}
+                                >
+                                  {step.milestoneLabel}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {missingDocumentTriggers.some(
+                            (item) => !item.alreadyReminded && !locallyRemindedTriggerIds.includes(item.id)
+                          ) && (
+                            <button
+                              type="button"
+                              onClick={handleSendAllMissingDocReminders}
+                              data-testid="missing-doc-send-all-btn"
+                              className="min-h-[32px] px-3 py-1 rounded-lg bg-[#C4622D] hover:bg-[#A95021] dark:bg-[#E07B46] dark:hover:bg-[#C96B3A] text-white dark:text-[#121315] text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                            >
+                              <Send className="w-3 h-3" aria-hidden="true" />
+                              <span>Send All Overdue Reminders</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {missingDocumentTriggers.length === 0 ? (
+                          <p className="text-xs text-[#146C53] dark:text-[#2EB88B] font-medium">
+                            All monitored verification steps are either verified or within your {missingDocThresholdDays}-day review window.
+                          </p>
+                        ) : (
+                          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                            {missingDocumentTriggers.map((item) => {
+                              const reminded =
+                                item.alreadyReminded || locallyRemindedTriggerIds.includes(item.id);
+                              return (
+                                <div
+                                  key={item.id}
+                                  data-testid={`missing-doc-trigger-item-${item.consentId}-${item.stepId}`}
+                                  className="rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-3 flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs"
+                                >
+                                  <div className="space-y-1 min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                                        {item.talentAlias}
+                                      </span>
+                                      <span className="font-mono-tabular text-[10px] text-[#575B62] dark:text-[#A3A7AE]">
+                                        {item.consentId}
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded-md bg-[#F9ECE5] dark:bg-[#2A1B14] text-[#A95021] dark:text-[#F59E6C] text-[10px] font-semibold">
+                                        Missing: {item.milestoneLabel} · {item.stepTitle}
+                                      </span>
+                                      <span className="font-mono-tabular text-[10px] font-semibold text-[#C4622D] dark:text-[#E07B46]">
+                                        {item.daysElapsed}d elapsed
+                                        {item.daysOverdue > 0 ? ` (${item.daysOverdue}d overdue)` : ''}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE] leading-relaxed">
+                                      {item.reminderSuggestedMessage}
+                                    </p>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedReviewGrantId(item.consentId);
+                                        setReviewFilter('all');
+                                      }}
+                                      className="min-h-[32px] px-2.5 py-1 rounded-lg border border-[#E8E3DB] dark:border-[#2C3037] text-[11px] font-semibold text-[#17191C] dark:text-[#F4F2EE] hover:border-[#146C53] cursor-pointer"
+                                    >
+                                      Inspect File
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={reminded}
+                                      data-testid={`missing-doc-send-reminder-${item.consentId}-${item.stepId}`}
+                                      onClick={() => handleSendMissingDocReminder(item)}
+                                      className={`min-h-[32px] px-3 py-1 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                        reminded
+                                          ? 'bg-[#E7F3EE] dark:bg-[#142B24] text-[#146C53] dark:text-[#2EB88B] cursor-default'
+                                          : 'bg-[#C4622D] hover:bg-[#A95021] dark:bg-[#E07B46] dark:hover:bg-[#C96B3A] text-white dark:text-[#121315]'
+                                      }`}
+                                    >
+                                      {reminded ? (
+                                        <>
+                                          <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
+                                          <span>Reminder Sent</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Bell className="w-3 h-3" aria-hidden="true" />
+                                          <span>Send Reminder Notification</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Bulk Approve Batch Verification Toolbar */}
                   <div
                     data-testid="partner-bulk-approve-toolbar"
@@ -1704,6 +2040,188 @@ export const PartnerConsoleView: React.FC<PartnerConsoleViewProps> = ({
                               );
                             })}
                           </div>
+
+                          {/* Internal Team Notes (Private — Strictly Excluded from Practitioner Portal) */}
+                          {(() => {
+                            const grantNotes = effectiveInternalNotes.filter(
+                              (note) => note.consentId === selectedReviewGrant.consentId
+                            );
+                            const noteDraft = internalNoteDraftByGrant[selectedReviewGrant.consentId] ?? {
+                              category: 'coordination' as PartnerInternalNoteCategory,
+                              body: '',
+                            };
+
+                            const handleSavePrivateNote = (e: React.FormEvent) => {
+                              e.preventDefault();
+                              const trimmed = noteDraft.body.trim();
+                              if (trimmed.length < 3) return;
+                              if (onAddInternalNote) {
+                                onAddInternalNote({
+                                  consentId: selectedReviewGrant.consentId,
+                                  category: noteDraft.category,
+                                  body: trimmed,
+                                });
+                              } else {
+                                setFallbackInternalNotes((prev) => [
+                                  {
+                                    id: `pnote_local_${Date.now()}`,
+                                    consentId: selectedReviewGrant.consentId,
+                                    talentAlias: selectedReviewGrant.talentAlias,
+                                    authorOrgId:
+                                      activeSession?.realm === 'partner'
+                                        ? activeSession.claims.orgId
+                                        : 'partner-org',
+                                    authorOrgName: orgName,
+                                    authorLabel: workEmail,
+                                    category: noteDraft.category,
+                                    body: trimmed,
+                                    visibility: 'partner_internal_only',
+                                    createdAtIso: new Date().toISOString(),
+                                  },
+                                  ...prev,
+                                ]);
+                              }
+                              setInternalNoteDraftByGrant((prev) => ({
+                                ...prev,
+                                [selectedReviewGrant.consentId]: {
+                                  category: noteDraft.category,
+                                  body: '',
+                                },
+                              }));
+                            };
+
+                            return (
+                              <div
+                                data-testid={`internal-notes-panel-${selectedReviewGrant.consentId}`}
+                                className="rounded-xl bg-[#FAF8F5] dark:bg-[#121315] border border-[#E8E3DB] dark:border-[#2C3037] p-4 sm:p-5 space-y-3.5"
+                              >
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#E8E3DB] dark:border-[#2C3037]">
+                                  <div className="space-y-0.5">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                                        <StickyNote className="w-3.5 h-3.5 text-[#146C53] dark:text-[#2EB88B]" aria-hidden="true" />
+                                        <span>Internal Team Notes · {selectedReviewGrant.talentAlias}</span>
+                                      </span>
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#17191C] text-white dark:bg-[#2C3037] dark:text-[#F4F2EE] text-[10px] font-semibold">
+                                        <EyeOff className="w-2.5 h-2.5" aria-hidden="true" />
+                                        <span>Private · Not Shared with Practitioner</span>
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-[#575B62] dark:text-[#A3A7AE]">
+                                      For Hiring Partner team coordination only. Stored separately from applicant feedback and never exposed in the practitioner’s 2. Unlock portal.
+                                    </p>
+                                  </div>
+                                  <span className="font-mono-tabular text-[11px] font-semibold text-[#575B62] dark:text-[#A3A7AE] shrink-0">
+                                    {grantNotes.length} internal note{grantNotes.length === 1 ? '' : 's'}
+                                  </span>
+                                </div>
+
+                                <form onSubmit={handleSavePrivateNote} className="space-y-2.5">
+                                  <div className="flex flex-col sm:flex-row gap-2">
+                                    <select
+                                      value={noteDraft.category}
+                                      onChange={(e) =>
+                                        setInternalNoteDraftByGrant((prev) => ({
+                                          ...prev,
+                                          [selectedReviewGrant.consentId]: {
+                                            ...noteDraft,
+                                            category: e.target.value as PartnerInternalNoteCategory,
+                                          },
+                                        }))
+                                      }
+                                      aria-label="Internal team note category"
+                                      data-testid={`internal-note-category-${selectedReviewGrant.consentId}`}
+                                      className="sm:w-48 min-h-[38px] px-3 py-1.5 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-xs font-medium text-[#17191C] dark:text-[#F4F2EE]"
+                                    >
+                                      {PARTNER_INTERNAL_NOTE_CATEGORIES.map((cat) => (
+                                        <option key={cat.id} value={cat.id}>
+                                          {cat.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <input
+                                      type="text"
+                                      value={noteDraft.body}
+                                      onChange={(e) =>
+                                        setInternalNoteDraftByGrant((prev) => ({
+                                          ...prev,
+                                          [selectedReviewGrant.consentId]: {
+                                            ...noteDraft,
+                                            body: e.target.value,
+                                          },
+                                        }))
+                                      }
+                                      placeholder={`Add private team coordination note on ${selectedReviewGrant.talentAlias}'s file (never sent to applicant)...`}
+                                      aria-label="Private internal team note"
+                                      data-testid={`internal-note-input-${selectedReviewGrant.consentId}`}
+                                      className="flex-1 min-h-[38px] px-3 py-1.5 rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] text-xs text-[#17191C] dark:text-[#F4F2EE] focus:outline-none focus:ring-2 focus:ring-[#146C53]"
+                                    />
+                                    <button
+                                      type="submit"
+                                      disabled={noteDraft.body.trim().length < 3}
+                                      data-testid={`internal-note-submit-${selectedReviewGrant.consentId}`}
+                                      className="min-h-[38px] px-4 py-1.5 rounded-lg bg-[#17191C] hover:bg-[#2C3037] disabled:opacity-45 dark:bg-[#F4F2EE] dark:hover:bg-[#E2DFD9] text-white dark:text-[#121315] text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors shrink-0"
+                                    >
+                                      <Lock className="w-3.5 h-3.5" aria-hidden="true" />
+                                      <span>Save Internal Note</span>
+                                    </button>
+                                  </div>
+                                </form>
+
+                                {grantNotes.length > 0 && (
+                                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                    {grantNotes.map((note) => {
+                                      const catLabel =
+                                        PARTNER_INTERNAL_NOTE_CATEGORIES.find((c) => c.id === note.category)
+                                          ?.label ?? 'Team Coordination';
+                                      return (
+                                        <div
+                                          key={note.id}
+                                          data-testid={`internal-note-item-${note.id}`}
+                                          className="rounded-lg bg-white dark:bg-[#1A1C20] border border-[#E8E3DB] dark:border-[#2C3037] p-3 flex items-start justify-between gap-3 text-xs"
+                                        >
+                                          <div className="space-y-1 min-w-0">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <span className="px-2 py-0.5 rounded-md bg-[#F3EFE9] dark:bg-[#23262C] text-[10px] font-semibold text-[#17191C] dark:text-[#F4F2EE]">
+                                                {catLabel}
+                                              </span>
+                                              <span className="text-[11px] font-semibold text-[#146C53] dark:text-[#2EB88B]">
+                                                {note.authorLabel}
+                                              </span>
+                                              <span className="font-mono-tabular text-[10px] text-[#575B62] dark:text-[#A3A7AE]">
+                                                {new Date(note.createdAtIso).toLocaleString()}
+                                              </span>
+                                            </div>
+                                            <p className="text-[#43484E] dark:text-[#C8CDD4] leading-relaxed">
+                                              {note.body}
+                                            </p>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            aria-label="Delete internal note"
+                                            data-testid={`internal-note-delete-${note.id}`}
+                                            onClick={() => {
+                                              if (onDeleteInternalNote) {
+                                                onDeleteInternalNote(note.id);
+                                              } else {
+                                                setFallbackInternalNotes((prev) =>
+                                                  prev.filter((item) => item.id !== note.id)
+                                                );
+                                              }
+                                            }}
+                                            className="p-1.5 rounded-md text-[#575B62] dark:text-[#A3A7AE] hover:text-[#C4622D] dark:hover:text-[#E07B46] cursor-pointer shrink-0"
+                                            title="Remove internal note"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })()

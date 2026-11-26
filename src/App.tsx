@@ -204,6 +204,8 @@ import {
   type DocumentFeedbackStage,
   type PartnerApplicantFeedbackItem,
   type PartnerFeedbackTone,
+  type PartnerInternalNote,
+  type PartnerInternalNoteCategory,
   type PartnerPreContractingRecord,
   type PartnerStepReviewStatus,
   type PartnerVerificationStepId,
@@ -362,6 +364,7 @@ export default function App() {
   const [partnerApplicantFeedback, setPartnerApplicantFeedback] = useState<
     PartnerApplicantFeedbackItem[]
   >([]);
+  const [partnerInternalNotes, setPartnerInternalNotes] = useState<PartnerInternalNote[]>([]);
   const [accessAuditLogs, setAccessAuditLogs] = useState<AccessAuditLogEntry[]>([]);
   const [sharePassportSignal, setSharePassportSignal] = useState(0);
   const [voiceTriggerSignal, setVoiceTriggerSignal] = useState(0);
@@ -495,6 +498,8 @@ export default function App() {
         const data = (await res.json()) as {
           verifications?: Record<string, PartnerPreContractingRecord>;
           feedback?: PartnerApplicantFeedbackItem[];
+          internalNotes?: PartnerInternalNote[];
+          scope?: string;
         };
         if (data.verifications) {
           setPartnerVerifications(data.verifications);
@@ -502,11 +507,20 @@ export default function App() {
         if (Array.isArray(data.feedback)) {
           setPartnerApplicantFeedback(data.feedback);
         }
+        if (
+          data.scope === 'partner-active-only' &&
+          Array.isArray(data.internalNotes) &&
+          activeAuthSession?.realm === 'partner'
+        ) {
+          setPartnerInternalNotes(data.internalNotes);
+        } else {
+          setPartnerInternalNotes([]);
+        }
       } catch {
         // Offline fallback
       }
     },
-    [activeAuthSession?.token]
+    [activeAuthSession?.token, activeAuthSession?.realm]
   );
 
   const handleUpdateVerificationStep = useCallback(
@@ -676,6 +690,106 @@ export default function App() {
     },
     [activeAuthSession, announcePolite, consentGrants, fetchGrantsAndLogs]
   );
+
+  const handleAddPartnerInternalNote = useCallback(
+    async (input: {
+      consentId: string;
+      category: PartnerInternalNoteCategory;
+      body: string;
+    }) => {
+      if (activeAuthSession?.realm !== 'partner') return;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'VukaNaAmana',
+      };
+      if (activeAuthSession.token) {
+        headers.Authorization = `Bearer ${activeAuthSession.token}`;
+      }
+
+      try {
+        const res = await fetch('/api/partner/verification/internal-note', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers,
+          body: JSON.stringify(input),
+        });
+        if (!res.ok) {
+          const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+          setGlobalToast({
+            id: `partner-internal-err-${Date.now()}`,
+            variant: 'offline',
+            title: 'Unable to Save Internal Note',
+            message:
+              errBody.error ||
+              'Active Consent Grant and partner session required for internal notes.',
+          });
+          return;
+        }
+        const data = (await res.json()) as { note?: PartnerInternalNote };
+        if (data.note) {
+          setPartnerInternalNotes((prev) => [
+            data.note!,
+            ...prev.filter((item) => item.id !== data.note!.id),
+          ]);
+        }
+        announcePolite('Private internal partner team note saved.');
+        setGlobalToast({
+          id: `partner-internal-ok-${Date.now()}`,
+          variant: 'synced',
+          title: 'Internal Team Note Saved',
+          message: `Private note saved for ${input.consentId}. Never shared with the applicant.`,
+        });
+      } catch {
+        const fallbackNote: PartnerInternalNote = {
+          id: `pnote_local_${Date.now()}`,
+          consentId: input.consentId,
+          talentAlias:
+            consentGrants.find((g) => g.consentId === input.consentId)?.talentAlias ??
+            'Skilled Applicant',
+          authorOrgId: activeAuthSession.claims.orgId,
+          authorOrgName: activeAuthSession.claims.orgName,
+          authorLabel: activeAuthSession.claims.workEmail || activeAuthSession.claims.orgName,
+          category: input.category,
+          body: input.body,
+          visibility: 'partner_internal_only',
+          createdAtIso: new Date().toISOString(),
+        };
+        setPartnerInternalNotes((prev) => [fallbackNote, ...prev]);
+        announcePolite('Internal team note saved locally.');
+      }
+    },
+    [activeAuthSession, announcePolite, consentGrants]
+  );
+
+  const handleDeletePartnerInternalNote = useCallback(
+    async (noteId: string) => {
+      if (activeAuthSession?.realm !== 'partner') return;
+      setPartnerInternalNotes((prev) => prev.filter((item) => item.id !== noteId));
+      const headers: Record<string, string> = {
+        'X-Requested-With': 'VukaNaAmana',
+      };
+      if (activeAuthSession.token) {
+        headers.Authorization = `Bearer ${activeAuthSession.token}`;
+      }
+      try {
+        await fetch(`/api/partner/verification/internal-note/${encodeURIComponent(noteId)}`, {
+          method: 'DELETE',
+          credentials: 'same-origin',
+          headers,
+        });
+        announcePolite('Internal team note removed.');
+      } catch {
+        // Local optimistic removal preserved
+      }
+    },
+    [activeAuthSession, announcePolite]
+  );
+
+  useEffect(() => {
+    if (activeAuthSession?.realm !== 'partner') {
+      setPartnerInternalNotes([]);
+    }
+  }, [activeAuthSession?.realm]);
 
   useEffect(() => {
     void fetchPartnerSprints();
@@ -4327,11 +4441,18 @@ export default function App() {
             issuedContractsByGrantId={issuedContractsByGrantId}
             verificationsByGrantId={partnerVerifications}
             applicantFeedback={partnerApplicantFeedback}
+            internalNotes={partnerInternalNotes}
             onUpdateVerificationStep={(consentId, stepId, status, reviewerNote) => {
               void handleUpdateVerificationStep(consentId, stepId, status, reviewerNote);
             }}
             onSendApplicantFeedback={(input) => {
               void handleSendApplicantFeedback(input);
+            }}
+            onAddInternalNote={(input) => {
+              void handleAddPartnerInternalNote(input);
+            }}
+            onDeleteInternalNote={(noteId) => {
+              void handleDeletePartnerInternalNote(noteId);
             }}
             onIssueContract={(grantId, bridgeType = 'direct-local') => {
               const headers: Record<string, string> = {

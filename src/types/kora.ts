@@ -1201,6 +1201,7 @@ export interface AccessAuditLogEntry {
     | 'COMPLIANT_CONTRACT_ISSUED'
     | 'PARTNER_STEP_VERIFIED'
     | 'PARTNER_FEEDBACK_SENT'
+    | 'PARTNER_INTERNAL_NOTE_LOGGED'
     | 'PORTAL_BOUNDARY_GUARD_TRIGGERED';
   targetOrgId?: string;
   details: string;

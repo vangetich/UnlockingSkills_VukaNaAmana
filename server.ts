@@ -28,10 +28,13 @@ import {
   createDefaultPreContractingRecord,
   isValidDocumentFeedbackStage,
   isValidFeedbackTone,
+  isValidInternalNoteCategory,
   isValidStepReviewStatus,
   isValidVerificationStepId,
   sanitizeFeedbackMessage,
+  sanitizeInternalNoteBody,
   type PartnerApplicantFeedbackItem,
+  type PartnerInternalNote,
   type PartnerPreContractingRecord,
 } from './src/utils/partnerVerification.ts';
 
@@ -120,6 +123,7 @@ async function startServer() {
   >();
   const partnerVerificationStore = new Map<string, PartnerPreContractingRecord>();
   const partnerApplicantFeedbackStore: PartnerApplicantFeedbackItem[] = [];
+  const partnerInternalNotesStore: PartnerInternalNote[] = [];
   const accessAuditLog: AccessAuditLogEntry[] = [];
 
   const extractBearerToken = (req: express.Request): string | null => {
@@ -2608,7 +2612,7 @@ async function startServer() {
     req: express.Request
   ):
     | { realm: 'talent'; sub: string }
-    | { realm: 'partner'; sub: string; orgId: string; orgName: string }
+    | { realm: 'partner'; sub: string; orgId: string; orgName: string; workEmail: string }
     | null => {
     const cookies = parseCookieHeader(req.headers.cookie);
     const bearer = extractBearerToken(req);
@@ -2623,6 +2627,7 @@ async function startServer() {
           sub: partnerClaims.sub,
           orgId: partnerClaims.orgId,
           orgName: partnerClaims.orgName,
+          workEmail: partnerClaims.workEmail,
         };
       }
     }
@@ -2640,6 +2645,7 @@ async function startServer() {
           sub: partnerClaims.sub,
           orgId: partnerClaims.orgId,
           orgName: partnerClaims.orgName,
+          workEmail: partnerClaims.workEmail,
         };
       }
     }
@@ -2880,11 +2886,28 @@ async function startServer() {
       activeGrantIds.has(item.consentId)
     );
 
-    res.json({
+    // Strictly partner-isolated: internal team coordination notes NEVER cross to practitioner sessions
+    const responsePayload: {
+      verifications: Record<string, PartnerPreContractingRecord>;
+      feedback: PartnerApplicantFeedbackItem[];
+      internalNotes?: PartnerInternalNote[];
+      scope: string;
+    } = {
       verifications,
       feedback,
       scope: actor.realm === 'partner' ? 'partner-active-only' : 'builder-active-grants',
-    });
+    };
+
+    if (actor.realm === 'partner') {
+      responsePayload.internalNotes = partnerInternalNotesStore.filter(
+        (note) =>
+          note.visibility === 'partner_internal_only' &&
+          note.authorOrgId === actor.orgId &&
+          activeGrantIds.has(note.consentId)
+      );
+    }
+
+    res.json(responsePayload);
   });
 
   app.post('/api/partner/verification/step', requirePartnerAuthOrGuard, (req, res) => {
@@ -3029,6 +3052,100 @@ async function startServer() {
     res.status(201).json({ feedback: item, status: 'SENT' });
   });
 
+  app.post('/api/partner/verification/internal-note', requirePartnerAuthOrGuard, (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const actor = resolveAuthenticatedRealm(req);
+    if (!actor || actor.realm !== 'partner') {
+      res.status(401).json({
+        error: 'Hiring Partner authentication required to add internal team coordination notes.',
+      });
+      return;
+    }
+
+    const body = (req.body ?? {}) as {
+      consentId?: unknown;
+      category?: unknown;
+      body?: unknown;
+    };
+
+    const consentId = String(body.consentId ?? '').trim();
+    const grant = consentGrantsStore.get(consentId);
+    if (!grant || grant.status !== 'active') {
+      res.status(403).json({
+        error: 'Cannot add internal note: active, non-revoked Consent Grant required.',
+      });
+      return;
+    }
+
+    const category = isValidInternalNoteCategory(body.category)
+      ? body.category
+      : 'coordination';
+    const noteBody = sanitizeInternalNoteBody(body.body, 1000);
+    if (noteBody.length < 3) {
+      res.status(400).json({
+        error: 'Internal team note must be at least 3 characters long.',
+      });
+      return;
+    }
+
+    const note: PartnerInternalNote = {
+      id: `pnote_${crypto.randomBytes(6).toString('hex')}`,
+      consentId,
+      talentAlias: grant.talentAlias,
+      authorOrgId: actor.orgId,
+      authorOrgName: actor.orgName,
+      authorLabel: actor.workEmail || actor.orgName,
+      category,
+      body: noteBody,
+      visibility: 'partner_internal_only',
+      createdAtIso: new Date().toISOString(),
+    };
+
+    partnerInternalNotesStore.unshift(note);
+    if (partnerInternalNotesStore.length > 300) {
+      partnerInternalNotesStore.pop();
+    }
+
+    logAudit({
+      actorRole: 'partner',
+      actorId: actor.sub,
+      targetOrgId: actor.orgId,
+      action: 'PARTNER_INTERNAL_NOTE_LOGGED',
+      details: `${actor.orgName} logged an internal team coordination note (${category}) for Consent Grant ${consentId} (partner-only; excluded from practitioner view).`,
+    });
+
+    res.status(201).json({ note, status: 'SAVED_INTERNAL' });
+  });
+
+  app.delete('/api/partner/verification/internal-note/:noteId', requirePartnerAuthOrGuard, (req, res) => {
+    if (!isAllowedSameOriginPost(req)) {
+      res.status(403).json({ error: 'Cross-origin request rejected.' });
+      return;
+    }
+    const actor = resolveAuthenticatedRealm(req);
+    if (!actor || actor.realm !== 'partner') {
+      res.status(401).json({
+        error: 'Hiring Partner authentication required to delete internal notes.',
+      });
+      return;
+    }
+
+    const noteId = String(req.params.noteId || '').trim();
+    const index = partnerInternalNotesStore.findIndex(
+      (item) => item.id === noteId && item.authorOrgId === actor.orgId
+    );
+    if (index === -1) {
+      res.status(404).json({ error: 'Internal note not found for your organization.' });
+      return;
+    }
+
+    partnerInternalNotesStore.splice(index, 1);
+    res.status(200).json({ deletedId: noteId, status: 'DELETED' });
+  });
+
   app.get('/api/partner/dossier/:talentAlias', requirePartnerAuthOrGuard, (req, res) => {
     const talentAlias = decodeURIComponent(req.params.talentAlias || '').trim();
     const cookies = parseCookieHeader(req.headers.cookie);
@@ -3097,11 +3214,13 @@ async function startServer() {
       actor.realm === 'partner'
         ? accessAuditLog.filter(
             (entry) =>
-              entry.actorRole === 'partner' ||
+              (entry.action === 'PARTNER_INTERNAL_NOTE_LOGGED'
+                ? entry.targetOrgId === actor.orgId
+                : entry.actorRole === 'partner') ||
               entry.action === 'CONSENT_GRANTED' ||
               entry.action === 'CONSENT_REVOKED'
           )
-        : accessAuditLog;
+        : accessAuditLog.filter((entry) => entry.action !== 'PARTNER_INTERNAL_NOTE_LOGGED');
 
     res.json({
       auditLogs: scopedLogs,

@@ -12,9 +12,12 @@ import {
   getFeedbackStageMeta,
   isValidDocumentFeedbackStage,
   isValidFeedbackTone,
+  isValidInternalNoteCategory,
   isValidStepReviewStatus,
   isValidVerificationStepId,
   sanitizeFeedbackMessage,
+  sanitizeInternalNoteBody,
+  detectMissingDocumentTriggers,
 } from './partnerVerification.ts';
 import { buildApplicantComplianceReportPdfBytes } from './pdfReceipt.ts';
 
@@ -346,4 +349,122 @@ test('buildApplicantComplianceReportPdfBytes compiles valid PDF-1.4 compliance r
   assert.ok(text.includes('Total Audit Events Recorded: 4'));
   assert.ok(text.includes('Please confirm your FATF Tier 1 mobile wallet currency.'));
   assert.ok(text.trimEnd().endsWith('%%EOF'));
+});
+
+test('internal team note category validator and sanitizer enforce partner-private bounds', () => {
+  assert.equal(isValidInternalNoteCategory('coordination'), true);
+  assert.equal(isValidInternalNoteCategory('compliance_check'), true);
+  assert.equal(isValidInternalNoteCategory('handoff'), true);
+  assert.equal(isValidInternalNoteCategory('blocker'), true);
+  assert.equal(isValidInternalNoteCategory('public_applicant'), false);
+  assert.equal(isValidInternalNoteCategory(null), false);
+
+  const sanitized = sanitizeInternalNoteBody('  EOR \u0000 review   assigned to\n\nAlex  ', 24);
+  assert.equal(sanitized, 'EOR review assigned to A');
+});
+
+test('detectMissingDocumentTriggers flags overdue active grants, respects monitored steps, and tracks reminder state', () => {
+  const nowIso = '2026-11-26T12:00:00.000Z';
+  const grants = [
+    {
+      consentId: 'VNA-GRANT-OVERDUE',
+      talentAlias: 'Amina K.',
+      status: 'active',
+      grantedAtIso: '2026-11-20T10:00:00.000Z', // 6 days elapsed
+    },
+    {
+      consentId: 'VNA-GRANT-FRESH',
+      talentAlias: 'Tariq S.',
+      status: 'active',
+      grantedAtIso: '2026-11-25T10:00:00.000Z', // 1 day elapsed
+    },
+    {
+      consentId: 'VNA-GRANT-REVOKED',
+      talentAlias: 'David M.',
+      status: 'revoked',
+      grantedAtIso: '2026-11-10T10:00:00.000Z',
+    },
+  ];
+
+  const overdueRecord = createDefaultPreContractingRecord('VNA-GRANT-OVERDUE', nowIso);
+  overdueRecord.steps.identityAuth = {
+    status: 'verified',
+    updatedAtIso: '2026-11-21T10:00:00.000Z',
+    verifiedByOrgName: 'SolarGrid Innovations',
+  };
+  overdueRecord.steps.competencyProof = {
+    status: 'needs_clarification',
+    updatedAtIso: '2026-11-22T10:00:00.000Z', // 4 days elapsed from clarification update
+  };
+  // payoutRail remains pending -> 6 days elapsed from grantedAtIso
+
+  const freshRecord = createDefaultPreContractingRecord('VNA-GRANT-FRESH', nowIso);
+
+  const triggers = detectMissingDocumentTriggers({
+    grants,
+    verificationsByGrantId: {
+      'VNA-GRANT-OVERDUE': overdueRecord,
+      'VNA-GRANT-FRESH': freshRecord,
+    },
+    thresholdDays: 3,
+    orgName: 'SolarGrid Innovations',
+    nowIso,
+  });
+
+  // Only VNA-GRANT-OVERDUE should trigger (payoutRail 6d, competencyProof 4d). identityAuth is verified; FRESH is 1d < 3d; REVOKED is ignored.
+  assert.equal(triggers.length, 2);
+  assert.equal(triggers[0].consentId, 'VNA-GRANT-OVERDUE');
+  assert.equal(triggers[0].stepId, 'payoutRail');
+  assert.equal(triggers[0].daysElapsed, 6);
+  assert.equal(triggers[0].daysOverdue, 3);
+  assert.equal(triggers[0].alreadyReminded, false);
+  assert.match(triggers[0].reminderSuggestedMessage, /SolarGrid Innovations/);
+
+  assert.equal(triggers[1].consentId, 'VNA-GRANT-OVERDUE');
+  assert.equal(triggers[1].stepId, 'competencyProof');
+  assert.equal(triggers[1].status, 'needs_clarification');
+  assert.equal(triggers[1].daysElapsed, 4);
+  assert.equal(triggers[1].daysOverdue, 1);
+
+  // Monitored step filter isolates only competencyProof
+  const filteredStepTriggers = detectMissingDocumentTriggers({
+    grants,
+    verificationsByGrantId: {
+      'VNA-GRANT-OVERDUE': overdueRecord,
+      'VNA-GRANT-FRESH': freshRecord,
+    },
+    thresholdDays: 3,
+    monitoredStepIds: ['competencyProof'],
+    orgName: 'SolarGrid Innovations',
+    nowIso,
+  });
+  assert.equal(filteredStepTriggers.length, 1);
+  assert.equal(filteredStepTriggers[0].stepId, 'competencyProof');
+
+  // Sending reminder feedback flips alreadyReminded to true for payoutRail only
+  const triggersAfterReminder = detectMissingDocumentTriggers({
+    grants,
+    verificationsByGrantId: {
+      'VNA-GRANT-OVERDUE': overdueRecord,
+    },
+    thresholdDays: 3,
+    applicantFeedback: [
+      {
+        id: 'fb-rem-1',
+        consentId: 'VNA-GRANT-OVERDUE',
+        talentAlias: 'Amina K.',
+        fromOrgName: 'SolarGrid Innovations',
+        stage: 'step_3_payout',
+        tone: 'clarification_needed',
+        message: 'Reminder sent for payout rail.',
+        createdAtIso: '2026-11-26T09:00:00.000Z',
+      },
+    ],
+    nowIso,
+  });
+  const payoutTrigger = triggersAfterReminder.find((t) => t.stepId === 'payoutRail');
+  const compTrigger = triggersAfterReminder.find((t) => t.stepId === 'competencyProof');
+  assert.equal(payoutTrigger?.alreadyReminded, true);
+  assert.equal(payoutTrigger?.lastRemindedAtIso, '2026-11-26T09:00:00.000Z');
+  assert.equal(compTrigger?.alreadyReminded, false);
 });
